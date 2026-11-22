@@ -1,0 +1,17 @@
+node_modules/
+**/node_modules/
+**/.next
+**/.dart_tool
+**/build
+**/out
+**/.gradle
+**/local.properties
+**/key.properties
+**/Flutter/Generated.xcconfig
+**/Flutter/ephemeral
+**/*.jks
+**/*.keystore
+*.tsbuildinfo
+hs_err_pid*.log
+.DS_Store
+*.zip

@@ -1,0 +1,10 @@
+{
+  "name": "sanzar-api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npx --yes wrangler@4.166.0 dev",
+    "deploy": "npx --yes wrangler@4.166.0 deploy",
+    "test": "node --test"
+  }
+}
