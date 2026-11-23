@@ -1,12 +1,19 @@
-# Sanzar
+# SANZAR
 
-Student learning platform source.
+> **Learn Today, Lead Tomorrow.**  
+> Built according to `SANZAR_Complete_Architecture_Report.md`.
 
-- `apps/mobile` — Flutter student app for Android, iOS, and web.
-- `apps/admin` — Next.js administration app.
-- `apps/api` — Cloudflare Worker API and D1 migrations.
+## System Overview
+- **Cloudflare Pages (`apps/web`)**: Unified React + TypeScript + Vite + Tailwind CSS frontend (`/` student learning & `/admin` dashboard).
+- **Cloudflare Worker API (`apps/api`)**: High-performance backend routing with Cloudflare D1 database and Firebase JWT verification.
+- **Native Android (`apps/android`)**: Offline-first Kotlin app with Jetpack Compose, Room database, DataStore, and WorkManager background sync.
+- **Identity**: Firebase Authentication (Email/Password & Google Sign-In).
 
-## Android
+## Admin Bootstrap
+- Configured admin email: `sayimarafat676@gmail.com`.
+- Automatically provisioned as `super_admin` in D1 upon first authenticated token presentation.
 
-Build the APK from `apps/mobile` with Flutter. Supply Firebase web client
-configuration and `API_BASE` as local Dart defines; do not commit credentials.
+## Local Development
+- Web: `cd apps/web && npm install && npm run dev` (starts on port 5173)
+- API: `cd apps/api && npm install && npm test`
+- Android: Open `apps/android` in Android Studio or run Gradle build.
