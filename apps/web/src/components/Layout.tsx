@@ -1,84 +1,231 @@
-import React from 'react';
-import { Link, useNavigate, Outlet, useLocation } from 'react-router-dom';
+import React, { useState } from 'react';
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  Home,
+  BookOpen,
+  ClipboardCheck,
+  TrendingUp,
+  Users,
+  Sparkles,
+  Shield,
+  Bell,
+  Sun,
+  Moon,
+  Monitor,
+  Globe,
+  LogOut,
+  User as UserIcon,
+} from 'lucide-react';
 import { useAuth } from '../lib/auth-context';
-import { BookOpen, Shield, LogOut, User as UserIcon, Home, Compass, Layers } from 'lucide-react';
+import { useSettings, type ThemeMode } from '../lib/settings-context';
+import { apiRequest } from '../lib/api-client';
+import type { AppNotification } from '../lib/models';
+import { BrandMark, useToast } from './SanzarUI';
 
 export const Layout: React.FC = () => {
-  const { user, profile, isAdmin, signOut } = useAuth();
+  const { user, profile, isStaff, guestMode, signOut } = useAuth();
+  const { lang, setLang, themeMode, setThemeMode, t } = useSettings();
   const navigate = useNavigate();
-  const location = useLocation();
+  const toast = useToast();
+  const qc = useQueryClient();
+  const [notifOpen, setNotifOpen] = useState(false);
 
-  const handleSignOut = async () => {
-    await signOut();
-    navigate('/');
+  const notifQuery = useQuery({
+    queryKey: ['notifications'],
+    queryFn: () => apiRequest<{ notifications: AppNotification[]; unread: number }>('/v1/notifications'),
+    enabled: !!user,
+    staleTime: 60_000,
+  });
+
+  const unread = notifQuery.data?.unread ?? 0;
+  const notifications = notifQuery.data?.notifications ?? [];
+
+  const handleMarkRead = async () => {
+    try {
+      await apiRequest('/v1/notifications/read', { method: 'POST', bodyJson: {} });
+      await qc.invalidateQueries({ queryKey: ['notifications'] });
+    } catch {
+      toast(t('err.generic'));
+    }
   };
 
+  const cycleTheme = () => {
+    const order: ThemeMode[] = ['system', 'light', 'dark'];
+    setThemeMode(order[(order.indexOf(themeMode) + 1) % order.length]);
+  };
+
+  const navItems = [
+    { to: '/', label: t('home'), icon: Home, end: true },
+    { to: '/library', label: t('library'), icon: BookOpen },
+    { to: '/exams', label: t('exams'), icon: ClipboardCheck },
+    { to: '/progress', label: t('progress'), icon: TrendingUp },
+    { to: '/community', label: t('community'), icon: Users },
+    { to: '/tutor', label: t('tutor'), icon: Sparkles },
+  ];
+
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800">
-      {/* Navbar */}
-      <header className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-8">
-            <Link to="/" className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-green-600 to-emerald-500 flex items-center justify-center text-white font-black text-xl shadow-sm">
-                S
+    <div className="min-h-screen flex flex-col bg-sanzar-bg text-sanzar-text pb-16 md:pb-0">
+      {/* Top Navbar */}
+      <header className="sticky top-0 z-40 bg-sanzar-surface/95 backdrop-blur border-b border-sanzar-border">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-6">
+            <Link to="/" className="flex items-center gap-2.5 shrink-0">
+              <BrandMark size={36} />
+              <div className="leading-tight">
+                <span className="font-extrabold text-lg tracking-tight block">SANZAR</span>
+                <span className="hidden lg:block text-[11px] text-sanzar-muted font-medium">
+                  {t('tagline')}
+                </span>
               </div>
-              <span className="font-bold text-xl tracking-tight bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">
-                SANZAR
-              </span>
             </Link>
 
             <nav className="hidden md:flex items-center gap-1">
-              <Link
-                to="/"
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
-                  location.pathname === '/' ? 'bg-slate-100 text-slate-900' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Home
-              </Link>
-              <Link
-                to="/learn"
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
-                  location.pathname.startsWith('/learn') ? 'bg-slate-100 text-slate-900' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Learn
-              </Link>
-              <Link
-                to="/dictionary"
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
-                  location.pathname.startsWith('/dictionary') ? 'bg-slate-100 text-slate-900' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Dictionary
-              </Link>
-              {isAdmin && (
-                <Link
-                  to="/admin"
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1.5 ${
-                    location.pathname.startsWith('/admin') ? 'bg-emerald-50 text-emerald-800 font-semibold' : 'text-emerald-700 hover:bg-emerald-50/50'
-                  }`}
+              {navItems.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  className={({ isActive }) =>
+                    `px-3 py-1.5 rounded-xl text-sm font-semibold transition flex items-center gap-1.5 ${
+                      isActive
+                        ? 'bg-sanzar-primarySoft text-sanzar-primary'
+                        : 'text-sanzar-text2 hover:bg-sanzar-surface2 hover:text-sanzar-text'
+                    }`
+                  }
                 >
-                  <Shield className="w-4 h-4" /> Admin
-                </Link>
+                  <item.icon className="w-4 h-4" />
+                  <span>{item.label}</span>
+                </NavLink>
+              ))}
+              {isStaff && (
+                <NavLink
+                  to="/admin"
+                  className={({ isActive }) =>
+                    `px-3 py-1.5 rounded-xl text-sm font-semibold transition flex items-center gap-1.5 ${
+                      isActive
+                        ? 'bg-sanzar-primary text-sanzar-onPrimary'
+                        : 'text-sanzar-primary hover:bg-sanzar-primarySoft'
+                    }`
+                  }
+                >
+                  <Shield className="w-4 h-4" />
+                  <span>{t('adminDashboard')}</span>
+                </NavLink>
               )}
             </nav>
           </div>
 
-          <div className="flex items-center gap-3">
-            {user ? (
-              <div className="flex items-center gap-3">
-                <Link to="/profile" className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-slate-100 text-sm font-medium">
-                  <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-slate-600">
-                    <UserIcon className="w-4 h-4" />
+          <div className="flex items-center gap-2">
+            {/* Language switcher */}
+            <div className="relative flex items-center">
+              <Globe className="w-4 h-4 text-sanzar-muted absolute left-2.5 pointer-events-none" />
+              <select
+                aria-label={t('language')}
+                value={lang}
+                onChange={(e) => {
+                  const v = e.target.value as 'bn' | 'en' | 'zh';
+                  setLang(v);
+                  if (user) {
+                    apiRequest('/v1/me', { method: 'PATCH', bodyJson: { locale: v } }).catch(() => {});
+                  }
+                }}
+                className="pl-8 pr-2 py-1.5 rounded-xl border border-sanzar-border bg-sanzar-surface2 text-xs font-semibold text-sanzar-text cursor-pointer"
+              >
+                <option value="bn">বাংলা</option>
+                <option value="en">EN</option>
+                <option value="zh">中文</option>
+              </select>
+            </div>
+
+            {/* Theme switcher */}
+            <button
+              onClick={cycleTheme}
+              title={`${t('theme')}: ${themeMode}`}
+              className="p-2 rounded-xl border border-sanzar-border bg-sanzar-surface2 text-sanzar-text2 hover:text-sanzar-primary transition"
+            >
+              {themeMode === 'dark' ? (
+                <Moon className="w-4 h-4" />
+              ) : themeMode === 'light' ? (
+                <Sun className="w-4 h-4" />
+              ) : (
+                <Monitor className="w-4 h-4" />
+              )}
+            </button>
+
+            {/* Notifications */}
+            {user && (
+              <div className="relative">
+                <button
+                  onClick={() => setNotifOpen((v) => !v)}
+                  aria-label={t('notifications')}
+                  className="p-2 rounded-xl border border-sanzar-border bg-sanzar-surface2 text-sanzar-text2 hover:text-sanzar-primary transition relative"
+                >
+                  <Bell className="w-4 h-4" />
+                  {unread > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-sanzar-danger text-white text-[10px] font-bold flex items-center justify-center">
+                      {unread}
+                    </span>
+                  )}
+                </button>
+                {notifOpen && (
+                  <div className="absolute right-0 mt-2 w-80 sanzar-card shadow-xl p-3 z-50">
+                    <div className="flex items-center justify-between mb-2 pb-2 border-b border-sanzar-border">
+                      <span className="font-bold text-sm">{t('notifications')}</span>
+                      {unread > 0 && (
+                        <button
+                          onClick={handleMarkRead}
+                          className="text-xs font-semibold text-sanzar-primary hover:underline"
+                        >
+                          {t('markAllRead')}
+                        </button>
+                      )}
+                    </div>
+                    {notifications.length === 0 ? (
+                      <p className="text-xs text-sanzar-muted py-4 text-center">{t('noNotifications')}</p>
+                    ) : (
+                      <div className="max-h-72 overflow-y-auto space-y-2">
+                        {notifications.slice(0, 10).map((n) => (
+                          <div
+                            key={n.id}
+                            className={`p-2.5 rounded-xl text-xs ${
+                              n.read ? 'bg-sanzar-surface2/60' : 'bg-sanzar-primarySoft/60 border border-sanzar-border'
+                            }`}
+                          >
+                            <p className={`font-semibold ${n.read ? 'text-sanzar-text2' : 'text-sanzar-text'}`}>
+                              {n.title}
+                            </p>
+                            {n.body && <p className="text-sanzar-muted mt-0.5">{n.body}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <span className="hidden sm:inline-block max-w-[120px] truncate">{profile?.display_name || user.email?.split('@')[0]}</span>
+                )}
+              </div>
+            )}
+
+            {/* Auth / Profile */}
+            {user ? (
+              <div className="flex items-center gap-1.5">
+                <Link
+                  to="/profile"
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-sanzar-surface2 text-sm font-semibold"
+                >
+                  <div className="w-7 h-7 rounded-full bg-sanzar-primarySoft text-sanzar-primary flex items-center justify-center font-bold text-xs">
+                    {(profile?.display_name || user.email || '?')[0].toUpperCase()}
+                  </div>
+                  <span className="hidden sm:inline-block max-w-[110px] truncate">
+                    {profile?.display_name || user.email?.split('@')[0]}
+                  </span>
                 </Link>
                 <button
-                  onClick={handleSignOut}
-                  className="p-2 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                  title="Sign out"
+                  onClick={async () => {
+                    await signOut();
+                    navigate('/');
+                  }}
+                  title={t('signOut')}
+                  className="p-2 text-sanzar-muted hover:text-sanzar-danger rounded-xl hover:bg-sanzar-surface2 transition"
                 >
                   <LogOut className="w-4 h-4" />
                 </button>
@@ -87,15 +234,15 @@ export const Layout: React.FC = () => {
               <div className="flex items-center gap-2">
                 <Link
                   to="/login"
-                  className="px-4 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition"
+                  className="px-3 py-1.5 text-sm font-semibold text-sanzar-text2 hover:bg-sanzar-surface2 rounded-xl transition"
                 >
-                  Sign In
+                  {t('signIn')}
                 </Link>
                 <Link
                   to="/register"
-                  className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition"
+                  className="px-3.5 py-1.5 text-sm font-semibold text-sanzar-onPrimary bg-sanzar-primary rounded-xl shadow-sm hover:opacity-95 transition hidden sm:inline-block"
                 >
-                  Get Started
+                  {t('getStarted')}
                 </Link>
               </div>
             )}
@@ -103,22 +250,67 @@ export const Layout: React.FC = () => {
         </div>
       </header>
 
+      {/* Guest banner */}
+      {!user && guestMode && (
+        <div className="bg-sanzar-primarySoft border-b border-sanzar-border text-sanzar-primary text-xs font-semibold py-2 px-4 text-center flex items-center justify-center gap-3">
+          <span>{t('guestMode')}</span>
+          <Link to="/login" className="underline font-bold">
+            {t('signIn')}
+          </Link>
+        </div>
+      )}
+
       {/* Main Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <Outlet />
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-200 bg-white py-6 mt-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-4">
-          <p>© 2026 SANZAR. All rights reserved. Learn Today, Lead Tomorrow.</p>
-          <div className="flex items-center gap-4">
-            <span>Offline-Ready Android App Available</span>
-            <span>•</span>
-            <span>Cloudflare Pages &amp; Worker Powered</span>
+      <footer className="hidden md:block border-t border-sanzar-border bg-sanzar-surface py-5 mt-auto">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-sanzar-muted gap-2">
+          <p>© 2026 SANZAR — {t('tagline')}</p>
+          <div className="flex items-center gap-3">
+            {isStaff && (
+              <Link to="/admin" className="text-sanzar-primary font-semibold hover:underline">
+                {t('adminDashboard')}
+              </Link>
+            )}
+            <Link to="/profile" className="hover:underline flex items-center gap-1">
+              <UserIcon className="w-3.5 h-3.5" /> {t('profile')}
+            </Link>
           </div>
         </div>
       </footer>
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-sanzar-surface/95 backdrop-blur border-t border-sanzar-border flex items-center justify-around h-16 px-1">
+        {navItems.slice(0, 5).map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.end}
+            className={({ isActive }) =>
+              `flex flex-col items-center justify-center gap-0.5 px-2 py-1 rounded-xl text-[11px] font-semibold ${
+                isActive ? 'text-sanzar-primary' : 'text-sanzar-muted'
+              }`
+            }
+          >
+            <item.icon className="w-5 h-5" />
+            <span className="truncate max-w-[64px]">{item.label}</span>
+          </NavLink>
+        ))}
+        <NavLink
+          to="/tutor"
+          className={({ isActive }) =>
+            `flex flex-col items-center justify-center gap-0.5 px-2 py-1 rounded-xl text-[11px] font-semibold ${
+              isActive ? 'text-sanzar-primary' : 'text-sanzar-muted'
+            }`
+          }
+        >
+          <Sparkles className="w-5 h-5" />
+          <span className="truncate max-w-[64px]">{t('tutor')}</span>
+        </NavLink>
+      </nav>
     </div>
   );
 };

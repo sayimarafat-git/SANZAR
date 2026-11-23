@@ -163,7 +163,7 @@ export async function migrate(env) {
 }
 
 /* ============================== handlers ============================== */
-const PROFILE_FIELDS = ['uid', 'email', 'display_name', 'photo_url', 'level_id', 'grp', 'institution', 'locale', 'role', 'blocked', 'profile_visibility', 'created_at'];
+const PROFILE_FIELDS = ['uid', 'email', 'email_verified', 'display_name', 'photo_url', 'level_id', 'grp', 'institution', 'locale', 'role', 'blocked', 'profile_visibility', 'created_at'];
 const pick = (o, keys) => Object.fromEntries(keys.filter((k) => k in o).map((k) => [k, o[k]]));
 const LEVELS = new Set(['c9', 'c10', 'hsc', 'uni']);
 const LOCALES = new Set(['bn', 'en', 'zh']);
@@ -310,7 +310,10 @@ function cors(env, req) {
 
 export async function handle(req, env, opts = {}) {
   const url = new URL(req.url);
-  const path = url.pathname.replace(/\/+$/, '') || '/';
+  const rawPath = url.pathname.replace(/\/+$/, '') || '/';
+  const path = rawPath === '/api/v1' ? '/v1' : rawPath.startsWith('/api/v1/') ? rawPath.slice(4) : rawPath;
+  const normUrl = new URL(url.toString());
+  normUrl.pathname = path;
   const m = req.method;
   const ctx = { ip: req.headers.get('cf-connecting-ip') || null, user: null };
 
@@ -318,6 +321,27 @@ export async function handle(req, env, opts = {}) {
     let schema = 'missing';
     try { const r = await env.DB.prepare('SELECT COUNT(*) AS n FROM schema_migrations').first(); schema = `${r.n}/${MIGRATIONS.length}`; } catch { /* not migrated */ }
     return json({ ok: true, env: env.APP_ENV || 'unknown', schema, time: new Date().toISOString() });
+  }
+
+  if (path === '/v1/resources/manifest' && m === 'GET') {
+    const [manifests, resRows] = await env.DB.batch([
+      env.DB.prepare('SELECT id, version, url, size_bytes, sha256, required, platform_min_version, metadata_json, updated_at FROM resource_manifest ORDER BY id'),
+      env.DB.prepare(`SELECT r.id, r.chapter_id, r.type, r.title, rv.version, rv.url, rv.checksum, rv.size_bytes
+        FROM resources r JOIN resource_versions rv ON rv.resource_id = r.id AND rv.version = r.current_version
+        WHERE r.status = 'published' AND rv.url IS NOT NULL ORDER BY r.chapter_id, r.sort`),
+    ]);
+    const items = [
+      ...manifests.results.map((r) => ({
+        id: r.id, version: r.version, url: r.url, sizeBytes: r.size_bytes, sha256: r.sha256,
+        required: !!r.required, platformMinVersion: r.platform_min_version,
+        metadata: JSON.parse(r.metadata_json || '{}'), updatedAt: r.updated_at,
+      })),
+      ...resRows.results.filter((r) => r.checksum).map((r) => ({
+        id: r.id, version: String(r.version), url: r.url, sizeBytes: r.size_bytes || 0, sha256: r.checksum,
+        required: false, type: r.type, title: r.title, chapterId: r.chapter_id,
+      })),
+    ];
+    return json({ resources: items, serverTime: now() });
   }
 
   if (m === 'GET' && path.startsWith('/v1/media/')) {
@@ -349,19 +373,19 @@ export async function handle(req, env, opts = {}) {
   if (ctx.user.blocked && isWrite) throw new HttpError(403, 'permission-denied', 'Your account has been restricted by the admin');
 
   let mm;
-  if (path === '/v1/me' && m === 'GET') return json({ user: pick(ctx.user, PROFILE_FIELDS) });
-  if (path === '/v1/me' && m === 'PATCH') return json({ user: await updateMe(env, ctx, await body(req, 10_000)) });
+  if ((path === '/v1/me' || path === '/v1/profile') && m === 'GET') return json({ user: pick(ctx.user, PROFILE_FIELDS) });
+  if ((path === '/v1/me' || path === '/v1/profile') && m === 'PATCH') return json({ user: await updateMe(env, ctx, await body(req, 10_000)) });
   if (path === '/v1/me' && m === 'DELETE') return json(await deleteMe(env, ctx));
   if (path === '/v1/catalog' && m === 'GET') return catalog(env, req);
   if (path === '/v1/config' && m === 'GET') return json({ config: await getConfig(env) });
 
   // ----- admin -----
-  if (path === '/v1/admin/users' && m === 'GET') return json(await listUsers(env, ctx, url));
+  if (path === '/v1/admin/users' && m === 'GET') return json(await listUsers(env, ctx, normUrl));
   if ((mm = path.match(/^\/v1\/admin\/users\/([\w-]{1,128})\/role$/)) && m === 'PUT') return json(await setRole(env, ctx, mm[1], (await body(req, 1000)).role));
   if ((mm = path.match(/^\/v1\/admin\/users\/([\w-]{1,128})\/block$/)) && m === 'PUT') return json(await setBlocked(env, ctx, mm[1], (await body(req, 1000)).blocked));
   if ((mm = path.match(/^\/v1\/admin\/config\/([\w.-]{1,40})$/)) && m === 'PUT') return json(await putConfig(env, ctx, mm[1], (await body(req, 60_000)).value));
-  if (path === '/v1/admin/audit' && m === 'GET') return json(await auditList(env, ctx, url));
-  const featured = (await routeFeatures(req, env, ctx, url)) || (await routeAdmin(req, env, ctx, url));
+  if (path === '/v1/admin/audit' && m === 'GET') return json(await auditList(env, ctx, normUrl));
+  const featured = (await routeFeatures(req, env, ctx, normUrl)) || (await routeAdmin(req, env, ctx, normUrl));
   if (featured) return featured;
 
   throw new HttpError(404, 'not-found', 'No such endpoint');

@@ -1,0 +1,128 @@
+import React from 'react';
+import { Link, NavLink, Outlet } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
+import { useAuth } from '../../lib/auth-context';
+import { atLeast, type Role } from '../../lib/models';
+import { BrandMark, LoadingState } from '../../components/SanzarUI';
+
+const NAV: { to: string; label: string; min: Role; end?: boolean }[] = [
+  { to: '/admin', label: 'Overview', min: 'moderator', end: true },
+  { to: '/admin/content', label: 'Content', min: 'content_admin' },
+  { to: '/admin/exams', label: 'Exams', min: 'content_admin' },
+  { to: '/admin/users', label: 'Users', min: 'admin' },
+  { to: '/admin/moderation', label: 'Moderation', min: 'moderator' },
+  { to: '/admin/announcements', label: 'Announcements', min: 'admin' },
+  { to: '/admin/audit', label: 'Audit', min: 'admin' },
+  { to: '/admin/settings', label: 'Settings', min: 'admin' },
+];
+
+export const AdminLayout: React.FC = () => {
+  const { user, profile, loading, isStaff } = useAuth();
+
+  if (loading) return <LoadingState />;
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-sanzar-bg">
+        <div className="sanzar-card p-8 max-w-sm w-full text-center space-y-4">
+          <div className="flex items-center justify-center gap-2.5">
+            <BrandMark size={36} />
+            <span className="font-extrabold text-lg">Sanzar Admin</span>
+          </div>
+          <p className="text-sm text-sanzar-muted">Sign in with a staff account to access the Admin Dashboard.</p>
+          <Link
+            to="/login"
+            className="block w-full py-2.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary font-semibold text-sm"
+          >
+            Sign in
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isStaff) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-sanzar-bg">
+        <div className="sanzar-card p-8 max-w-md w-full space-y-4">
+          <h1 className="text-xl font-bold">No access</h1>
+          <p className="text-sm text-sanzar-text2">
+            {profile?.email || user.email} is a student account ({profile?.role || 'student'}). Ask the owner to give you a staff role.
+          </p>
+          <Link
+            to="/"
+            className="inline-flex items-center gap-1.5 text-sm font-semibold text-sanzar-primary hover:underline"
+          >
+            <ArrowLeft className="w-4 h-4" /> Back to Student App
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen grid grid-cols-1 md:grid-cols-[232px_1fr] bg-sanzar-bg text-sanzar-text">
+      <aside className="bg-sanzar-surface border-b md:border-b-0 md:border-r border-sanzar-border p-4 md:sticky md:top-0 md:h-screen overflow-y-auto flex flex-col justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2.5 font-extrabold px-1.5 mb-5">
+            <BrandMark size={34} />
+            <div className="leading-tight">
+              <span className="block text-sm">Sanzar</span>
+              <span className="block text-xs font-medium text-sanzar-muted">Admin</span>
+            </div>
+          </div>
+
+          <nav className="flex md:flex-col flex-wrap gap-1">
+            {NAV.filter((n) => atLeast(profile?.role, n.min)).map((n) => (
+              <NavLink
+                key={n.to}
+                to={n.to}
+                end={n.end}
+                className={({ isActive }) =>
+                  `block px-3 py-2 rounded-xl text-sm font-medium transition ${
+                    isActive
+                      ? 'bg-sanzar-primarySoft text-sanzar-primary font-semibold'
+                      : 'text-sanzar-text2 hover:bg-sanzar-primarySoft/60 hover:text-sanzar-primary'
+                  }`
+                }
+              >
+                {n.label}
+              </NavLink>
+            ))}
+          </nav>
+        </div>
+
+        <div className="space-y-3 pt-3 border-t border-sanzar-border">
+          <div className="px-2 text-xs text-sanzar-muted space-y-1">
+            <p className="truncate font-semibold text-sanzar-text2">
+              {profile?.display_name || profile?.email}
+            </p>
+            <span className="sanzar-pill">{profile?.role}</span>
+          </div>
+          <Link
+            to="/"
+            className="flex items-center gap-2 px-3 py-2 rounded-xl border border-sanzar-border text-xs font-semibold hover:bg-sanzar-surface2 transition"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" /> Back to Student App
+          </Link>
+        </div>
+      </aside>
+
+      <main className="p-6 md:px-8 min-w-0 max-w-6xl w-full">
+        <Outlet />
+      </main>
+    </div>
+  );
+};
+
+export const RoleGuard: React.FC<{ min: Role; children: React.ReactNode }> = ({ min, children }) => {
+  const { profile } = useAuth();
+  if (!atLeast(profile?.role, min)) {
+    return (
+      <div className="p-4 rounded-xl border border-sanzar-danger/40 bg-sanzar-danger/10 text-sanzar-danger text-sm">
+        Your role ({profile?.role}) cannot open this page.
+      </div>
+    );
+  }
+  return <>{children}</>;
+};

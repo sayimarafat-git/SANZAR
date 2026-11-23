@@ -1,0 +1,376 @@
+import React, { useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Flame, Star, Timer, Trophy, Lock, Award } from 'lucide-react';
+import { useAuth } from '../../lib/auth-context';
+import { useSettings } from '../../lib/settings-context';
+import { apiRequest, fetchCatalogWithCache } from '../../lib/api-client';
+import { colorForSubject, localizedName } from '../../lib/i18n';
+import { useStudyTracker } from '../../lib/study-tracker';
+import type { LeaderEntry, ProgressData } from '../../lib/models';
+import { ErrorRetry, LoadingState, mmss, useToast } from '../../components/SanzarUI';
+
+export const ProgressPage: React.FC = () => {
+  const { user, profile } = useAuth();
+  const { lang, t } = useSettings();
+  const [params, setParams] = useSearchParams();
+  const toast = useToast();
+  const qc = useQueryClient();
+  const initialTab = params.get('tab') === 'leaderboard' ? 'leaderboard' : 'overview';
+  const [tab, setTab] = useState<'overview' | 'leaderboard'>(initialTab);
+  const [period, setPeriod] = useState<'weekly' | 'monthly' | 'all'>('weekly');
+  const [myClassOnly, setMyClassOnly] = useState(false);
+
+  // Focus Timer state
+  const [focusMins, setFocusMins] = useState(25);
+  const [focusLeft, setFocusLeft] = useState(0);
+  const [focusRunning, setFocusRunning] = useState(false);
+
+  useStudyTracker('focus', {
+    active: focusRunning,
+    playing: focusRunning,
+    onFlushed: () => qc.invalidateQueries({ queryKey: ['progress'] }),
+  });
+
+  useEffect(() => {
+    if (!focusRunning) return;
+    const timer = window.setInterval(() => {
+      setFocusLeft((prev) => {
+        if (prev <= 1) {
+          setFocusRunning(false);
+          toast(t('focusDone'));
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [focusRunning]);
+
+  const progQuery = useQuery({
+    queryKey: ['progress'],
+    queryFn: () => apiRequest<ProgressData>('/v1/progress'),
+    enabled: !!user,
+  });
+
+  const catQuery = useQuery({
+    queryKey: ['catalog'],
+    queryFn: fetchCatalogWithCache,
+    enabled: !!user,
+    staleTime: 60_000,
+  });
+
+  const lbQuery = useQuery({
+    queryKey: ['leaderboard', period, myClassOnly ? profile?.level_id : null],
+    queryFn: () =>
+      apiRequest<{ entries: LeaderEntry[]; me: LeaderEntry | null }>(
+        `/v1/leaderboard?period=${period}${myClassOnly && profile?.level_id ? `&level=${profile.level_id}` : ''}`
+      ),
+    enabled: !!user && tab === 'leaderboard',
+  });
+
+  if (!user) {
+    return (
+      <div className="sanzar-card p-8 text-center max-w-md mx-auto my-8 space-y-4">
+        <h1 className="text-xl font-bold">{t('progress')}</h1>
+        <p className="text-sm text-sanzar-text2">{t('guestMode')}</p>
+        <Link to="/login" className="inline-block px-5 py-2.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary font-semibold text-sm">
+          {t('signIn')}
+        </Link>
+      </div>
+    );
+  }
+
+  const p = progQuery.data;
+  const cat = catQuery.data?.catalog;
+
+  return (
+    <div className="space-y-6 max-w-5xl mx-auto">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-extrabold">{t('progress')}</h1>
+        <div className="flex rounded-xl border border-sanzar-border bg-sanzar-surface p-1 gap-1">
+          <button
+            onClick={() => {
+              setTab('overview');
+              setParams({});
+            }}
+            className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition ${
+              tab === 'overview' ? 'bg-sanzar-primary text-sanzar-onPrimary' : 'text-sanzar-text2'
+            }`}
+          >
+            {t('progress')}
+          </button>
+          <button
+            onClick={() => {
+              setTab('leaderboard');
+              setParams({ tab: 'leaderboard' });
+            }}
+            className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+              tab === 'leaderboard' ? 'bg-sanzar-primary text-sanzar-onPrimary' : 'text-sanzar-text2'
+            }`}
+          >
+            <Trophy className="w-3.5 h-3.5" /> {t('leaderboard')}
+          </button>
+        </div>
+      </div>
+
+      {tab === 'overview' ? (
+        progQuery.isLoading ? (
+          <LoadingState />
+        ) : progQuery.isError || !p ? (
+          <ErrorRetry message={t('err.generic')} onRetry={() => progQuery.refetch()} />
+        ) : (
+          <div className="space-y-6">
+            {/* XP Level + Streak + Daily Goal */}
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="sanzar-card p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 font-bold">
+                    <Star className="w-5 h-5 text-sanzar-gold" />
+                    <span>{t('levelN', { n: p.level })}</span>
+                  </div>
+                  <span className="text-sm font-extrabold text-sanzar-primary">
+                    {t('xpTotal', { n: p.xp })}
+                  </span>
+                </div>
+                <div className="h-2.5 rounded-full bg-sanzar-primarySoft overflow-hidden">
+                  <div
+                    className="h-full bg-brand-grad rounded-full transition-all"
+                    style={{ width: `${Math.min(100, Math.round((p.intoLevel / (p.levelXp || 2000)) * 100))}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-xs text-sanzar-muted">
+                  <span>
+                    {p.intoLevel} / {p.levelXp} XP
+                  </span>
+                  <span className="inline-flex items-center gap-1 font-semibold text-sanzar-warning">
+                    <Flame className="w-4 h-4" /> {t('streak', { n: p.streak })}
+                  </span>
+                </div>
+              </div>
+
+              {/* Focus Timer */}
+              <div className="sanzar-card p-5 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-sanzar-primarySoft text-sanzar-primary flex items-center justify-center shrink-0">
+                    <Timer className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="font-bold text-sm">{t('focus')}</p>
+                    {focusRunning ? (
+                      <p className="text-2xl font-black text-sanzar-primary">{mmss(focusLeft)}</p>
+                    ) : (
+                      <div className="flex gap-1.5 mt-1">
+                        {[15, 25, 45].map((m) => (
+                          <button
+                            key={m}
+                            onClick={() => setFocusMins(m)}
+                            className={`px-2.5 py-0.5 rounded-lg text-xs font-semibold border ${
+                              focusMins === m
+                                ? 'bg-sanzar-primarySoft text-sanzar-primary border-sanzar-primary/40'
+                                : 'border-sanzar-border text-sanzar-muted'
+                            }`}
+                          >
+                            {m}m
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {focusRunning ? (
+                  <button
+                    onClick={() => setFocusRunning(false)}
+                    className="px-4 py-2 rounded-xl border border-sanzar-border text-xs font-bold"
+                  >
+                    {t('focusStop')}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setFocusLeft(focusMins * 60);
+                      setFocusRunning(true);
+                    }}
+                    className="px-4 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-bold"
+                  >
+                    {t('focusStart', { n: focusMins })}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 7-Day Study Bar Chart */}
+            <section className="sanzar-card p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="font-bold text-base">{t('last7')}</h2>
+                <span className="text-xs text-sanzar-muted">
+                  {t('goalOf', { m: Math.floor(p.todaySec / 60), g: Math.round((p.goalSec || 3600) / 60) })}
+                </span>
+              </div>
+              <div className="h-40 flex items-end gap-2 sm:gap-4 pt-4">
+                {(() => {
+                  const maxSec = Math.max(60, ...p.series.map((d) => d.sec));
+                  return p.series.map((d) => {
+                    const mins = Math.round(d.sec / 60);
+                    const pct = Math.max(4, Math.round((d.sec / maxSec) * 100));
+                    return (
+                      <div key={d.day} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
+                        <span className="text-[11px] font-semibold text-sanzar-muted">{mins}m</span>
+                        <div className="w-full max-w-[44px] flex-1 flex items-end">
+                          <div
+                            style={{ height: `${pct}%` }}
+                            className="w-full rounded-t-lg bg-brand-grad transition-all"
+                          />
+                        </div>
+                        <span className="text-[11px] font-medium text-sanzar-text2">{d.day.slice(5)}</span>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </section>
+
+            {/* Subject Breakdown */}
+            {p.bySubject.length > 0 && (
+              <section className="sanzar-card p-5 space-y-3">
+                <h2 className="font-bold text-base">{t('bySubject')}</h2>
+                <div className="space-y-3">
+                  {(() => {
+                    const maxSub = Math.max(60, ...p.bySubject.map((s) => s.sec));
+                    return p.bySubject.map((s) => {
+                      const sub = cat?.subjects.find((x) => x.id === s.subjectId);
+                      const col = colorForSubject(s.subjectId);
+                      const pct = Math.round((s.sec / maxSub) * 100);
+                      return (
+                        <div key={s.subjectId} className="flex items-center gap-3 text-xs">
+                          <span className="w-28 font-semibold truncate">
+                            {localizedName(sub, lang, s.subjectId)}
+                          </span>
+                          <div className="flex-1 h-2.5 rounded-full bg-sanzar-surface2 overflow-hidden">
+                            <div
+                              style={{ width: `${pct}%`, backgroundColor: col }}
+                              className="h-full rounded-full"
+                            />
+                          </div>
+                          <span className="w-16 text-right font-semibold text-sanzar-muted">
+                            {t('minutes', { n: Math.round(s.sec / 60) })}
+                          </span>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              </section>
+            )}
+
+            {/* Achievements Grid */}
+            <section className="space-y-3">
+              <h2 className="font-bold text-base">{t('achievements')}</h2>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {p.achievements.map((a) => {
+                  const unlocked = a.unlockedAt != null;
+                  return (
+                    <div
+                      key={a.id}
+                      className={`sanzar-card p-4 flex items-center gap-3 ${
+                        unlocked ? 'border-sanzar-gold/50' : 'opacity-65'
+                      }`}
+                    >
+                      <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                          unlocked
+                            ? 'bg-sanzar-gold/20 text-sanzar-gold'
+                            : 'bg-sanzar-surface2 text-sanzar-muted'
+                        }`}
+                      >
+                        {unlocked ? <Award className="w-5 h-5" /> : <Lock className="w-4 h-4" />}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-bold text-sm truncate">{a.title}</p>
+                        <p className="text-xs text-sanzar-muted line-clamp-2">{a.desc}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          </div>
+        )
+      ) : (
+        /* Leaderboard */
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex rounded-xl border border-sanzar-border bg-sanzar-surface p-1 gap-1">
+              {(['weekly', 'monthly', 'all'] as const).map((pr) => (
+                <button
+                  key={pr}
+                  onClick={() => setPeriod(pr)}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
+                    period === pr ? 'bg-sanzar-primary text-sanzar-onPrimary' : 'text-sanzar-text2'
+                  }`}
+                >
+                  {pr === 'weekly' ? t('weekly') : pr === 'monthly' ? t('monthly') : t('allTime')}
+                </button>
+              ))}
+            </div>
+            {profile?.level_id && (
+              <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={myClassOnly}
+                  onChange={(e) => setMyClassOnly(e.target.checked)}
+                  className="rounded accent-sanzar-primary"
+                />
+                {t('myClassOnly')}
+              </label>
+            )}
+          </div>
+
+          {lbQuery.isLoading ? (
+            <LoadingState />
+          ) : lbQuery.isError ? (
+            <ErrorRetry message={t('err.generic')} onRetry={() => lbQuery.refetch()} />
+          ) : (lbQuery.data?.entries.length ?? 0) === 0 ? (
+            <div className="sanzar-card p-8 text-center text-sm text-sanzar-muted">{t('noRanking')}</div>
+          ) : (
+            <div className="space-y-2.5">
+              {lbQuery.data?.me && (
+                <p className="text-sm font-bold text-sanzar-primary">
+                  {t('yourRank', { n: lbQuery.data.me.rank })}
+                </p>
+              )}
+              {lbQuery.data!.entries.map((entry) => (
+                <div
+                  key={`${entry.rank}-${entry.uid || entry.name}`}
+                  className={`sanzar-card p-3.5 flex items-center justify-between gap-3 ${
+                    entry.me ? 'bg-sanzar-primarySoft border-sanzar-primary/40' : ''
+                  }`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className={`w-9 h-9 rounded-full flex items-center justify-center font-extrabold text-sm shrink-0 ${
+                        entry.rank === 1
+                          ? 'bg-sanzar-gold text-white'
+                          : entry.rank === 2
+                            ? 'bg-slate-300 text-slate-900'
+                            : entry.rank === 3
+                              ? 'bg-amber-600 text-white'
+                              : 'bg-sanzar-surface2 text-sanzar-text2'
+                      }`}
+                    >
+                      {entry.rank}
+                    </div>
+                    <span className="font-bold text-sm truncate">{entry.name}</span>
+                  </div>
+                  <span className="font-extrabold text-sm text-sanzar-primary shrink-0">
+                    {t('xpTotal', { n: entry.xp })}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};

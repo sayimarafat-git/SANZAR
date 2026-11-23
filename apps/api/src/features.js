@@ -759,12 +759,71 @@ async function resolveReport(env, ctx, id, input) {
   return { ok: true };
 }
 
+/* ============================== offline sync ============================== */
+async function syncOperations(env, ctx, input) {
+  const uid = ctx.user.uid;
+  const ops = Array.isArray(input.operations) ? input.operations : [];
+  const legacyItems = Array.isArray(input.items) ? input.items : [];
+  if (ops.length + legacyItems.length > 100) throw new HttpError(400, 'invalid-argument', 'Send at most 100 sync operations');
+
+  const accepted = [];
+  const rejected = [];
+  const t = now();
+
+  for (const op of ops) {
+    try {
+      const opId = idOf(op?.operationId, 'Operation id');
+      const opType = str(op?.type ?? '', { min: 1, max: 40, field: 'Operation type' });
+      const ins = await env.DB.prepare('INSERT OR IGNORE INTO sync_operations (uid, operation_id, op_type, status, processed_at) VALUES (?, ?, ?, ?, ?)')
+        .bind(uid, opId, opType, 'accepted', t).run();
+      if (!ins.meta?.changes) {
+        accepted.push({ operationId: opId, status: 'duplicate' });
+        continue;
+      }
+      const p = op.payload && typeof op.payload === 'object' ? op.payload : {};
+      if (opType === 'study_event') {
+        await studyEvents(env, ctx, { events: [{ id: opId, type: p.type || 'notes', resourceId: p.resourceId ?? null, chapterId: p.chapterId ?? null, sec: p.sec ?? 60, startedAt: p.startedAt ?? t }] });
+      } else if (opType === 'completion') {
+        await complete(env, ctx, { itemId: p.itemId });
+      } else if (opType === 'profile') {
+        const sets = [];
+        const vals = [];
+        if (typeof p.level_id === 'string' && ['c9', 'c10', 'hsc', 'uni'].includes(p.level_id)) { sets.push('level_id = ?'); vals.push(p.level_id); }
+        if (typeof p.locale === 'string' && ['bn', 'en', 'zh'].includes(p.locale)) { sets.push('locale = ?'); vals.push(p.locale); }
+        if (sets.length) {
+          sets.push('updated_at = ?'); vals.push(t);
+          await env.DB.prepare(`UPDATE users SET ${sets.join(', ')} WHERE uid = ?`).bind(...vals, uid).run();
+        }
+      } else {
+        throw new HttpError(400, 'invalid-argument', `Unsupported sync operation: ${opType}`);
+      }
+      accepted.push({ operationId: opId, status: 'accepted' });
+    } catch (err) {
+      rejected.push({ operationId: op?.operationId ?? null, code: err?.code || 'sync-failed', message: err?.message || 'Invalid operation' });
+    }
+  }
+
+  for (const item of legacyItems) {
+    try {
+      const opId = idOf(item?.id, 'Sync item id');
+      const ins = await env.DB.prepare('INSERT OR IGNORE INTO sync_operations (uid, operation_id, op_type, status, processed_at) VALUES (?, ?, ?, ?, ?)')
+        .bind(uid, opId, 'legacy_progress', 'accepted', t).run();
+      accepted.push({ operationId: opId, status: ins.meta?.changes ? 'accepted' : 'duplicate' });
+    } catch (err) {
+      rejected.push({ operationId: item?.id ?? null, code: err?.code || 'sync-failed', message: err?.message || 'Invalid item' });
+    }
+  }
+
+  return { accepted, rejected, serverTime: t };
+}
+
 /* ============================== router ============================== */
 /** Returns a Response for feature routes, or null when the path is not handled here. */
 export async function routeFeatures(req, env, ctx, url) {
   const path = url.pathname;
   const m = req.method;
   let mm;
+  if (path === '/v1/sync' && m === 'POST') return json(await syncOperations(env, ctx, await body(req, 100_000)));
   if (path === '/v1/uploads' && m === 'POST') return uploadMedia(req, env, ctx, url);
   if (path === '/v1/study/events' && m === 'POST') return json(await studyEvents(env, ctx, await body(req, 50_000)));
   if (path === '/v1/completions' && m === 'POST') return json(await complete(env, ctx, await body(req, 2000)));
@@ -775,7 +834,7 @@ export async function routeFeatures(req, env, ctx, url) {
   if ((mm = path.match(/^\/v1\/attempts\/([\w-]{1,64})\/submit$/)) && m === 'POST') return json(await submitAttempt(env, ctx, mm[1], await body(req, 20_000)));
   if ((mm = path.match(/^\/v1\/attempts\/([\w-]{1,64})$/)) && m === 'GET') return json(await attemptResult(env, ctx, mm[1]));
   if (path === '/v1/attempts' && m === 'GET') return json(await listAttempts(env, ctx));
-  if (path === '/v1/leaderboard' && m === 'GET') return json(await leaderboard(env, ctx, url));
+  if ((path === '/v1/leaderboard' || path === '/v1/rankings') && m === 'GET') return json(await leaderboard(env, ctx, url));
   if (path === '/v1/feed' && m === 'GET') return json(await feed(env, ctx, url));
   if (path === '/v1/posts' && m === 'POST') return json(await createPost(env, ctx, await body(req, 20_000), url.origin));
   if ((mm = path.match(/^\/v1\/posts\/([\w-]{1,64})$/)) && m === 'DELETE') return json(await deletePost(env, ctx, mm[1]));

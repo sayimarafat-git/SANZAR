@@ -293,5 +293,23 @@ export async function routeAdmin(req, env, ctx, url) {
   if ((mm = path.match(/^\/v1\/admin\/exams\/([^/]+)$/)) && m === 'PUT') return json(await putExam(env, ctx, mm[1], await body(req, 5000)));
   if (path === '/v1/admin/announcements' && m === 'POST') return json(await postAnnouncement(env, ctx, await body(req, 5000)));
   if ((mm = path.match(/^\/v1\/admin\/announcements\/([\w-]{1,64})$/)) && m === 'DELETE') return json(await deleteAnnouncement(env, ctx, mm[1]));
+  if ((mm = path.match(/^\/v1\/admin\/manifest\/([^/]+)$/)) && m === 'PUT') {
+    requireRole(ctx.user, 'admin');
+    const id = slug(mm[1], 'Manifest');
+    const i = await body(req, 10_000);
+    const ver = str(i.version, { min: 1, max: 40, field: 'Version' });
+    const link = httpsUrl(i.url, 'Download URL');
+    const sha = str(i.sha256, { min: 64, max: 64, field: 'SHA-256' }).toLowerCase();
+    if (!/^[a-f0-9]{64}$/.test(sha)) throw new HttpError(400, 'invalid-argument', 'SHA-256 must be 64 hex characters');
+    const size = num(i.sizeBytes ?? 0, 'Size bytes', 0, 5_000_000_000, 0);
+    await env.DB.prepare(`INSERT INTO resource_manifest (id, version, url, size_bytes, sha256, required, platform_min_version, metadata_json, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET version = excluded.version, url = excluded.url, size_bytes = excluded.size_bytes,
+      sha256 = excluded.sha256, required = excluded.required, platform_min_version = excluded.platform_min_version,
+      metadata_json = excluded.metadata_json, updated_at = excluded.updated_at`)
+      .bind(id, ver, link, size, sha, i.required ? 1 : 0, str(i.platformMinVersion ?? '1.0.0', { max: 20, field: 'Min version' }), JSON.stringify(i.metadata ?? {}), now()).run();
+    await audit(env, ctx, 'manifest.save', id, { version: ver });
+    return json({ id, version: ver });
+  }
   return null;
 }

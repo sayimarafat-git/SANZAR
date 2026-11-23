@@ -83,7 +83,7 @@ before(async () => {
     APP_ENV: 'test',
   };
   const migration = await migrate(env);
-  assert.deepEqual(migration.applied, ['0001_init', '0002_existing_profiles']);
+  assert.deepEqual(migration.applied, ['0001_init', '0002_existing_profiles', '0003_sync_and_resources']);
   const preserved = await DB.prepare('SELECT uid, email, display_name, created_at FROM users WHERE uid = ?').bind('preserved-profile').first();
   assert.equal(preserved.uid, 'preserved-profile');
   assert.equal(preserved.email, 'preserved@example.test');
@@ -95,7 +95,7 @@ before(async () => {
 test('health reports completed schema migrations', async () => {
   const { response, data } = await call('GET', '/v1/health');
   assert.equal(response.status, 200);
-  assert.equal(data.schema, '2/2');
+  assert.equal(data.schema, '3/3');
 });
 
 test('catalog starts with platform levels and no imported course data', async () => {
@@ -248,4 +248,43 @@ test('legacy import endpoint is not exposed and configured origins receive CORS 
     headers: { origin: 'https://student.test' },
   }), env);
   assert.equal(cors.headers.get('access-control-allow-origin'), 'https://student.test');
+});
+
+test('offline sync is idempotent and resource manifest works on /v1 and /api/v1', async () => {
+  const sha = 'a'.repeat(64);
+  const putManifest = await call('PUT', '/api/v1/admin/manifest/translation-en-bn', {
+    auth: ownerToken,
+    body: {
+      version: '1.2.0',
+      url: 'https://downloads.example.test/models/en-bn-1.2.0.bin',
+      sizeBytes: 1024,
+      sha256: sha,
+      required: false,
+    },
+  });
+  assert.equal(putManifest.response.status, 200);
+
+  const manifest = await call('GET', '/api/v1/resources/manifest');
+  assert.equal(manifest.response.status, 200);
+  assert.equal(manifest.data.resources[0].id, 'translation-en-bn');
+  assert.equal(manifest.data.resources[0].sha256, sha);
+
+  const op = {
+    operationId: 'op-sync-study-1',
+    type: 'study_event',
+    payload: { type: 'notes', sec: 120, startedAt: Date.now() - 5000 },
+  };
+  const firstSync = await call('POST', '/api/v1/sync', {
+    auth: ownerToken,
+    body: { operations: [op] },
+  });
+  assert.equal(firstSync.response.status, 200);
+  assert.equal(firstSync.data.accepted[0].status, 'accepted');
+
+  const retrySync = await call('POST', '/v1/sync', {
+    auth: ownerToken,
+    body: { operations: [op] },
+  });
+  assert.equal(retrySync.response.status, 200);
+  assert.equal(retrySync.data.accepted[0].status, 'duplicate');
 });

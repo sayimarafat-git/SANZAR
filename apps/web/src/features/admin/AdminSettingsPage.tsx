@@ -1,0 +1,163 @@
+import React, { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { apiRequest, errorText } from '../../lib/api-client';
+import { ErrorRetry, LoadingState, useToast } from '../../components/SanzarUI';
+
+const XP_FIELDS: [string, string][] = [
+  ['resourceComplete', 'Finishing notes or a material'],
+  ['quizCorrect', 'Each correct exam answer'],
+  ['dailyGoal', 'Reaching the daily goal'],
+  ['post', 'First community post of the day'],
+];
+const DEFAULT_XP: Record<string, number> = {
+  resourceComplete: 10,
+  quizCorrect: 5,
+  dailyGoal: 20,
+  post: 5,
+};
+
+export const AdminSettingsPage: React.FC = () => {
+  const toast = useToast();
+  const q = useQuery({
+    queryKey: ['config'],
+    queryFn: () => apiRequest<{ config: Record<string, unknown> }>('/v1/config'),
+  });
+
+  const [xp, setXp] = useState<Record<string, string>>({});
+  const [notice, setNotice] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!q.data) return;
+    const cur = { ...DEFAULT_XP, ...((q.data.config.xp as Record<string, number>) ?? {}) };
+    setXp(Object.fromEntries(Object.entries(cur).map(([k, v]) => [k, String(v)])));
+    setNotice(typeof q.data.config.notice === 'string' ? q.data.config.notice : '');
+  }, [q.data]);
+
+  if (q.isLoading) return <LoadingState />;
+  if (q.isError || !q.data) return <ErrorRetry message={errorText(q.error)} onRetry={() => q.refetch()} />;
+
+  const saveXp = async () => {
+    const vals = Object.fromEntries(Object.entries(xp).map(([k, v]) => [k, Number(v)]));
+    if (Object.values(vals).some((v) => !Number.isInteger(v) || v < 0 || v > 1000)) {
+      setErr('XP values must be whole numbers from 0 to 1000.');
+      return;
+    }
+    setErr(null);
+    setBusy(true);
+    try {
+      await apiRequest('/v1/admin/config/xp', { method: 'PUT', bodyJson: { value: vals } });
+      toast('Saved');
+    } catch (e) {
+      setErr(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveNotice = async () => {
+    setErr(null);
+    setBusy(true);
+    try {
+      await apiRequest('/v1/admin/config/notice', {
+        method: 'PUT',
+        bodyJson: { value: notice.trim() },
+      });
+      toast('Saved');
+    } catch (e) {
+      setErr(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runMigrate = async () => {
+    setErr(null);
+    setBusy(true);
+    try {
+      const res = await apiRequest<{ applied?: string[] }>('/v1/admin/migrate', {
+        method: 'POST',
+        bodyJson: {},
+      });
+      toast(res.applied?.length ? `Applied: ${res.applied.join(', ')}` : 'Schema up to date');
+    } catch (e) {
+      setErr(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      <h1 className="text-2xl font-extrabold">Settings</h1>
+
+      <div className="sanzar-card p-5 space-y-4">
+        <h2 className="text-lg font-bold">XP points</h2>
+        <div className="grid sm:grid-cols-2 gap-3 text-xs font-semibold text-sanzar-text2">
+          {XP_FIELDS.map(([k, label]) => (
+            <label key={k} className="space-y-1">
+              <span>{label}</span>
+              <input
+                type="number"
+                min={0}
+                max={1000}
+                value={xp[k] ?? ''}
+                onChange={(e) => setXp({ ...xp, [k]: e.target.value })}
+                className="sanzar-input text-sm"
+              />
+            </label>
+          ))}
+        </div>
+        <p className="text-xs text-sanzar-muted">
+          Changes apply to new activity only. Points already earned are not recalculated.
+        </p>
+        <button
+          onClick={saveXp}
+          disabled={busy}
+          className="px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold disabled:opacity-50"
+        >
+          Save XP
+        </button>
+      </div>
+
+      <div className="sanzar-card p-5 space-y-3 text-xs font-semibold text-sanzar-text2">
+        <h2 className="text-lg font-bold text-sanzar-text">Notice banner</h2>
+        <label className="block space-y-1">
+          <span>
+            Shown at the top of the app <small className="font-normal text-sanzar-muted">(leave empty to hide)</small>
+          </span>
+          <input
+            value={notice}
+            maxLength={300}
+            onChange={(e) => setNotice(e.target.value)}
+            className="sanzar-input text-sm"
+          />
+        </label>
+        <button
+          onClick={saveNotice}
+          disabled={busy}
+          className="px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold disabled:opacity-50"
+        >
+          Save notice
+        </button>
+      </div>
+
+      <div className="sanzar-card p-5 space-y-3">
+        <h2 className="text-lg font-bold">Database migrations</h2>
+        <p className="text-xs text-sanzar-muted">
+          Apply pending D1 SQL schema migrations (owner / super_admin only).
+        </p>
+        <button
+          onClick={runMigrate}
+          disabled={busy}
+          className="px-4 py-2 rounded-xl border border-sanzar-border text-sm font-semibold hover:bg-sanzar-surface2"
+        >
+          Run migrations
+        </button>
+      </div>
+
+      {err && <div className="text-sm text-sanzar-danger">{err}</div>}
+    </div>
+  );
+};

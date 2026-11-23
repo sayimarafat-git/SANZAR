@@ -3,6 +3,7 @@ node_modules/
 **/.next
 **/.dart_tool
 **/build
+**/dist
 **/out
 **/.gradle
 **/local.properties

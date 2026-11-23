@@ -1,0 +1,1284 @@
+import React, { useEffect, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { apiRequest, errorText } from '../../lib/api-client';
+import {
+  LEVELS,
+  fmtTime,
+  isHttps,
+  isId,
+  parseTerms,
+  slugify,
+  validateQuestion,
+  validateSections,
+  type NoteSection,
+} from '../../lib/models';
+import { ErrorRetry, LoadingState, Modal, StatusPill, useToast } from '../../components/SanzarUI';
+
+export interface AdminBook {
+  id: string;
+  title: string;
+  subject_id: string;
+  edition: string;
+  author: string;
+  cover_c1: string;
+  cover_c2: string;
+  featured_rank: number | null;
+  sort: number;
+  status: string;
+  levels: string[];
+}
+
+export interface AdminChapter {
+  id: string;
+  book_id: string;
+  number: number;
+  title: string;
+  sort: number;
+  status: string;
+}
+
+export interface AdminResourceVersion {
+  version: number;
+  url: string;
+  change_note: string;
+  created_at: number;
+}
+
+export interface AdminResource {
+  id: string;
+  chapter_id: string;
+  type: string;
+  title: string;
+  sort: number;
+  current_version: number;
+  pages: number | null;
+  licence: string;
+  status: string;
+  url: string | null;
+  versions: AdminResourceVersion[];
+}
+
+export interface AdminExam {
+  id: string;
+  title: string;
+  type: string;
+  book_id: string | null;
+  chapter_id: string | null;
+  duration_sec: number;
+  question_count: number;
+  pass_pct: number;
+  status: string;
+  opens_at: number | null;
+  closes_at: number | null;
+}
+
+export interface AdminAnnouncement {
+  id: string;
+  title: string;
+  body: string;
+  created_at: number;
+}
+
+export interface AdminSubject {
+  id: string;
+  name_en: string;
+  name_bn: string;
+  name_zh?: string;
+  icon?: string;
+  color?: string;
+  sort?: number;
+}
+
+export interface AdminContent {
+  levels: { id: string; name_en: string }[];
+  subjects: AdminSubject[];
+  books: AdminBook[];
+  chapters: AdminChapter[];
+  resources: AdminResource[];
+  notes: { chapter_id: string; current_version: number; latest: number; updated_at: number }[];
+  exams: AdminExam[];
+  announcements: AdminAnnouncement[];
+  questionCounts: Record<string, number>;
+}
+
+const ErrorsBox: React.FC<{ list: string[] }> = ({ list }) =>
+  list.length ? (
+    <div className="p-3 rounded-xl bg-sanzar-danger/10 border border-sanzar-danger/30 text-sanzar-danger text-xs">
+      <ul className="list-disc pl-4 space-y-0.5">
+        {list.map((e) => (
+          <li key={e}>{e}</li>
+        ))}
+      </ul>
+    </div>
+  ) : null;
+
+export const AdminContentPage: React.FC<{ view?: 'books' | 'book' | 'chapter' }> = ({ view = 'books' }) => {
+  const { bookId, chapterId } = useParams();
+  if (view === 'book' && bookId) return <BookDetailView bookId={bookId} />;
+  if (view === 'chapter' && chapterId) return <ChapterDetailView chapterId={chapterId} />;
+  return <BooksAndSubjectsView />;
+};
+
+/* ---------------- BOOKS & SUBJECTS ---------------- */
+const BooksAndSubjectsView: React.FC = () => {
+  const qc = useQueryClient();
+  const q = useQuery({
+    queryKey: ['admin', 'content'],
+    queryFn: () => apiRequest<AdminContent>('/v1/admin/content'),
+  });
+  const [editingBook, setEditingBook] = useState<Partial<AdminBook> | null | undefined>(undefined);
+  const [editingSubject, setEditingSubject] = useState<AdminSubject | null | undefined>(undefined);
+  const [search, setSearch] = useState('');
+
+  if (q.isLoading) return <LoadingState />;
+  if (q.isError || !q.data) return <ErrorRetry message={errorText(q.error)} onRetry={() => q.refetch()} />;
+
+  const data = q.data;
+  const subName = (id: string) => data.subjects.find((s) => s.id === id)?.name_en ?? id;
+  const books = data.books.filter(
+    (b) => !search || b.title.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-extrabold">Books &amp; chapters</h1>
+        <button
+          onClick={() => setEditingBook(null)}
+          className="px-4 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold"
+        >
+          New book
+        </button>
+      </div>
+
+      <input
+        placeholder="Search books"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        className="sanzar-input max-w-xs text-sm"
+      />
+
+      <div className="sanzar-card overflow-x-auto">
+        <table className="w-full text-sm border-collapse">
+          <thead>
+            <tr className="bg-sanzar-surface2 text-sanzar-text2 text-left border-b border-sanzar-border">
+              <th className="p-3 font-semibold">Book</th>
+              <th className="p-3 font-semibold">Subject</th>
+              <th className="p-3 font-semibold">Classes</th>
+              <th className="p-3 font-semibold">Chapters</th>
+              <th className="p-3 font-semibold">Status</th>
+              <th className="p-3" />
+            </tr>
+          </thead>
+          <tbody>
+            {books.map((b) => (
+              <tr key={b.id} className="border-b border-sanzar-border last:border-0">
+                <td className="p-3">
+                  <Link
+                    to={`/admin/content/book/${encodeURIComponent(b.id)}`}
+                    className="font-bold text-sanzar-primary hover:underline"
+                  >
+                    {b.title}
+                  </Link>
+                  <div className="text-xs text-sanzar-muted">{b.id}</div>
+                </td>
+                <td className="p-3">{subName(b.subject_id)}</td>
+                <td className="p-3 text-xs">
+                  {b.levels.map((l) => LEVELS.find((x) => x.id === l)?.name ?? l).join(', ')}
+                </td>
+                <td className="p-3">{data.chapters.filter((c) => c.book_id === b.id).length}</td>
+                <td className="p-3">
+                  <StatusPill s={b.status} />
+                </td>
+                <td className="p-3 text-right">
+                  <button
+                    onClick={() => setEditingBook(b)}
+                    className="px-3 py-1 rounded-lg border border-sanzar-border text-xs font-semibold hover:bg-sanzar-surface2"
+                  >
+                    Edit
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Subjects */}
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-4">
+        <h2 className="text-lg font-bold">Subjects</h2>
+        <button
+          onClick={() => setEditingSubject(null)}
+          className="px-4 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold"
+        >
+          New subject
+        </button>
+      </div>
+      {!data.subjects.length && (
+        <p className="text-xs text-sanzar-muted">Add a subject before creating books.</p>
+      )}
+      <div className="sanzar-card overflow-x-auto">
+        <table className="w-full text-sm border-collapse">
+          <thead>
+            <tr className="bg-sanzar-surface2 text-sanzar-text2 text-left border-b border-sanzar-border">
+              <th className="p-3 font-semibold">Subject</th>
+              <th className="p-3 font-semibold">ID</th>
+              <th className="p-3 font-semibold">Books</th>
+              <th className="p-3" />
+            </tr>
+          </thead>
+          <tbody>
+            {data.subjects.map((s) => (
+              <tr key={s.id} className="border-b border-sanzar-border last:border-0">
+                <td className="p-3 font-bold">{s.name_en}</td>
+                <td className="p-3 text-xs text-sanzar-muted">{s.id}</td>
+                <td className="p-3">{data.books.filter((b) => b.subject_id === s.id).length}</td>
+                <td className="p-3 text-right">
+                  <button
+                    onClick={() => setEditingSubject(s)}
+                    className="px-3 py-1 rounded-lg border border-sanzar-border text-xs font-semibold hover:bg-sanzar-surface2"
+                  >
+                    Edit
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {editingBook !== undefined && (
+        <Modal
+          title={editingBook ? `Edit ${editingBook.title}` : 'New book'}
+          onClose={() => setEditingBook(undefined)}
+        >
+          <BookForm
+            book={editingBook}
+            content={data}
+            onDone={() => {
+              setEditingBook(undefined);
+              void qc.invalidateQueries({ queryKey: ['admin', 'content'] });
+            }}
+          />
+        </Modal>
+      )}
+
+      {editingSubject !== undefined && (
+        <Modal
+          title={editingSubject ? `Edit ${editingSubject.name_en}` : 'New subject'}
+          onClose={() => setEditingSubject(undefined)}
+        >
+          <SubjectForm
+            subject={editingSubject}
+            subjects={data.subjects}
+            onDone={() => {
+              setEditingSubject(undefined);
+              void qc.invalidateQueries({ queryKey: ['admin', 'content'] });
+            }}
+          />
+        </Modal>
+      )}
+    </div>
+  );
+};
+
+const BookForm: React.FC<{ book: Partial<AdminBook> | null; content: AdminContent; onDone: () => void }> = ({
+  book,
+  content,
+  onDone,
+}) => {
+  const toast = useToast();
+  const isNew = !book?.id;
+  const [f, setF] = useState({
+    id: book?.id ?? '',
+    title: book?.title ?? '',
+    subject_id: book?.subject_id ?? content.subjects[0]?.id ?? '',
+    edition: book?.edition ?? '',
+    author: book?.author ?? '',
+    c1: book?.cover_c1 ?? '#0b523b',
+    c2: book?.cover_c2 ?? '#247754',
+    featured: book?.featured_rank?.toString() ?? '',
+    sort: String(book?.sort ?? 0),
+    status: book?.status ?? 'draft',
+    levels: book?.levels ?? ([] as string[]),
+  });
+  const [errors, setErrors] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    const id = isNew ? f.id || slugify(f.title) : f.id;
+    const errs = [
+      !isId(id) && 'ID may use letters, digits, dot, dash and underscore.',
+      f.title.trim().length < 2 && 'Title is too short.',
+      !f.subject_id && 'Create a subject before adding books.',
+      !f.levels.length && 'Choose at least one class.',
+    ].filter(Boolean) as string[];
+    if (errs.length) return setErrors(errs);
+    if (isNew && content.books.some((b) => b.id === id)) {
+      return setErrors([`A book with id "${id}" already exists.`]);
+    }
+    setBusy(true);
+    setErrors([]);
+    try {
+      await apiRequest(`/v1/admin/books/${id}`, {
+        method: 'PUT',
+        bodyJson: {
+          title: f.title.trim(),
+          subject_id: f.subject_id,
+          edition: f.edition,
+          author: f.author,
+          cover: [f.c1, f.c2],
+          levels: f.levels,
+          featured_rank: f.featured === '' ? null : Number(f.featured),
+          sort: Number(f.sort) || 0,
+          status: f.status,
+        },
+      });
+      toast('Saved');
+      onDone();
+    } catch (e) {
+      setErrors([errorText(e)]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="grid sm:grid-cols-2 gap-3 text-xs font-semibold text-sanzar-text2">
+        <label className="space-y-1">
+          <span>Title</span>
+          <input value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} className="sanzar-input text-sm" />
+        </label>
+        <label className="space-y-1">
+          <span>ID <small className="font-normal text-sanzar-muted">{isNew ? '(optional)' : '(locked)'}</small></span>
+          <input
+            value={isNew ? f.id : book!.id}
+            disabled={!isNew}
+            placeholder={slugify(f.title)}
+            onChange={(e) => setF({ ...f, id: e.target.value })}
+            className="sanzar-input text-sm"
+          />
+        </label>
+        <label className="space-y-1">
+          <span>Subject</span>
+          <select value={f.subject_id} onChange={(e) => setF({ ...f, subject_id: e.target.value })} className="sanzar-input text-sm">
+            {content.subjects.map((s) => (
+              <option key={s.id} value={s.id}>{s.name_en}</option>
+            ))}
+          </select>
+        </label>
+        <label className="space-y-1">
+          <span>Edition</span>
+          <input value={f.edition} onChange={(e) => setF({ ...f, edition: e.target.value })} className="sanzar-input text-sm" />
+        </label>
+        <label className="space-y-1">
+          <span>Author / board</span>
+          <input value={f.author} onChange={(e) => setF({ ...f, author: e.target.value })} className="sanzar-input text-sm" />
+        </label>
+        <label className="space-y-1">
+          <span>Status</span>
+          <select value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })} className="sanzar-input text-sm">
+            <option>draft</option>
+            <option>published</option>
+            <option>archived</option>
+          </select>
+        </label>
+        <label className="space-y-1">
+          <span>Featured rank</span>
+          <input type="number" min={1} value={f.featured} onChange={(e) => setF({ ...f, featured: e.target.value })} className="sanzar-input text-sm" />
+        </label>
+        <label className="space-y-1">
+          <span>Order</span>
+          <input type="number" min={0} value={f.sort} onChange={(e) => setF({ ...f, sort: e.target.value })} className="sanzar-input text-sm" />
+        </label>
+        <div className="space-y-1 sm:col-span-2">
+          <span>Cover colours</span>
+          <div className="flex gap-2">
+            <input type="color" value={f.c1} onChange={(e) => setF({ ...f, c1: e.target.value })} className="w-16 h-9 rounded border border-sanzar-border" />
+            <input type="color" value={f.c2} onChange={(e) => setF({ ...f, c2: e.target.value })} className="w-16 h-9 rounded border border-sanzar-border" />
+          </div>
+        </div>
+      </div>
+
+      <fieldset className="space-y-2">
+        <legend className="text-xs font-semibold text-sanzar-text2">Classes</legend>
+        <div className="flex flex-wrap gap-3">
+          {LEVELS.map((l) => (
+            <label key={l.id} className="flex items-center gap-1.5 text-sm font-medium cursor-pointer">
+              <input
+                type="checkbox"
+                checked={f.levels.includes(l.id)}
+                onChange={(e) =>
+                  setF({
+                    ...f,
+                    levels: e.target.checked
+                      ? [...f.levels, l.id]
+                      : f.levels.filter((x) => x !== l.id),
+                  })
+                }
+              />
+              {l.name}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      <ErrorsBox list={errors} />
+      <button
+        onClick={submit}
+        disabled={busy || !content.subjects.length}
+        className="px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold disabled:opacity-50"
+      >
+        Save book
+      </button>
+    </div>
+  );
+};
+
+const SubjectForm: React.FC<{ subject: AdminSubject | null; subjects: AdminSubject[]; onDone: () => void }> = ({
+  subject,
+  subjects,
+  onDone,
+}) => {
+  const toast = useToast();
+  const isNew = !subject;
+  const [f, setF] = useState({
+    id: subject?.id ?? '',
+    name_en: subject?.name_en ?? '',
+    name_bn: subject?.name_bn ?? '',
+    name_zh: subject?.name_zh ?? '',
+    color: subject?.color ?? '#247754',
+    sort: String(subject?.sort ?? 0),
+  });
+  const [errors, setErrors] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    const id = isNew ? f.id || slugify(f.name_en) : subject!.id;
+    const errs = [
+      !isId(id) && 'ID may use letters, digits, dot, dash and underscore.',
+      f.name_en.trim().length < 2 && 'Name must be at least 2 characters.',
+    ].filter(Boolean) as string[];
+    if (errs.length) return setErrors(errs);
+    if (isNew && subjects.some((s) => s.id === id)) return setErrors([`A subject with id "${id}" already exists.`]);
+    setBusy(true);
+    try {
+      await apiRequest(`/v1/admin/subjects/${id}`, {
+        method: 'PUT',
+        bodyJson: {
+          name_en: f.name_en.trim(),
+          name_bn: f.name_bn.trim(),
+          name_zh: f.name_zh.trim(),
+          color: f.color,
+          sort: Number(f.sort) || 0,
+        },
+      });
+      toast('Saved');
+      onDone();
+    } catch (e) {
+      setErrors([errorText(e)]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="grid sm:grid-cols-2 gap-3 text-xs font-semibold text-sanzar-text2">
+        <label className="space-y-1">
+          <span>Name (EN)</span>
+          <input value={f.name_en} onChange={(e) => setF({ ...f, name_en: e.target.value })} className="sanzar-input text-sm" />
+        </label>
+        <label className="space-y-1">
+          <span>ID</span>
+          <input
+            value={isNew ? f.id : subject!.id}
+            disabled={!isNew}
+            placeholder={slugify(f.name_en)}
+            onChange={(e) => setF({ ...f, id: e.target.value })}
+            className="sanzar-input text-sm"
+          />
+        </label>
+        <label className="space-y-1">
+          <span>Bengali name</span>
+          <input value={f.name_bn} onChange={(e) => setF({ ...f, name_bn: e.target.value })} className="sanzar-input text-sm" />
+        </label>
+        <label className="space-y-1">
+          <span>Chinese name</span>
+          <input value={f.name_zh} onChange={(e) => setF({ ...f, name_zh: e.target.value })} className="sanzar-input text-sm" />
+        </label>
+        <label className="space-y-1">
+          <span>Order</span>
+          <input type="number" min={0} value={f.sort} onChange={(e) => setF({ ...f, sort: e.target.value })} className="sanzar-input text-sm" />
+        </label>
+        <label className="space-y-1">
+          <span>Colour</span>
+          <input type="color" value={f.color} onChange={(e) => setF({ ...f, color: e.target.value })} className="w-16 h-9 rounded border border-sanzar-border" />
+        </label>
+      </div>
+      <ErrorsBox list={errors} />
+      <button onClick={submit} disabled={busy} className="px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold">
+        Save subject
+      </button>
+    </div>
+  );
+};
+
+/* ---------------- BOOK DETAIL (CHAPTERS) ---------------- */
+const BookDetailView: React.FC<{ bookId: string }> = ({ bookId }) => {
+  const qc = useQueryClient();
+  const q = useQuery({
+    queryKey: ['admin', 'content'],
+    queryFn: () => apiRequest<AdminContent>('/v1/admin/content'),
+  });
+  const [editing, setEditing] = useState<AdminChapter | null | undefined>(undefined);
+
+  if (q.isLoading) return <LoadingState />;
+  if (q.isError || !q.data) return <ErrorRetry message={errorText(q.error)} onRetry={() => q.refetch()} />;
+
+  const data = q.data;
+  const book = data.books.find((b) => b.id === bookId);
+  if (!book) {
+    return (
+      <div className="space-y-3">
+        <p className="text-sanzar-danger">Book not found.</p>
+        <Link to="/admin/content" className="text-sm text-sanzar-primary font-semibold hover:underline">
+          ← Back
+        </Link>
+      </div>
+    );
+  }
+  const chapters = data.chapters.filter((c) => c.book_id === bookId);
+  const hasNotes = new Set(data.notes.map((n) => n.chapter_id));
+
+  return (
+    <div className="space-y-5">
+      <Link to="/admin/content" className="text-sm font-semibold text-sanzar-primary hover:underline">
+        ← Books
+      </Link>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-extrabold">{book.title}</h1>
+          <StatusPill s={book.status} />
+        </div>
+        <button
+          onClick={() => setEditing(null)}
+          className="px-4 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold"
+        >
+          New chapter
+        </button>
+      </div>
+
+      <div className="sanzar-card overflow-x-auto">
+        <table className="w-full text-sm border-collapse">
+          <thead>
+            <tr className="bg-sanzar-surface2 text-sanzar-text2 text-left border-b border-sanzar-border">
+              <th className="p-3 font-semibold">#</th>
+              <th className="p-3 font-semibold">Chapter</th>
+              <th className="p-3 font-semibold">Notes</th>
+              <th className="p-3 font-semibold">Materials</th>
+              <th className="p-3 font-semibold">Questions</th>
+              <th className="p-3 font-semibold">Status</th>
+              <th className="p-3" />
+            </tr>
+          </thead>
+          <tbody>
+            {chapters.map((c) => (
+              <tr key={c.id} className="border-b border-sanzar-border last:border-0">
+                <td className="p-3">{c.number}</td>
+                <td className="p-3">
+                  <Link
+                    to={`/admin/content/chapter/${encodeURIComponent(c.id)}`}
+                    className="font-bold text-sanzar-primary hover:underline"
+                  >
+                    {c.title}
+                  </Link>
+                </td>
+                <td className="p-3">{hasNotes.has(c.id) ? '✓' : '—'}</td>
+                <td className="p-3">{data.resources.filter((r) => r.chapter_id === c.id).length}</td>
+                <td className="p-3">{data.questionCounts[c.id] ?? 0}</td>
+                <td className="p-3"><StatusPill s={c.status} /></td>
+                <td className="p-3 text-right">
+                  <button
+                    onClick={() => setEditing(c)}
+                    className="px-3 py-1 rounded-lg border border-sanzar-border text-xs font-semibold hover:bg-sanzar-surface2"
+                  >
+                    Edit
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {editing !== undefined && (
+        <Modal
+          title={editing ? `Edit chapter ${editing.number}` : 'New chapter'}
+          onClose={() => setEditing(undefined)}
+        >
+          <ChapterForm
+            bookId={bookId}
+            chapter={editing}
+            nextNumber={Math.max(0, ...chapters.map((c) => c.number)) + 1}
+            onDone={() => {
+              setEditing(undefined);
+              void qc.invalidateQueries({ queryKey: ['admin', 'content'] });
+            }}
+          />
+        </Modal>
+      )}
+    </div>
+  );
+};
+
+const ChapterForm: React.FC<{ bookId: string; chapter: AdminChapter | null; nextNumber: number; onDone: () => void }> = ({
+  bookId,
+  chapter,
+  nextNumber,
+  onDone,
+}) => {
+  const toast = useToast();
+  const [n, setN] = useState(String(chapter?.number ?? nextNumber));
+  const [title, setTitle] = useState(chapter?.title ?? '');
+  const [status, setStatus] = useState(chapter?.status ?? 'published');
+  const [errors, setErrors] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const id = chapter?.id ?? `${bookId}-${String(Number(n) || 0).padStart(2, '0')}`;
+
+  const submit = async () => {
+    if (!title.trim()) return setErrors(['Title is required.']);
+    if (!isId(id)) return setErrors(['Invalid id.']);
+    setBusy(true);
+    try {
+      await apiRequest(`/v1/admin/chapters/${id}`, {
+        method: 'PUT',
+        bodyJson: { book_id: bookId, number: Number(n), title: title.trim(), status },
+      });
+      toast('Saved');
+      onDone();
+    } catch (e) {
+      setErrors([errorText(e)]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="grid sm:grid-cols-2 gap-3 text-xs font-semibold text-sanzar-text2">
+        <label className="space-y-1">
+          <span>Number</span>
+          <input type="number" min={1} value={n} onChange={(e) => setN(e.target.value)} className="sanzar-input text-sm" />
+        </label>
+        <label className="space-y-1">
+          <span>Title</span>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} className="sanzar-input text-sm" />
+        </label>
+        <label className="space-y-1">
+          <span>Status</span>
+          <select value={status} onChange={(e) => setStatus(e.target.value)} className="sanzar-input text-sm">
+            <option>draft</option>
+            <option>published</option>
+            <option>archived</option>
+          </select>
+        </label>
+        <label className="space-y-1">
+          <span>ID</span>
+          <input value={id} disabled className="sanzar-input text-sm opacity-60" />
+        </label>
+      </div>
+      <ErrorsBox list={errors} />
+      <button onClick={submit} disabled={busy} className="px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold">
+        Save chapter
+      </button>
+    </div>
+  );
+};
+
+/* ---------------- CHAPTER DETAIL (NOTES, MATERIALS, QUESTIONS) ---------------- */
+interface AdminQuestion {
+  id: string;
+  text: string;
+  options: string[];
+  answer: number;
+  explanation: string;
+  status: string;
+  current_version: number;
+  difficulty: number;
+}
+
+const ChapterDetailView: React.FC<{ chapterId: string }> = ({ chapterId }) => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const contentQ = useQuery({
+    queryKey: ['admin', 'content'],
+    queryFn: () => apiRequest<AdminContent>('/v1/admin/content'),
+  });
+  const qsQ = useQuery({
+    queryKey: ['admin', 'questions', chapterId],
+    queryFn: () =>
+      apiRequest<{ questions: AdminQuestion[] }>(
+        `/v1/admin/questions?chapter=${encodeURIComponent(chapterId)}`
+      ),
+  });
+
+  const [resModal, setResModal] = useState<AdminResource | null | undefined>(undefined);
+  const [qModal, setQModal] = useState<AdminQuestion | null | undefined>(undefined);
+
+  if (contentQ.isLoading) return <LoadingState />;
+  if (contentQ.isError || !contentQ.data) {
+    return <ErrorRetry message={errorText(contentQ.error)} onRetry={() => contentQ.refetch()} />;
+  }
+
+  const c = contentQ.data;
+  const ch = c.chapters.find((x) => x.id === chapterId);
+  if (!ch) return <ErrorRetry message="Chapter not found." />;
+  const book = c.books.find((b) => b.id === ch.book_id);
+  const resources = c.resources.filter((r) => r.chapter_id === chapterId);
+
+  return (
+    <div className="space-y-6">
+      <Link
+        to={`/admin/content/book/${encodeURIComponent(ch.book_id)}`}
+        className="text-sm font-semibold text-sanzar-primary hover:underline"
+      >
+        ← {book?.title}
+      </Link>
+      <div className="flex items-center gap-3 flex-wrap">
+        <h1 className="text-2xl font-extrabold">
+          Chapter {ch.number}: {ch.title}
+        </h1>
+        <StatusPill s={ch.status} />
+      </div>
+
+      {/* Notes */}
+      <section className="space-y-2">
+        <h2 className="text-lg font-bold">Notes</h2>
+        <div className="sanzar-card p-5">
+          <NotesEditor chapterId={chapterId} />
+        </div>
+      </section>
+
+      {/* Study materials */}
+      <section className="space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-bold">Study materials</h2>
+          <button
+            onClick={() => setResModal(null)}
+            className="px-3.5 py-1.5 rounded-xl border border-sanzar-border text-xs font-semibold hover:bg-sanzar-surface2"
+          >
+            Add material
+          </button>
+        </div>
+        {resources.length === 0 ? (
+          <p className="text-xs text-sanzar-muted">No PDFs, videos or slides yet.</p>
+        ) : (
+          <div className="sanzar-card overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="bg-sanzar-surface2 text-sanzar-text2 text-left border-b border-sanzar-border">
+                  <th className="p-3 font-semibold">Title</th>
+                  <th className="p-3 font-semibold">Type</th>
+                  <th className="p-3 font-semibold">Version</th>
+                  <th className="p-3 font-semibold">Status</th>
+                  <th className="p-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {resources.map((r) => (
+                  <tr key={r.id} className="border-b border-sanzar-border last:border-0">
+                    <td className="p-3">
+                      <b>{r.title || r.id}</b>
+                      <div className="text-xs text-sanzar-muted truncate max-w-xs">{r.url}</div>
+                    </td>
+                    <td className="p-3">{r.type}</td>
+                    <td className="p-3 text-xs">
+                      v{r.current_version}
+                      {r.versions.length > 1 && (
+                        <details className="mt-1">
+                          <summary className="cursor-pointer text-sanzar-primary">history</summary>
+                          <div className="space-y-1 mt-1">
+                            {r.versions.map((v) => (
+                              <div key={v.version} className="flex items-center gap-2">
+                                <span>v{v.version} · {fmtTime(v.created_at)}</span>
+                                {v.version !== r.current_version && (
+                                  <button
+                                    onClick={async () => {
+                                      await apiRequest(`/v1/admin/resources/${r.id}/rollback`, {
+                                        method: 'POST',
+                                        bodyJson: { version: v.version },
+                                      });
+                                      toast(`Restored v${v.version}`);
+                                      void qc.invalidateQueries({ queryKey: ['admin', 'content'] });
+                                    }}
+                                    className="px-2 py-0.5 rounded border border-sanzar-border text-[11px] font-semibold"
+                                  >
+                                    Restore
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      )}
+                    </td>
+                    <td className="p-3"><StatusPill s={r.status} /></td>
+                    <td className="p-3 text-right">
+                      <button
+                        onClick={() => setResModal(r)}
+                        className="px-3 py-1 rounded-lg border border-sanzar-border text-xs font-semibold"
+                      >
+                        Edit
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* Questions */}
+      <section className="space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-bold">Questions</h2>
+          <button
+            onClick={() => setQModal(null)}
+            className="px-3.5 py-1.5 rounded-xl border border-sanzar-border text-xs font-semibold hover:bg-sanzar-surface2"
+          >
+            Add question
+          </button>
+        </div>
+        {qsQ.isLoading ? (
+          <LoadingState />
+        ) : (qsQ.data?.questions.length ?? 0) === 0 ? (
+          <p className="text-xs text-sanzar-muted">No questions yet. A chapter quiz needs at least 3.</p>
+        ) : (
+          <div className="sanzar-card overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="bg-sanzar-surface2 text-sanzar-text2 text-left border-b border-sanzar-border">
+                  <th className="p-3 font-semibold">Question</th>
+                  <th className="p-3 font-semibold">Correct answer</th>
+                  <th className="p-3 font-semibold">Status</th>
+                  <th className="p-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {qsQ.data!.questions.map((x) => (
+                  <tr key={x.id} className="border-b border-sanzar-border last:border-0">
+                    <td className="p-3">{x.text}</td>
+                    <td className="p-3">{x.options[x.answer]}</td>
+                    <td className="p-3"><StatusPill s={x.status} /></td>
+                    <td className="p-3 text-right">
+                      <button
+                        onClick={() => setQModal(x)}
+                        className="px-3 py-1 rounded-lg border border-sanzar-border text-xs font-semibold"
+                      >
+                        Edit
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {resModal !== undefined && (
+        <Modal title={resModal ? 'Edit material' : 'Add material'} onClose={() => setResModal(undefined)}>
+          <ResourceForm
+            chapterId={chapterId}
+            res={resModal}
+            onDone={() => {
+              setResModal(undefined);
+              void qc.invalidateQueries({ queryKey: ['admin', 'content'] });
+            }}
+          />
+        </Modal>
+      )}
+
+      {qModal !== undefined && (
+        <Modal title={qModal ? 'Edit question' : 'Add question'} onClose={() => setQModal(undefined)}>
+          <QuestionForm
+            chapterId={chapterId}
+            q={qModal}
+            onDone={() => {
+              setQModal(undefined);
+              void qc.invalidateQueries({ queryKey: ['admin', 'questions', chapterId] });
+              void qc.invalidateQueries({ queryKey: ['admin', 'content'] });
+            }}
+          />
+        </Modal>
+      )}
+    </div>
+  );
+};
+
+interface NotesRes {
+  chapterId: string;
+  current: number | null;
+  versions: { version: number; sections: NoteSection[]; createdBy: string; createdAt: number }[];
+}
+
+const NotesEditor: React.FC<{ chapterId: string }> = ({ chapterId }) => {
+  const toast = useToast();
+  const q = useQuery({
+    queryKey: ['admin', 'notes', chapterId],
+    queryFn: () => apiRequest<NotesRes>(`/v1/admin/notes/${chapterId}`),
+  });
+  const [sections, setSections] = useState<(NoteSection & { termsText: string })[] | null>(null);
+  const [errors, setErrors] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!q.data) return;
+    const cur = q.data.versions.find((v) => v.version === q.data.current);
+    setSections(
+      (cur?.sections ?? []).map((s) => ({
+        ...s,
+        page: s.page ?? null,
+        terms: s.terms ?? [],
+        termsText: (s.terms ?? []).join(', '),
+      }))
+    );
+  }, [q.data]);
+
+  if (q.isLoading || !sections) return <LoadingState />;
+  if (q.isError || !q.data) return <ErrorRetry message={errorText(q.error)} onRetry={() => q.refetch()} />;
+
+  const upd = (i: number, k: string, v: unknown) =>
+    setSections(sections.map((s, j) => (j === i ? { ...s, [k]: v } : s)));
+  const move = (i: number, d: number) => {
+    const a = [...sections];
+    [a[i], a[i + d]] = [a[i + d], a[i]];
+    setSections(a);
+  };
+
+  const submit = async () => {
+    const clean = sections.map((s) => ({
+      heading: s.heading.trim(),
+      page: s.page,
+      text: s.text.trim(),
+      terms: parseTerms(s.termsText),
+    }));
+    const errs = validateSections(clean);
+    if (errs.length) return setErrors(errs);
+    setBusy(true);
+    setErrors([]);
+    try {
+      await apiRequest(`/v1/admin/notes/${chapterId}`, {
+        method: 'PUT',
+        bodyJson: { sections: clean },
+      });
+      toast('Notes saved as a new version');
+      void q.refetch();
+    } catch (e) {
+      setErrors([errorText(e)]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-sanzar-muted">
+        Current version: {q.data.current ?? 'none'} · Saving creates a new version; students and the AI Tutor see it immediately.
+      </p>
+      {sections.map((s, i) => (
+        <div key={i} className="p-3.5 rounded-xl border border-sanzar-border bg-sanzar-surface2 space-y-3">
+          <div className="flex items-center justify-between">
+            <b className="text-sm">Section {i + 1}</b>
+            <div className="flex gap-1.5">
+              <button disabled={i === 0} onClick={() => move(i, -1)} className="px-2 py-1 rounded border border-sanzar-border text-xs">↑</button>
+              <button disabled={i === sections.length - 1} onClick={() => move(i, 1)} className="px-2 py-1 rounded border border-sanzar-border text-xs">↓</button>
+              <button
+                onClick={() => setSections(sections.filter((_, j) => j !== i))}
+                className="px-2.5 py-1 rounded border border-sanzar-danger text-sanzar-danger text-xs font-semibold"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+          <div className="grid sm:grid-cols-3 gap-3 text-xs font-semibold text-sanzar-text2">
+            <label className="space-y-1">
+              <span>Heading</span>
+              <input value={s.heading} onChange={(e) => upd(i, 'heading', e.target.value)} className="sanzar-input text-sm" />
+            </label>
+            <label className="space-y-1">
+              <span>Book page</span>
+              <input
+                type="number"
+                min={1}
+                value={s.page ?? ''}
+                onChange={(e) => upd(i, 'page', e.target.value === '' ? null : Number(e.target.value))}
+                className="sanzar-input text-sm"
+              />
+            </label>
+            <label className="space-y-1">
+              <span>Bangla search terms</span>
+              <input value={s.termsText} onChange={(e) => upd(i, 'termsText', e.target.value)} className="sanzar-input text-sm" />
+            </label>
+          </div>
+          <label className="block space-y-1 text-xs font-semibold text-sanzar-text2">
+            <span>Text</span>
+            <textarea rows={4} value={s.text} onChange={(e) => upd(i, 'text', e.target.value)} className="sanzar-input text-sm" />
+          </label>
+        </div>
+      ))}
+      <div className="flex gap-2">
+        <button
+          onClick={() => setSections([...sections, { heading: '', page: null, text: '', terms: [], termsText: '' }])}
+          className="px-4 py-2 rounded-xl border border-sanzar-border text-xs font-semibold"
+        >
+          Add section
+        </button>
+        <button
+          onClick={submit}
+          disabled={busy}
+          className="px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-semibold disabled:opacity-50"
+        >
+          Save notes
+        </button>
+      </div>
+      <ErrorsBox list={errors} />
+      {q.data.versions.length > 1 && (
+        <details className="text-xs">
+          <summary className="cursor-pointer font-semibold text-sanzar-primary">
+            Version history ({q.data.versions.length})
+          </summary>
+          <div className="mt-2 space-y-1.5">
+            {q.data.versions.map((v) => (
+              <div key={v.version} className="flex items-center justify-between p-2 rounded-lg bg-sanzar-surface2">
+                <span>
+                  v{v.version} · {fmtTime(v.createdAt)} · {v.sections.length} sections
+                </span>
+                {v.version === q.data.current ? (
+                  <StatusPill s="published" />
+                ) : (
+                  <button
+                    onClick={async () => {
+                      await apiRequest(`/v1/admin/notes/${chapterId}/rollback`, {
+                        method: 'POST',
+                        bodyJson: { version: v.version },
+                      });
+                      toast(`Restored v${v.version}`);
+                      void q.refetch();
+                    }}
+                    className="px-2.5 py-1 rounded border border-sanzar-border font-semibold"
+                  >
+                    Restore
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+};
+
+const ResourceForm: React.FC<{ chapterId: string; res: AdminResource | null; onDone: () => void }> = ({
+  chapterId,
+  res,
+  onDone,
+}) => {
+  const toast = useToast();
+  const [f, setF] = useState({
+    id: res?.id ?? '',
+    type: res?.type ?? 'pdf',
+    title: res?.title ?? '',
+    url: res?.url ?? '',
+    pages: res?.pages?.toString() ?? '',
+    licence: res?.licence ?? '',
+    status: res?.status ?? 'published',
+    note: '',
+  });
+  const [errors, setErrors] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    const id =
+      res?.id ??
+      (f.id || `${chapterId}-${f.type}-${slugify(f.title).slice(0, 20) || Date.now().toString(36)}`);
+    const errs = [
+      !isId(id) && 'Invalid id.',
+      !isHttps(f.url) && 'Link must start with https://',
+      f.title.trim().length < 2 && 'Add a title.',
+    ].filter(Boolean) as string[];
+    if (errs.length) return setErrors(errs);
+    setBusy(true);
+    try {
+      await apiRequest(`/v1/admin/resources/${id}`, {
+        method: 'PUT',
+        bodyJson: {
+          chapter_id: chapterId,
+          type: f.type,
+          title: f.title.trim(),
+          url: f.url.trim(),
+          pages: f.pages ? Number(f.pages) : null,
+          licence: f.licence,
+          status: f.status,
+          change_note: f.note,
+        },
+      });
+      toast('Saved');
+      onDone();
+    } catch (e) {
+      setErrors([errorText(e)]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4 text-xs font-semibold text-sanzar-text2">
+      <div className="grid sm:grid-cols-2 gap-3">
+        <label className="space-y-1">
+          <span>Type</span>
+          <select value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })} className="sanzar-input text-sm">
+            <option value="pdf">PDF</option>
+            <option value="video">Video</option>
+            <option value="ppt">Slides</option>
+            <option value="link">Link</option>
+          </select>
+        </label>
+        <label className="space-y-1">
+          <span>Title</span>
+          <input value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} className="sanzar-input text-sm" />
+        </label>
+        <label className="space-y-1">
+          <span>Status</span>
+          <select value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })} className="sanzar-input text-sm">
+            <option>draft</option>
+            <option>published</option>
+            <option>archived</option>
+          </select>
+        </label>
+        {f.type === 'pdf' && (
+          <label className="space-y-1">
+            <span>Pages</span>
+            <input type="number" min={1} value={f.pages} onChange={(e) => setF({ ...f, pages: e.target.value })} className="sanzar-input text-sm" />
+          </label>
+        )}
+      </div>
+      <label className="block space-y-1">
+        <span>Link (https://)</span>
+        <input value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} placeholder="https://" className="sanzar-input text-sm" />
+      </label>
+      <label className="block space-y-1">
+        <span>Licence / source</span>
+        <input value={f.licence} onChange={(e) => setF({ ...f, licence: e.target.value })} className="sanzar-input text-sm" />
+      </label>
+      {res && (
+        <label className="block space-y-1">
+          <span>Change note</span>
+          <input value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} className="sanzar-input text-sm" />
+        </label>
+      )}
+      <ErrorsBox list={errors} />
+      <button onClick={submit} disabled={busy} className="px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold">
+        Save material
+      </button>
+    </div>
+  );
+};
+
+const QuestionForm: React.FC<{ chapterId: string; q: AdminQuestion | null; onDone: () => void }> = ({
+  chapterId,
+  q,
+  onDone,
+}) => {
+  const toast = useToast();
+  const [text, setText] = useState(q?.text ?? '');
+  const [options, setOptions] = useState<string[]>(q?.options ?? ['', '', '', '']);
+  const [answer, setAnswer] = useState<number | null>(q?.answer ?? null);
+  const [explanation, setExplanation] = useState(q?.explanation ?? '');
+  const [status, setStatus] = useState(q?.status ?? 'published');
+  const [errors, setErrors] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    const errs = validateQuestion({ text, options, answer });
+    if (errs.length) return setErrors(errs);
+    const id = q?.id ?? `${chapterId}-q${Date.now().toString(36)}`;
+    setBusy(true);
+    try {
+      await apiRequest(`/v1/admin/questions/${id}`, {
+        method: 'PUT',
+        bodyJson: {
+          chapter_id: chapterId,
+          text: text.trim(),
+          options: options.map((o) => o.trim()),
+          answer,
+          explanation: explanation.trim(),
+          status,
+        },
+      });
+      toast('Saved');
+      onDone();
+    } catch (e) {
+      setErrors([errorText(e)]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3 text-xs font-semibold text-sanzar-text2">
+      <label className="block space-y-1">
+        <span>Question</span>
+        <textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} className="sanzar-input text-sm" />
+      </label>
+      {options.map((o, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <input type="radio" name="answer" checked={answer === i} onChange={() => setAnswer(i)} />
+          <input
+            value={o}
+            placeholder={`Option ${i + 1}`}
+            onChange={(e) => setOptions(options.map((x, j) => (j === i ? e.target.value : x)))}
+            className="sanzar-input text-sm flex-1"
+          />
+          {options.length > 2 && (
+            <button
+              onClick={() => {
+                setOptions(options.filter((_, j) => j !== i));
+                setAnswer(answer === i ? null : answer !== null && answer > i ? answer - 1 : answer);
+              }}
+              className="px-2 py-1 rounded border border-sanzar-border text-xs"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      ))}
+      {options.length < 6 && (
+        <button onClick={() => setOptions([...options, ''])} className="text-sanzar-primary hover:underline">
+          + Add option
+        </button>
+      )}
+      <label className="block space-y-1">
+        <span>Explanation</span>
+        <textarea rows={2} value={explanation} onChange={(e) => setExplanation(e.target.value)} className="sanzar-input text-sm" />
+      </label>
+      <label className="block space-y-1">
+        <span>Status</span>
+        <select value={status} onChange={(e) => setStatus(e.target.value)} className="sanzar-input text-sm">
+          <option>draft</option>
+          <option>published</option>
+          <option>archived</option>
+        </select>
+      </label>
+      <ErrorsBox list={errors} />
+      <button onClick={submit} disabled={busy} className="px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold">
+        Save question
+      </button>
+    </div>
+  );
+};
