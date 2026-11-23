@@ -359,8 +359,22 @@ async function submitAttempt(env, ctx, attemptId, input) {
   let xpAwarded = 0;
   if (upd.meta?.changes && !late) {
     const xp = await xpConfig(env);
+    const ex = await env.DB.prepare('SELECT xp_reward FROM exams WHERE id = ?').bind(a.exam_id).first();
+    let totalXp = 0;
+    if (ex?.xp_reward != null) {
+      totalXp = score > 0 ? ex.xp_reward : 0;
+    } else if (score > 0) {
+      const qRows = refs.length
+        ? (await env.DB.prepare(`SELECT id, xp_points FROM questions WHERE id IN (${refs.map(() => '?').join(',')})`).bind(...refs.map((r) => r.qid)).all()).results
+        : [];
+      const qXp = Object.fromEntries(qRows.map((x) => [x.id, x.xp_points]));
+      for (const r of refs) {
+        const q = qs[`${r.qid}@${r.v}`];
+        if (q && clean[r.qid] === q.answer) totalXp += qXp[r.qid] ?? xp.quizCorrect;
+      }
+    }
     // XP only for the first graded attempt of each exam, so retakes cannot farm points.
-    xpAwarded = await award(env, uid, score * xp.quizCorrect, 'Exam correct answers', `exam:${a.exam_id}`);
+    xpAwarded = await award(env, uid, totalXp, 'Exam correct answers', `exam:${a.exam_id}`);
   }
   const res = await attemptResult(env, ctx, attemptId);
   return { ...res, xpAwarded, unlocked: await checkAchievements(env, uid) };

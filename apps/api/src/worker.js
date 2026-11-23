@@ -186,8 +186,8 @@ async function catalog(env, req) {
     env.DB.prepare('SELECT * FROM video_assets'),
     env.DB.prepare('SELECT n.chapter_id, nv.sections_json FROM notes n JOIN note_versions nv ON nv.chapter_id = n.chapter_id AND nv.version = n.current_version'),
     env.DB.prepare("SELECT chapter_id, COUNT(*) AS n FROM questions WHERE status = 'published' GROUP BY chapter_id"),
-    env.DB.prepare("SELECT id, title, type, book_id, chapter_id, duration_sec, question_count, pass_pct FROM exams WHERE status = 'published'"),
-    env.DB.prepare('SELECT * FROM announcements ORDER BY created_at DESC LIMIT 30'),
+    env.DB.prepare("SELECT id, title, type, book_id, chapter_id, duration_sec, question_count, pass_pct, xp_reward FROM exams WHERE status = 'published'"),
+    env.DB.prepare('SELECT * FROM announcements WHERE expires_at IS NULL OR expires_at > ? ORDER BY created_at DESC LIMIT 30').bind(now()),
     env.DB.prepare('SELECT key, value_json FROM config'),
   ]);
   const url = Object.fromEntries(versions.results.map((v) => [v.resource_id, v.url]));

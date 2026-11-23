@@ -83,7 +83,7 @@ async function putBook(env, ctx, id, i) {
   const subject = slug(i.subject_id, 'Subject');
   if (!(await env.DB.prepare('SELECT 1 FROM subjects WHERE id = ?').bind(subject).first())) throw new HttpError(400, 'invalid-argument', 'Unknown subject');
   const levels = Array.isArray(i.levels) ? [...new Set(i.levels)] : [];
-  if (!levels.length || levels.some((l) => !LEVEL_IDS.has(l))) throw new HttpError(400, 'invalid-argument', 'Choose at least one valid learning language');
+  if (levels.length !== 1 || !LEVEL_IDS.has(levels[0])) throw new HttpError(400, 'invalid-argument', 'Choose one valid learning language');
   const t = now();
   const cover = Array.isArray(i.cover) ? i.cover : [];
   await env.DB.batch([
@@ -104,7 +104,7 @@ async function putChapter(env, ctx, id, i) {
   slug(id, 'Chapter');
   const bookId = slug(i.book_id, 'Book');
   if (!(await env.DB.prepare('SELECT 1 FROM books WHERE id = ?').bind(bookId).first())) throw new HttpError(400, 'invalid-argument', 'Unknown book');
-  const n = num(i.number, 'Chapter number', 1, 500, 1);
+  const n = num(i.number, 'Chapter number', 0, 500, 1);
   await env.DB.prepare(`INSERT INTO chapters (id, book_id, number, title, sort, status, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET book_id = excluded.book_id, number = excluded.number, title = excluded.title, sort = excluded.sort, status = excluded.status, updated_at = excluded.updated_at`)
     .bind(id, bookId, n, str(i.title, { min: 1, max: 200, field: 'Title' }), num(i.sort, 'Order', 0, 100000, n), status(i.status), now()).run();
@@ -156,7 +156,9 @@ async function putResource(env, ctx, id, i) {
   const chapterId = slug(i.chapter_id, 'Chapter');
   if (!(await env.DB.prepare('SELECT 1 FROM chapters WHERE id = ?').bind(chapterId).first())) throw new HttpError(400, 'invalid-argument', 'Unknown chapter');
   if (!RES_TYPES.has(i.type)) throw new HttpError(400, 'invalid-argument', 'Type must be video, pdf, ppt or link');
-  const url = httpsUrl(i.url);
+  const rawUrl = typeof i.url === 'string' ? i.url.trim() : '';
+  if (i.type === 'link' && !rawUrl) throw new HttpError(400, 'invalid-argument', 'Link is required when type is link');
+  const url = rawUrl ? httpsUrl(rawUrl) : null;
   const t = now();
   const old = await env.DB.prepare('SELECT * FROM resources WHERE id = ?').bind(id).first();
   const title = str(i.title ?? '', { max: 200, field: 'Title' });
@@ -164,14 +166,14 @@ async function putResource(env, ctx, id, i) {
   const stmts = [];
   let version = old?.current_version || 1;
   let videoAsset = null;
-  if (i.type === 'video') {
+  if (i.type === 'video' && url) {
     videoAsset = old?.video_asset_id || `va-${id}`;
     const provider = /youtu\.?be/.test(url) ? 'youtube' : /drive\.google\.com/.test(url) ? 'drive' : 'url';
     pre.push(env.DB.prepare(`INSERT INTO video_assets (id, provider, url, duration_sec, title, created_at) VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET provider = excluded.provider, url = excluded.url, duration_sec = excluded.duration_sec, title = excluded.title`).bind(videoAsset, provider, url, num(i.duration_sec, 'Duration', 1, 86400), title, t));
   }
   const curUrl = old ? (await env.DB.prepare('SELECT url FROM resource_versions WHERE resource_id = ? AND version = ?').bind(id, old.current_version).first())?.url : null;
-  if (!old || curUrl !== url) {
+  if (url && (!old || curUrl !== url)) {
     version = ((await env.DB.prepare('SELECT MAX(version) v FROM resource_versions WHERE resource_id = ?').bind(id).first())?.v || 0) + 1;
     stmts.push(env.DB.prepare('INSERT INTO resource_versions (resource_id, version, url, change_note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)')
       .bind(id, version, url, str(i.change_note ?? '', { max: 300, field: 'Change note' }), ctx.user.uid, t));
@@ -190,7 +192,7 @@ async function listQuestions(env, ctx, url) {
   requireRole(ctx.user, 'content_admin');
   const chapter = url.searchParams.get('chapter');
   if (!chapter) throw new HttpError(400, 'invalid-argument', 'chapter is required');
-  const rows = (await env.DB.prepare(`SELECT q.id, q.chapter_id, q.type, q.difficulty, q.status, q.current_version, v.text, v.options_json, v.answer, v.explanation
+  const rows = (await env.DB.prepare(`SELECT q.id, q.chapter_id, q.type, q.difficulty, q.xp_points, q.status, q.current_version, v.text, v.options_json, v.answer, v.explanation
     FROM questions q JOIN question_versions v ON v.question_id = q.id AND v.version = q.current_version WHERE q.chapter_id = ? ORDER BY q.created_at`).bind(chapter).all()).results;
   return { questions: rows.map((q) => ({ ...q, options: JSON.parse(q.options_json), options_json: undefined })) };
 }
@@ -204,17 +206,18 @@ async function putQuestion(env, ctx, id, i) {
   if (options.length < 2 || options.length > 6) throw new HttpError(400, 'invalid-argument', 'A question needs 2–6 options');
   const answer = num(i.answer, 'Correct option', 0, options.length - 1);
   if (answer == null) throw new HttpError(400, 'invalid-argument', 'Choose the correct option');
+  const xpPoints = num(i.xp_points, 'XP points', 0, 1000, null);
   const t = now();
   const latest = (await env.DB.prepare('SELECT MAX(version) v FROM question_versions WHERE question_id = ?').bind(id).first())?.v || 0;
   const v = latest + 1;
   await env.DB.batch([
-    env.DB.prepare(`INSERT INTO questions (id, chapter_id, type, difficulty, current_version, status, created_at) VALUES (?, ?, 'mcq', ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET chapter_id = excluded.chapter_id, difficulty = excluded.difficulty, current_version = excluded.current_version, status = excluded.status`)
-      .bind(id, chapterId, num(i.difficulty, 'Difficulty', 1, 5, 2), v, status(i.status), t),
+    env.DB.prepare(`INSERT INTO questions (id, chapter_id, type, difficulty, xp_points, current_version, status, created_at) VALUES (?, ?, 'mcq', ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET chapter_id = excluded.chapter_id, difficulty = excluded.difficulty, xp_points = excluded.xp_points, current_version = excluded.current_version, status = excluded.status`)
+      .bind(id, chapterId, num(i.difficulty, 'Difficulty', 1, 5, 2), xpPoints, v, status(i.status), t),
     env.DB.prepare('INSERT INTO question_versions (question_id, version, text, options_json, answer, explanation, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .bind(id, v, str(i.text, { min: 3, max: 2000, field: 'Question' }), JSON.stringify(options), answer, str(i.explanation ?? '', { max: 2000, field: 'Explanation' }), ctx.user.uid, t),
   ]);
-  await audit(env, ctx, 'question.save', id, { version: v });
+  await audit(env, ctx, 'question.save', id, { version: v, xpPoints });
   return { id, version: v };
 }
 
@@ -229,22 +232,49 @@ async function putExam(env, ctx, id, i) {
   const opens = num(i.opens_at, 'Opens at', 0, 9e15);
   const closes = num(i.closes_at, 'Closes at', 0, 9e15);
   if (opens && closes && closes <= opens) throw new HttpError(400, 'invalid-argument', 'Closing time must be after opening time');
-  await env.DB.prepare(`INSERT INTO exams (id, title, type, book_id, chapter_id, duration_sec, question_count, pass_pct, status, opens_at, closes_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  const xpReward = num(i.xp_reward, 'XP reward', 0, 10000, null);
+  await env.DB.prepare(`INSERT INTO exams (id, title, type, book_id, chapter_id, duration_sec, question_count, pass_pct, xp_reward, status, opens_at, closes_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET title = excluded.title, type = excluded.type, book_id = excluded.book_id, chapter_id = excluded.chapter_id, duration_sec = excluded.duration_sec,
-    question_count = excluded.question_count, pass_pct = excluded.pass_pct, status = excluded.status, opens_at = excluded.opens_at, closes_at = excluded.closes_at`)
+    question_count = excluded.question_count, pass_pct = excluded.pass_pct, xp_reward = excluded.xp_reward, status = excluded.status, opens_at = excluded.opens_at, closes_at = excluded.closes_at`)
     .bind(id, str(i.title, { min: 2, max: 120, field: 'Title' }), i.type, bookId, chapterId, num(i.duration_sec, 'Duration', 60, 6 * 3600, 600), num(i.question_count, 'Question count', 1, 200, 10),
-      num(i.pass_pct, 'Pass mark', 1, 100, 60), status(i.status), opens, closes, now()).run();
-  await audit(env, ctx, 'exam.save', id);
+      num(i.pass_pct, 'Pass mark', 1, 100, 60), xpReward, status(i.status), opens, closes, now()).run();
+  await audit(env, ctx, 'exam.save', id, { xpReward });
   return { id };
 }
 
 async function postAnnouncement(env, ctx, i) {
   requireRole(ctx.user, 'admin');
   const id = `an_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-  await env.DB.prepare('INSERT INTO announcements (id, title, body, created_by, created_at) VALUES (?, ?, ?, ?, ?)')
-    .bind(id, str(i.title, { min: 2, max: 120, field: 'Title' }), str(i.body, { min: 1, max: 2000, field: 'Message' }), ctx.user.uid, now()).run();
-  await audit(env, ctx, 'announcement.create', id);
+  const expiresAt = num(i.expires_at, 'Expires at', 0, 9e15, null);
+  await env.DB.prepare('INSERT INTO announcements (id, title, body, expires_at, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind(id, str(i.title, { min: 2, max: 120, field: 'Title' }), str(i.body, { min: 1, max: 2000, field: 'Message' }), expiresAt, ctx.user.uid, now()).run();
+  await audit(env, ctx, 'announcement.create', id, { expiresAt });
   return { id };
+}
+
+async function postBroadcastNotification(env, ctx, i) {
+  requireRole(ctx.user, 'admin');
+  const title = str(i.title, { min: 2, max: 120, field: 'Title' });
+  const message = str(i.body ?? '', { max: 500, field: 'Message' });
+  const levelId = i.level_id && LEVEL_IDS.has(i.level_id) ? i.level_id : null;
+  if (i.level_id && !levelId) throw new HttpError(400, 'invalid-argument', 'Unknown learning language');
+  const users = (
+    await env.DB.prepare(`SELECT uid FROM users WHERE uid != 'deleted' AND blocked = 0 ${levelId ? 'AND level_id = ?' : ''}`)
+      .bind(...(levelId ? [levelId] : []))
+      .all()
+  ).results;
+  const t = now();
+  for (let idx = 0; idx < users.length; idx += 100) {
+    const chunk = users.slice(idx, idx + 100);
+    await env.DB.batch(
+      chunk.map((u) =>
+        env.DB.prepare('INSERT INTO notifications (id, uid, title, body, read, created_at) VALUES (?, ?, ?, ?, 0, ?)')
+          .bind(`nt_${crypto.randomUUID().replace(/-/g, '').slice(0, 18)}`, u.uid, title, message, t)
+      )
+    );
+  }
+  await audit(env, ctx, 'notification.broadcast', levelId || 'all', { count: users.length });
+  return { sent: users.length };
 }
 
 async function deleteAnnouncement(env, ctx, id) {
@@ -293,6 +323,7 @@ export async function routeAdmin(req, env, ctx, url) {
   if ((mm = path.match(/^\/v1\/admin\/exams\/([^/]+)$/)) && m === 'PUT') return json(await putExam(env, ctx, mm[1], await body(req, 5000)));
   if (path === '/v1/admin/announcements' && m === 'POST') return json(await postAnnouncement(env, ctx, await body(req, 5000)));
   if ((mm = path.match(/^\/v1\/admin\/announcements\/([\w-]{1,64})$/)) && m === 'DELETE') return json(await deleteAnnouncement(env, ctx, mm[1]));
+  if (path === '/v1/admin/notifications' && m === 'POST') return json(await postBroadcastNotification(env, ctx, await body(req, 5000)));
   if ((mm = path.match(/^\/v1\/admin\/manifest\/([^/]+)$/)) && m === 'PUT') {
     requireRole(ctx.user, 'admin');
     const id = slug(mm[1], 'Manifest');

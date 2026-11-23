@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiRequest, errorText } from '../../lib/api-client';
 import {
@@ -68,6 +68,7 @@ export interface AdminExam {
   duration_sec: number;
   question_count: number;
   pass_pct: number;
+  xp_reward?: number | null;
   status: string;
   opens_at: number | null;
   closes_at: number | null;
@@ -77,6 +78,7 @@ export interface AdminAnnouncement {
   id: string;
   title: string;
   body: string;
+  expires_at?: number | null;
   created_at: number;
 }
 
@@ -301,7 +303,7 @@ const BookForm: React.FC<{ book: Partial<AdminBook> | null; content: AdminConten
     featured: book?.featured_rank?.toString() ?? '',
     sort: String(book?.sort ?? 0),
     status: book?.status ?? 'draft',
-    levels: book?.levels ?? ([] as string[]),
+    levels: book?.levels?.length ? [book.levels[0]] : ([] as string[]),
   });
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -312,7 +314,7 @@ const BookForm: React.FC<{ book: Partial<AdminBook> | null; content: AdminConten
       !isId(id) && 'ID may use letters, digits, dot, dash and underscore.',
       f.title.trim().length < 2 && 'Title is too short.',
       !f.subject_id && 'Create a subject before adding books.',
-      !f.levels.length && 'Choose at least one learning language.',
+      f.levels.length !== 1 && 'Choose one learning language.',
     ].filter(Boolean) as string[];
     if (errs.length) return setErrors(errs);
     if (isNew && content.books.some((b) => b.id === id)) {
@@ -403,21 +405,15 @@ const BookForm: React.FC<{ book: Partial<AdminBook> | null; content: AdminConten
       </div>
 
       <fieldset className="space-y-2">
-        <legend className="text-xs font-semibold text-sanzar-text2">Learning languages</legend>
+        <legend className="text-xs font-semibold text-sanzar-text2">Learning language</legend>
         <div className="flex flex-wrap gap-3">
           {LEVELS.map((l) => (
             <label key={l.id} className="flex items-center gap-1.5 text-sm font-medium cursor-pointer">
               <input
-                type="checkbox"
-                checked={f.levels.includes(l.id)}
-                onChange={(e) =>
-                  setF({
-                    ...f,
-                    levels: e.target.checked
-                      ? [...f.levels, l.id]
-                      : f.levels.filter((x) => x !== l.id),
-                  })
-                }
+                type="radio"
+                name="book-learning-language"
+                checked={f.levels[0] === l.id}
+                onChange={() => setF({ ...f, levels: [l.id] })}
               />
               {l.name}
             </label>
@@ -447,8 +443,6 @@ const SubjectForm: React.FC<{ subject: AdminSubject | null; subjects: AdminSubje
   const [f, setF] = useState({
     id: subject?.id ?? '',
     name_en: subject?.name_en ?? '',
-    name_bn: subject?.name_bn ?? '',
-    name_zh: subject?.name_zh ?? '',
     color: subject?.color ?? '#247754',
     sort: String(subject?.sort ?? 0),
   });
@@ -456,10 +450,11 @@ const SubjectForm: React.FC<{ subject: AdminSubject | null; subjects: AdminSubje
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
-    const id = isNew ? f.id || slugify(f.name_en) : subject!.id;
+    const rawName = f.name_en.trim();
+    const id = isNew ? f.id || slugify(rawName) || `sub-${Date.now().toString(36)}` : subject!.id;
     const errs = [
       !isId(id) && 'ID may use letters, digits, dot, dash and underscore.',
-      f.name_en.trim().length < 2 && 'Name must be at least 2 characters.',
+      rawName.length < 2 && 'Name must be at least 2 characters.',
     ].filter(Boolean) as string[];
     if (errs.length) return setErrors(errs);
     if (isNew && subjects.some((s) => s.id === id)) return setErrors([`A subject with id "${id}" already exists.`]);
@@ -468,9 +463,9 @@ const SubjectForm: React.FC<{ subject: AdminSubject | null; subjects: AdminSubje
       await apiRequest(`/v1/admin/subjects/${id}`, {
         method: 'PUT',
         bodyJson: {
-          name_en: f.name_en.trim(),
-          name_bn: f.name_bn.trim(),
-          name_zh: f.name_zh.trim(),
+          name_en: rawName,
+          name_bn: '',
+          name_zh: '',
           color: f.color,
           sort: Number(f.sort) || 0,
         },
@@ -487,27 +482,19 @@ const SubjectForm: React.FC<{ subject: AdminSubject | null; subjects: AdminSubje
   return (
     <div className="space-y-4">
       <div className="grid sm:grid-cols-2 gap-3 text-xs font-semibold text-sanzar-text2">
-        <label className="space-y-1">
-          <span>Name (EN)</span>
+        <label className="space-y-1 sm:col-span-2">
+          <span>Name (any language)</span>
           <input value={f.name_en} onChange={(e) => setF({ ...f, name_en: e.target.value })} className="sanzar-input text-sm" />
         </label>
         <label className="space-y-1">
-          <span>ID</span>
+          <span>ID <small className="font-normal text-sanzar-muted">{isNew ? '(auto or custom ASCII)' : '(locked)'}</small></span>
           <input
             value={isNew ? f.id : subject!.id}
             disabled={!isNew}
-            placeholder={slugify(f.name_en)}
+            placeholder={slugify(f.name_en) || 'subject-id'}
             onChange={(e) => setF({ ...f, id: e.target.value })}
             className="sanzar-input text-sm"
           />
-        </label>
-        <label className="space-y-1">
-          <span>Bengali name</span>
-          <input value={f.name_bn} onChange={(e) => setF({ ...f, name_bn: e.target.value })} className="sanzar-input text-sm" />
-        </label>
-        <label className="space-y-1">
-          <span>Chinese name</span>
-          <input value={f.name_zh} onChange={(e) => setF({ ...f, name_zh: e.target.value })} className="sanzar-input text-sm" />
         </label>
         <label className="space-y-1">
           <span>Order</span>
@@ -526,14 +513,17 @@ const SubjectForm: React.FC<{ subject: AdminSubject | null; subjects: AdminSubje
   );
 };
 
-/* ---------------- BOOK DETAIL (CHAPTERS) ---------------- */
+/* ---------------- BOOK DETAIL (WHOLE BOOK & CHAPTERS) ---------------- */
 const BookDetailView: React.FC<{ bookId: string }> = ({ bookId }) => {
   const qc = useQueryClient();
+  const navigate = useNavigate();
+  const toast = useToast();
   const q = useQuery({
     queryKey: ['admin', 'content'],
     queryFn: () => apiRequest<AdminContent>('/v1/admin/content'),
   });
   const [editing, setEditing] = useState<AdminChapter | null | undefined>(undefined);
+  const [creatingWhole, setCreatingWhole] = useState(false);
 
   if (q.isLoading) return <LoadingState />;
   if (q.isError || !q.data) return <ErrorRetry message={errorText(q.error)} onRetry={() => q.refetch()} />;
@@ -550,8 +540,32 @@ const BookDetailView: React.FC<{ bookId: string }> = ({ bookId }) => {
       </div>
     );
   }
-  const chapters = data.chapters.filter((c) => c.book_id === bookId);
+  const allChapters = data.chapters.filter((c) => c.book_id === bookId);
+  const wholeBookId = `${bookId}-full`;
+  const wholeBook = allChapters.find((c) => c.id === wholeBookId || c.number === 0);
+  const chapters = allChapters.filter((c) => c.id !== wholeBook?.id);
   const hasNotes = new Set(data.notes.map((n) => n.chapter_id));
+
+  const openWholeBook = async () => {
+    if (wholeBook) {
+      navigate(`/admin/content/chapter/${encodeURIComponent(wholeBook.id)}`);
+      return;
+    }
+    setCreatingWhole(true);
+    try {
+      await apiRequest(`/v1/admin/chapters/${wholeBookId}`, {
+        method: 'PUT',
+        bodyJson: { book_id: bookId, number: 0, title: `${book.title} (Whole Book)`, status: 'published' },
+      });
+      await qc.invalidateQueries({ queryKey: ['admin', 'content'] });
+      toast('Whole book content enabled');
+      navigate(`/admin/content/chapter/${encodeURIComponent(wholeBookId)}`);
+    } catch (e) {
+      toast(errorText(e));
+    } finally {
+      setCreatingWhole(false);
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -568,6 +582,31 @@ const BookDetailView: React.FC<{ bookId: string }> = ({ bookId }) => {
           className="px-4 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold"
         >
           New chapter
+        </button>
+      </div>
+
+      {/* Whole Book Content Option */}
+      <div className="sanzar-card p-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-bold text-sm">Whole Book Content</h2>
+          <p className="text-xs text-sanzar-muted">
+            Add notes, PDFs/videos/links, and questions for the whole book at once — or add separate chapters below.
+          </p>
+          {wholeBook && (
+            <div className="flex items-center gap-3 mt-1.5 text-xs text-sanzar-text2">
+              <span>Notes: {hasNotes.has(wholeBook.id) ? '✓' : '—'}</span>
+              <span>Materials: {data.resources.filter((r) => r.chapter_id === wholeBook.id).length}</span>
+              <span>Questions: {data.questionCounts[wholeBook.id] ?? 0}</span>
+              <StatusPill s={wholeBook.status} />
+            </div>
+          )}
+        </div>
+        <button
+          onClick={openWholeBook}
+          disabled={creatingWhole}
+          className="px-4 py-2 rounded-xl border border-sanzar-primary text-sanzar-primary text-sm font-semibold hover:bg-sanzar-primarySoft transition disabled:opacity-50"
+        >
+          {creatingWhole ? '…' : wholeBook ? 'Manage whole book' : 'Add whole book content'}
         </button>
       </div>
 
@@ -705,6 +744,7 @@ interface AdminQuestion {
   options: string[];
   answer: number;
   explanation: string;
+  xp_points?: number | null;
   status: string;
   current_version: number;
   difficulty: number;
@@ -749,7 +789,7 @@ const ChapterDetailView: React.FC<{ chapterId: string }> = ({ chapterId }) => {
       </Link>
       <div className="flex items-center gap-3 flex-wrap">
         <h1 className="text-2xl font-extrabold">
-          Chapter {ch.number}: {ch.title}
+          {ch.number === 0 ? `Whole Book: ${ch.title}` : `Chapter ${ch.number}: ${ch.title}`}
         </h1>
         <StatusPill s={ch.status} />
       </div>
@@ -1095,7 +1135,6 @@ const ResourceForm: React.FC<{ chapterId: string; res: AdminResource | null; onD
     type: res?.type ?? 'pdf',
     title: res?.title ?? '',
     url: res?.url ?? '',
-    pages: res?.pages?.toString() ?? '',
     licence: res?.licence ?? '',
     status: res?.status ?? 'published',
     note: '',
@@ -1107,9 +1146,11 @@ const ResourceForm: React.FC<{ chapterId: string; res: AdminResource | null; onD
     const id =
       res?.id ??
       (f.id || `${chapterId}-${f.type}-${slugify(f.title).slice(0, 20) || Date.now().toString(36)}`);
+    const trimmedUrl = f.url.trim();
     const errs = [
       !isId(id) && 'Invalid id.',
-      !isHttps(f.url) && 'Link must start with https://',
+      f.type === 'link' && !trimmedUrl && 'Link is required.',
+      trimmedUrl && !isHttps(trimmedUrl) && 'Link must start with https://',
       f.title.trim().length < 2 && 'Add a title.',
     ].filter(Boolean) as string[];
     if (errs.length) return setErrors(errs);
@@ -1121,8 +1162,7 @@ const ResourceForm: React.FC<{ chapterId: string; res: AdminResource | null; onD
           chapter_id: chapterId,
           type: f.type,
           title: f.title.trim(),
-          url: f.url.trim(),
-          pages: f.pages ? Number(f.pages) : null,
+          url: trimmedUrl,
           licence: f.licence,
           status: f.status,
           change_note: f.note,
@@ -1153,7 +1193,7 @@ const ResourceForm: React.FC<{ chapterId: string; res: AdminResource | null; onD
           <span>Title</span>
           <input value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} className="sanzar-input text-sm" />
         </label>
-        <label className="space-y-1">
+        <label className="space-y-1 sm:col-span-2">
           <span>Status</span>
           <select value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })} className="sanzar-input text-sm">
             <option>draft</option>
@@ -1161,15 +1201,12 @@ const ResourceForm: React.FC<{ chapterId: string; res: AdminResource | null; onD
             <option>archived</option>
           </select>
         </label>
-        {f.type === 'pdf' && (
-          <label className="space-y-1">
-            <span>Pages</span>
-            <input type="number" min={1} value={f.pages} onChange={(e) => setF({ ...f, pages: e.target.value })} className="sanzar-input text-sm" />
-          </label>
-        )}
       </div>
       <label className="block space-y-1">
-        <span>Link (https://)</span>
+        <span>
+          Link (https://){' '}
+          {f.type !== 'link' && <small className="font-normal text-sanzar-muted">(optional)</small>}
+        </span>
         <input value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} placeholder="https://" className="sanzar-input text-sm" />
       </label>
       <label className="block space-y-1">
@@ -1200,12 +1237,17 @@ const QuestionForm: React.FC<{ chapterId: string; q: AdminQuestion | null; onDon
   const [options, setOptions] = useState<string[]>(q?.options ?? ['', '', '', '']);
   const [answer, setAnswer] = useState<number | null>(q?.answer ?? null);
   const [explanation, setExplanation] = useState(q?.explanation ?? '');
+  const [xpPoints, setXpPoints] = useState(q?.xp_points != null ? String(q.xp_points) : '');
   const [status, setStatus] = useState(q?.status ?? 'published');
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
     const errs = validateQuestion({ text, options, answer });
+    if (xpPoints.trim() !== '') {
+      const n = Number(xpPoints);
+      if (!Number.isInteger(n) || n < 0 || n > 1000) errs.push('XP points must be a whole number (0–1000).');
+    }
     if (errs.length) return setErrors(errs);
     const id = q?.id ?? `${chapterId}-q${Date.now().toString(36)}`;
     setBusy(true);
@@ -1218,6 +1260,7 @@ const QuestionForm: React.FC<{ chapterId: string; q: AdminQuestion | null; onDon
           options: options.map((o) => o.trim()),
           answer,
           explanation: explanation.trim(),
+          xp_points: xpPoints.trim() === '' ? null : Number(xpPoints),
           status,
         },
       });
@@ -1267,14 +1310,28 @@ const QuestionForm: React.FC<{ chapterId: string; q: AdminQuestion | null; onDon
         <span>Explanation</span>
         <textarea rows={2} value={explanation} onChange={(e) => setExplanation(e.target.value)} className="sanzar-input text-sm" />
       </label>
-      <label className="block space-y-1">
-        <span>Status</span>
-        <select value={status} onChange={(e) => setStatus(e.target.value)} className="sanzar-input text-sm">
-          <option>draft</option>
-          <option>published</option>
-          <option>archived</option>
-        </select>
-      </label>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <label className="block space-y-1">
+          <span>XP points <small className="font-normal text-sanzar-muted">(blank = default)</small></span>
+          <input
+            type="number"
+            min={0}
+            max={1000}
+            value={xpPoints}
+            onChange={(e) => setXpPoints(e.target.value)}
+            placeholder="Default"
+            className="sanzar-input text-sm"
+          />
+        </label>
+        <label className="block space-y-1">
+          <span>Status</span>
+          <select value={status} onChange={(e) => setStatus(e.target.value)} className="sanzar-input text-sm">
+            <option>draft</option>
+            <option>published</option>
+            <option>archived</option>
+          </select>
+        </label>
+      </div>
       <ErrorsBox list={errors} />
       <button onClick={submit} disabled={busy} className="px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold">
         Save question

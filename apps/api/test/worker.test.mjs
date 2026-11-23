@@ -83,7 +83,7 @@ before(async () => {
     APP_ENV: 'test',
   };
   const migration = await migrate(env);
-  assert.deepEqual(migration.applied, ['0001_init', '0002_existing_profiles', '0003_sync_and_resources', '0004_learning_languages']);
+  assert.deepEqual(migration.applied, ['0001_init', '0002_existing_profiles', '0003_sync_and_resources', '0004_learning_languages', '0005_admin_enhancements']);
   const preserved = await DB.prepare('SELECT uid, email, display_name, created_at FROM users WHERE uid = ?').bind('preserved-profile').first();
   assert.equal(preserved.uid, 'preserved-profile');
   assert.equal(preserved.email, 'preserved@example.test');
@@ -95,7 +95,7 @@ before(async () => {
 test('health reports completed schema migrations', async () => {
   const { response, data } = await call('GET', '/v1/health');
   assert.equal(response.status, 200);
-  assert.equal(data.schema, '4/4');
+  assert.equal(data.schema, '5/5');
 });
 
 test('catalog starts with platform levels and no imported course data', async () => {
@@ -287,4 +287,64 @@ test('offline sync is idempotent and resource manifest works on /v1 and /api/v1'
   });
   assert.equal(retrySync.response.status, 200);
   assert.equal(retrySync.data.accepted[0].status, 'duplicate');
+});
+
+test('admin enhancements: optional pdf url, single book language, expiry, push notifications, and custom xp', async () => {
+  const multiLang = await call('PUT', '/v1/admin/books/bad-multi', {
+    auth: ownerToken,
+    body: { title: 'Bad Multi', subject_id: 'mathematics', levels: ['zh', 'en'], status: 'published' },
+  });
+  assert.equal(multiLang.response.status, 400);
+
+  const wholeBook = await call('PUT', '/v1/admin/chapters/foundations-full', {
+    auth: ownerToken,
+    body: { book_id: 'foundations', number: 0, title: 'Whole Book', status: 'published' },
+  });
+  assert.equal(wholeBook.response.status, 200);
+
+  const pdfNoUrl = await call('PUT', '/v1/admin/resources/pdf-no-url', {
+    auth: ownerToken,
+    body: { chapter_id: 'foundations-full', type: 'pdf', title: 'Offline Workbook', url: '', status: 'published' },
+  });
+  assert.equal(pdfNoUrl.response.status, 200);
+
+  const linkNoUrl = await call('PUT', '/v1/admin/resources/link-no-url', {
+    auth: ownerToken,
+    body: { chapter_id: 'foundations-full', type: 'link', title: 'Required Link', url: '', status: 'published' },
+  });
+  assert.equal(linkNoUrl.response.status, 400);
+
+  await call('POST', '/v1/admin/announcements', {
+    auth: ownerToken,
+    body: { title: 'Expired Notice', body: 'Old', expires_at: Date.now() - 10_000 },
+  });
+  await call('POST', '/v1/admin/announcements', {
+    auth: ownerToken,
+    body: { title: 'Active Notice', body: 'New', expires_at: Date.now() + 60_000 },
+  });
+  const catAfterAnn = await call('GET', '/v1/catalog', { auth: ownerToken });
+  assert.equal(catAfterAnn.data.announcements.some((a) => a.title === 'Expired Notice'), false);
+  assert.equal(catAfterAnn.data.announcements.some((a) => a.title === 'Active Notice'), true);
+
+  const pushRes = await call('POST', '/v1/admin/notifications', {
+    auth: ownerToken,
+    body: { title: 'Live Update', body: 'New lessons added!' },
+  });
+  assert.equal(pushRes.response.status, 200);
+  assert.ok(pushRes.data.sent >= 1);
+
+  await call('PUT', '/v1/admin/questions/q-custom-xp', {
+    auth: ownerToken,
+    body: { chapter_id: 'foundations-full', text: 'Custom XP?', options: ['Yes', 'No'], answer: 0, xp_points: 12, status: 'published' },
+  });
+  await call('PUT', '/v1/admin/exams/exam-custom-xp', {
+    auth: ownerToken,
+    body: { title: 'Custom XP Quiz', type: 'chapter_quiz', chapter_id: 'foundations-full', duration_sec: 300, question_count: 1, xp_reward: 50, status: 'published' },
+  });
+  const st = await call('POST', '/v1/exams/exam-custom-xp/start', { auth: ownerToken, body: {} });
+  const sub = await call('POST', `/v1/attempts/${st.data.attempt.id}/submit`, {
+    auth: ownerToken,
+    body: { answers: { 'q-custom-xp': 0 } },
+  });
+  assert.equal(sub.data.xpAwarded, 50);
 });

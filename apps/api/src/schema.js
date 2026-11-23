@@ -287,4 +287,12 @@ ON CONFLICT(id) DO UPDATE SET
   sort = excluded.sort;
 `,
   },
+  {
+    id: '0005_admin_enhancements',
+    sql: `
+ALTER TABLE announcements ADD COLUMN expires_at INTEGER;
+ALTER TABLE exams ADD COLUMN xp_reward INTEGER;
+ALTER TABLE questions ADD COLUMN xp_points INTEGER;
+`,
+  },
 ];

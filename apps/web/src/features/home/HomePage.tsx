@@ -102,7 +102,17 @@ export const HomePage: React.FC = () => {
     );
   }
 
-  const notice = typeof cat?.config?.notice === 'string' ? cat.config.notice.trim() : '';
+  const bannerCfg = cat?.config?.banner as { enabled?: boolean; text?: string; expires_at?: number | null } | undefined;
+  const activeBanner = bannerCfg && typeof bannerCfg === 'object'
+    ? (bannerCfg.enabled !== false &&
+       typeof bannerCfg.text === 'string' &&
+       bannerCfg.text.trim() &&
+       (!bannerCfg.expires_at || bannerCfg.expires_at > Date.now())
+         ? bannerCfg.text.trim()
+         : '')
+    : typeof cat?.config?.notice === 'string'
+      ? cat.config.notice.trim()
+      : '';
 
   const booksForLevel = cat
     ? levelId
@@ -124,10 +134,10 @@ export const HomePage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {notice && (
+      {activeBanner && (
         <div className="sanzar-card p-3.5 bg-sanzar-primarySoft/60 border-sanzar-primary/30 flex items-center gap-2.5 text-sm font-medium text-sanzar-primary">
           <Megaphone className="w-4 h-4 shrink-0" />
-          <span>{notice}</span>
+          <span>{activeBanner}</span>
         </div>
       )}
 

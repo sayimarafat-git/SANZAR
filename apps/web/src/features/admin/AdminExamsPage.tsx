@@ -113,6 +113,7 @@ const ExamForm: React.FC<{ exam: AdminExam | null; c: AdminContent; onDone: () =
     minutes: String(Math.round((exam?.duration_sec ?? 1200) / 60)),
     count: String(exam?.question_count ?? 20),
     pass: String(exam?.pass_pct ?? 60),
+    xp: exam?.xp_reward != null ? String(exam.xp_reward) : '',
     status: exam?.status ?? 'draft',
     opens: toLocal(exam?.opens_at ?? null),
     closes: toLocal(exam?.closes_at ?? null),
@@ -123,6 +124,10 @@ const ExamForm: React.FC<{ exam: AdminExam | null; c: AdminContent; onDone: () =
   const submit = async () => {
     const id = exam?.id ?? (f.id || slugify(`${f.type === 'model' ? 'mt' : 'cq'} ${f.title}`));
     const errs = [!isId(id) && 'Invalid id.', f.title.trim().length < 2 && 'Add a title.'].filter(Boolean) as string[];
+    if (f.xp.trim() !== '') {
+      const n = Number(f.xp);
+      if (!Number.isInteger(n) || n < 0 || n > 10000) errs.push('XP reward must be 0–10000.');
+    }
     if (errs.length) return setErrors(errs);
     setBusy(true);
     try {
@@ -136,6 +141,7 @@ const ExamForm: React.FC<{ exam: AdminExam | null; c: AdminContent; onDone: () =
           duration_sec: Math.round(Number(f.minutes) * 60),
           question_count: Number(f.count),
           pass_pct: Number(f.pass),
+          xp_reward: f.xp.trim() === '' ? null : Number(f.xp),
           status: f.status,
           opens_at: fromLocal(f.opens),
           closes_at: fromLocal(f.closes),
@@ -196,6 +202,10 @@ const ExamForm: React.FC<{ exam: AdminExam | null; c: AdminContent; onDone: () =
         <label className="space-y-1">
           <span>Pass mark %</span>
           <input type="number" min={1} max={100} value={f.pass} onChange={(e) => setF({ ...f, pass: e.target.value })} className="sanzar-input text-sm" />
+        </label>
+        <label className="space-y-1">
+          <span>XP reward <small className="font-normal text-sanzar-muted">(blank = per-question / default)</small></span>
+          <input type="number" min={0} max={10000} value={f.xp} placeholder="Default" onChange={(e) => setF({ ...f, xp: e.target.value })} className="sanzar-input text-sm" />
         </label>
         <label className="space-y-1">
           <span>Status</span>

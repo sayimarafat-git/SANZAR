@@ -184,7 +184,7 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
                   style={{ backgroundColor: `${col}20`, color: col }}
                   className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
                 >
-                  {c.number}
+                  {c.number === 0 ? '★' : c.number}
                 </div>
                 <div className="flex-1 min-w-0">
                   <h2 className="font-bold text-sm sm:text-base truncate">{c.title}</h2>
@@ -233,7 +233,7 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
           >
             <ArrowLeft className="w-4 h-4" /> {book.title}
           </Link>
-          <span className="sanzar-pill">{t('chapter', { n: ch.number })}</span>
+          <span className="sanzar-pill">{ch.number === 0 ? book.title : t('chapter', { n: ch.number })}</span>
         </div>
 
         <div>
