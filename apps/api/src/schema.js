@@ -296,10 +296,15 @@ ALTER TABLE questions ADD COLUMN xp_points INTEGER;
 `,
   },
   {
-    id: '0006_dictionary_and_thumbnails',
+    id: '0006_book_thumbnails',
     sql: `
 ALTER TABLE books ADD COLUMN cover_image TEXT;
 ALTER TABLE books ADD COLUMN cover_ratio REAL;
+`,
+  },
+  {
+    id: '0007_dictionary',
+    sql: `
 CREATE TABLE IF NOT EXISTS dictionary_entries (
   id TEXT PRIMARY KEY,
   language TEXT NOT NULL CHECK (language IN ('zh','en')),

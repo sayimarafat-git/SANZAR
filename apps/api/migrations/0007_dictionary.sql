@@ -1,6 +1,3 @@
-ALTER TABLE books ADD COLUMN cover_image TEXT;
-ALTER TABLE books ADD COLUMN cover_ratio REAL;
-
 CREATE TABLE IF NOT EXISTS dictionary_entries (
   id TEXT PRIMARY KEY,
   language TEXT NOT NULL CHECK (language IN ('zh','en')),
@@ -20,4 +17,4 @@ CREATE TABLE IF NOT EXISTS dictionary_entries (
 );
 CREATE INDEX IF NOT EXISTS idx_dict_lang_word ON dictionary_entries(language, word);
 
-INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES ('0006_dictionary_and_thumbnails', 0);
+INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES ('0007_dictionary', 0);
