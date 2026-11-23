@@ -6,7 +6,6 @@ import { useAuth } from '../../lib/auth-context';
 import { useSettings } from '../../lib/settings-context';
 import { apiRequest } from '../../lib/api-client';
 import type { DictionaryEntry } from '../../lib/models';
-import { STARTER_WORDS } from './starter-words';
 import { LoadingState } from '../../components/SanzarUI';
 
 const K_SAVED = 'sanzar.dict.saved';
@@ -59,15 +58,8 @@ export const DictionaryPage: React.FC = () => {
 
   const mergedEntries = useMemo(() => {
     const apiList = dictQuery.data?.entries ?? [];
-    const byKey = new Map<string, DictionaryEntry>();
-    for (const s of STARTER_WORDS) {
-      byKey.set(`${s.language}:${s.word.toLowerCase()}`, s);
-    }
-    for (const a of apiList) {
-      byKey.set(`${a.language}:${a.word.toLowerCase()}`, a);
-    }
     const q = query.trim().toLowerCase();
-    return Array.from(byKey.values()).filter((e) => {
+    return apiList.filter((e) => {
       if (filter === 'saved' && !savedSet.has(e.id)) return false;
       if ((filter === 'zh' || filter === 'en') && e.language !== filter) return false;
       if (!q) return true;

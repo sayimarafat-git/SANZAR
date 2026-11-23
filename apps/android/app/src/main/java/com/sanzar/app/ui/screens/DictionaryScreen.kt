@@ -13,7 +13,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.sanzar.app.core.LocalStrings
-import com.sanzar.app.data.model.DictionaryEntry
 import com.sanzar.app.ui.SanzarUiState
 import com.sanzar.app.ui.components.EmptyStateView
 import com.sanzar.app.ui.components.SanzarCard
@@ -22,17 +21,6 @@ import com.sanzar.app.ui.theme.LocalSanzarPalette
 import com.sanzar.app.ui.theme.SanzarRadius
 import com.sanzar.app.ui.theme.SanzarSpace
 import kotlinx.coroutines.delay
-
-private val OFFLINE_STARTER_WORDS = listOf(
-    DictionaryEntry("s-zh-1", "zh", "你好", "nǐ hǎo", "greeting", "Hello; Hi", "হ্যালো; নমস্কার", "打招呼用语", "你好，欢迎来到 SANZAR！", "Hello, welcome to SANZAR!", "HSK 1"),
-    DictionaryEntry("s-zh-2", "zh", "谢谢", "xiè xie", "verb", "Thank you", "ধন্যবাদ", "表示感谢", "非常谢谢你的帮助！", "Thank you very much for your help!", "HSK 1"),
-    DictionaryEntry("s-zh-3", "zh", "学习", "xué xí", "verb / noun", "To study; learn", "পড়াশোনা করা; শেখা", "获取知识或技能", "我每天学习中文。", "I study Chinese every day.", "HSK 1"),
-    DictionaryEntry("s-zh-4", "zh", "老师", "lǎo shī", "noun", "Teacher", "শিক্ষক", "教导学生的人", "李老师教我们中文。", "Teacher Li teaches us Chinese.", "HSK 1"),
-    DictionaryEntry("s-zh-5", "zh", "考试", "kǎo shì", "noun / verb", "Exam; test", "পরীক্ষা", "测验", "下周一有汉语考试。", "Next Monday there is a Chinese exam.", "HSK 2"),
-    DictionaryEntry("s-en-1", "en", "Comprehend", "/ˌkɒm.prɪˈhend/", "verb", "Understand fully", "সম্পূর্ণভাবে বুঝতে পারা", "理解，领悟", "Notes help students comprehend grammar.", "", "Core"),
-    DictionaryEntry("s-en-2", "en", "Fluent", "/ˈfluː.ənt/", "adj", "Speak easily & accurately", "সাবলীল", "流利的", "Daily practice makes you fluent.", "", "Core"),
-    DictionaryEntry("s-en-3", "en", "Consistent", "/kənˈsɪs.tənt/", "adj", "Steady over time", "ধারাবাহিক", "一贯的", "Consistent study brings results.", "", "Core")
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,11 +42,8 @@ fun DictionaryScreen(
     }
 
     val merged = remember(state.dictionaryEntries, query, langFilter, savedIds) {
-        val byKey = linkedMapOf<String, DictionaryEntry>()
-        OFFLINE_STARTER_WORDS.forEach { byKey["${it.language}:${it.word.lowercase()}"] = it }
-        state.dictionaryEntries.forEach { byKey["${it.language}:${it.word.lowercase()}"] = it }
         val q = query.trim().lowercase()
-        byKey.values.filter { e ->
+        state.dictionaryEntries.filter { e ->
             (langFilter != "saved" || savedIds.contains(e.id)) &&
                 ((langFilter != "zh" && langFilter != "en") || e.language == langFilter) &&
                 (q.isEmpty() || listOf(e.word, e.phonetic, e.meaningEn, e.meaningBn, e.meaningZh)

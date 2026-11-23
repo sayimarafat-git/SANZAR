@@ -53,7 +53,7 @@ export const AdminDictionaryPage: React.FC = () => {
 
       {entries.length === 0 ? (
         <div className="sanzar-card p-6 text-xs text-sanzar-muted">
-          No custom dictionary entries yet. Built-in starter words are shown automatically; any entries added here appear for all students.
+          No dictionary entries yet.
         </div>
       ) : (
         <div className="sanzar-card overflow-x-auto">
