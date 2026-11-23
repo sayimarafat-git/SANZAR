@@ -9,4 +9,4 @@ ON CONFLICT(id) DO UPDATE SET
   name_zh = excluded.name_zh,
   sort = excluded.sort;
 
-INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES ('0005_learning_languages', 0);
+INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES ('0004_learning_languages', 0);

@@ -274,16 +274,7 @@ CREATE TABLE IF NOT EXISTS resource_manifest (
 `,
   },
   {
-    id: '0004_levels_6_to_uni',
-    sql: `
-INSERT OR IGNORE INTO levels (id, name_en, name_bn, name_zh, sort) VALUES
-  ('c6', 'Class 6', 'ষষ্ঠ শ্রেণি', '六年级', -2),
-  ('c7', 'Class 7', 'সপ্তম শ্রেণি', '七年级', -1),
-  ('c8', 'Class 8', 'অষ্টম শ্রেণি', '八年级', 0);
-`,
-  },
-  {
-    id: '0005_learning_languages',
+    id: '0004_learning_languages',
     sql: `
 DELETE FROM levels WHERE id NOT IN ('zh', 'en');
 INSERT INTO levels (id, name_en, name_bn, name_zh, sort) VALUES
