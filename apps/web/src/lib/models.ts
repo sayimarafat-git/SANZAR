@@ -119,9 +119,13 @@ export interface ExamInfo {
   type: 'chapter_quiz' | 'model' | string;
   book_id: string | null;
   chapter_id: string | null;
+  level_id?: string | null;
+  time_zone?: string | null;
   duration_sec: number;
   question_count: number;
   pass_pct: number;
+  opens_at?: number | null;
+  closes_at?: number | null;
 }
 
 export interface Catalog {

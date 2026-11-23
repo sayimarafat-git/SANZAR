@@ -67,6 +67,8 @@ export interface AdminExam {
   type: string;
   book_id: string | null;
   chapter_id: string | null;
+  level_id?: string | null;
+  time_zone?: string | null;
   duration_sec: number;
   question_count: number;
   pass_pct: number;

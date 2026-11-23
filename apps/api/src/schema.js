@@ -325,4 +325,11 @@ CREATE TABLE IF NOT EXISTS dictionary_entries (
 CREATE INDEX IF NOT EXISTS idx_dict_lang_word ON dictionary_entries(language, word);
 `,
   },
+  {
+    id: '0008_exam_targeting_and_timezone',
+    sql: `
+ALTER TABLE exams ADD COLUMN level_id TEXT;
+ALTER TABLE exams ADD COLUMN time_zone TEXT;
+`,
+  },
 ];

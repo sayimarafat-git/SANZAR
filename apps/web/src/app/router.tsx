@@ -10,7 +10,6 @@ const LearnPage = lazy(() => import('../features/learning/LearnPage').then((m) =
 const ExamsPage = lazy(() => import('../features/exams/ExamsPage').then((m) => ({ default: m.ExamsPage })));
 const ProgressPage = lazy(() => import('../features/progress/ProgressPage').then((m) => ({ default: m.ProgressPage })));
 const CommunityPage = lazy(() => import('../features/community/CommunityPage').then((m) => ({ default: m.CommunityPage })));
-const TutorPage = lazy(() => import('../features/tutor/TutorPage').then((m) => ({ default: m.TutorPage })));
 const ProfilePage = lazy(() => import('../features/profile/ProfilePage').then((m) => ({ default: m.ProfilePage })));
 const AuthPage = lazy(() => import('../features/auth/AuthPage').then((m) => ({ default: m.AuthPage })));
 const AdminDashboard = lazy(() => import('../features/admin/AdminDashboard').then((m) => ({ default: m.AdminDashboard })));
@@ -36,7 +35,7 @@ export const AppRouter: React.FC = () => {
           <Route path="attempts/:attemptId" element={<ExamsPage view="result" />} />
           <Route path="progress" element={<ProgressPage />} />
           <Route path="community" element={<CommunityPage />} />
-          <Route path="tutor" element={<TutorPage />} />
+          <Route path="tutor" element={<Navigate to="/" replace />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="settings" element={<ProfilePage />} />
           <Route path="login" element={<AuthPage mode="login" />} />

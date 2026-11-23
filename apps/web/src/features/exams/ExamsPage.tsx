@@ -64,9 +64,16 @@ const ExamsList: React.FC = () => {
       .filter((b) => !levelId || !b.levels.length || b.levels.includes(levelId))
       .map((b) => b.id)
   );
-  const exams = (cat?.exams ?? []).filter(
-    (e) => !e.book_id || levelBookIds.has(e.book_id)
-  );
+  const chapterBookId = new Map<string, string>();
+  for (const b of cat?.books ?? []) {
+    for (const ch of b.chapters) chapterBookId.set(ch.id, b.id);
+  }
+  const exams = (cat?.exams ?? []).filter((e) => {
+    if (e.level_id && levelId && e.level_id !== levelId) return false;
+    const effectiveBookId = e.book_id || (e.chapter_id ? chapterBookId.get(e.chapter_id) : undefined);
+    if (!e.level_id && effectiveBookId && !levelBookIds.has(effectiveBookId)) return false;
+    return true;
+  });
 
   return (
     <div className="space-y-5 max-w-4xl mx-auto">

@@ -277,16 +277,24 @@ async function putExam(env, ctx, id, i) {
   const chapterId = i.type === 'chapter_quiz' ? slug(i.chapter_id, 'Chapter') : null;
   if (bookId && !(await env.DB.prepare('SELECT 1 FROM books WHERE id = ?').bind(bookId).first())) throw new HttpError(400, 'invalid-argument', 'Unknown book');
   if (chapterId && !(await env.DB.prepare('SELECT 1 FROM chapters WHERE id = ?').bind(chapterId).first())) throw new HttpError(400, 'invalid-argument', 'Unknown chapter');
+  let examLevelId = null;
+  if (i.level_id != null && i.level_id !== '') {
+    if (!LEVEL_IDS.has(i.level_id)) throw new HttpError(400, 'invalid-argument', 'Unknown learning language');
+    examLevelId = i.level_id;
+  }
+  const timeZone = typeof i.time_zone === 'string' && i.time_zone.trim()
+    ? str(i.time_zone.trim(), { min: 1, max: 64, field: 'Time zone' })
+    : null;
   const opens = num(i.opens_at, 'Opens at', 0, 9e15);
   const closes = num(i.closes_at, 'Closes at', 0, 9e15);
   if (opens && closes && closes <= opens) throw new HttpError(400, 'invalid-argument', 'Closing time must be after opening time');
   const xpReward = num(i.xp_reward, 'XP reward', 0, 10000, null);
-  await env.DB.prepare(`INSERT INTO exams (id, title, type, book_id, chapter_id, duration_sec, question_count, pass_pct, xp_reward, status, opens_at, closes_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET title = excluded.title, type = excluded.type, book_id = excluded.book_id, chapter_id = excluded.chapter_id, duration_sec = excluded.duration_sec,
+  await env.DB.prepare(`INSERT INTO exams (id, title, type, book_id, chapter_id, level_id, time_zone, duration_sec, question_count, pass_pct, xp_reward, status, opens_at, closes_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET title = excluded.title, type = excluded.type, book_id = excluded.book_id, chapter_id = excluded.chapter_id, level_id = excluded.level_id, time_zone = excluded.time_zone, duration_sec = excluded.duration_sec,
     question_count = excluded.question_count, pass_pct = excluded.pass_pct, xp_reward = excluded.xp_reward, status = excluded.status, opens_at = excluded.opens_at, closes_at = excluded.closes_at`)
-    .bind(id, str(i.title, { min: 2, max: 120, field: 'Title' }), i.type, bookId, chapterId, num(i.duration_sec, 'Duration', 60, 6 * 3600, 600), num(i.question_count, 'Question count', 1, 200, 10),
+    .bind(id, str(i.title, { min: 2, max: 120, field: 'Title' }), i.type, bookId, chapterId, examLevelId, timeZone, num(i.duration_sec, 'Duration', 60, 6 * 3600, 600), num(i.question_count, 'Question count', 1, 200, 10),
       num(i.pass_pct, 'Pass mark', 1, 100, 60), xpReward, status(i.status), opens, closes, now()).run();
-  await audit(env, ctx, 'exam.save', id, { xpReward });
+  await audit(env, ctx, 'exam.save', id, { xpReward, level_id: examLevelId, time_zone: timeZone });
   return { id };
 }
 

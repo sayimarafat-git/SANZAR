@@ -83,7 +83,7 @@ before(async () => {
     APP_ENV: 'test',
   };
   const migration = await migrate(env);
-  assert.deepEqual(migration.applied, ['0001_init', '0002_existing_profiles', '0003_sync_and_resources', '0004_learning_languages', '0005_admin_enhancements', '0006_book_thumbnails', '0007_dictionary']);
+  assert.deepEqual(migration.applied, ['0001_init', '0002_existing_profiles', '0003_sync_and_resources', '0004_learning_languages', '0005_admin_enhancements', '0006_book_thumbnails', '0007_dictionary', '0008_exam_targeting_and_timezone']);
   const preserved = await DB.prepare('SELECT uid, email, display_name, created_at FROM users WHERE uid = ?').bind('preserved-profile').first();
   assert.equal(preserved.uid, 'preserved-profile');
   assert.equal(preserved.email, 'preserved@example.test');
@@ -95,7 +95,7 @@ before(async () => {
 test('health reports completed schema migrations', async () => {
   const { response, data } = await call('GET', '/v1/health');
   assert.equal(response.status, 200);
-  assert.equal(data.schema, '7/7');
+  assert.equal(data.schema, '8/8');
 });
 
 test('catalog starts with platform levels and no imported course data', async () => {
@@ -411,4 +411,23 @@ test('onboarding, single notification read, community search, dictionary, and bo
 
   const dictDel = await call('DELETE', '/v1/admin/dictionary/zh-ni-hao', { auth: ownerToken });
   assert.equal(dictDel.response.status, 200);
+
+  const targetedExam = await call('PUT', '/v1/admin/exams/zh-quiz-targeted', {
+    auth: ownerToken,
+    body: {
+      title: 'Targeted Chinese Quiz',
+      type: 'chapter_quiz',
+      chapter_id: 'foundations-full',
+      level_id: 'zh',
+      time_zone: 'Asia/Shanghai',
+      duration_sec: 300,
+      question_count: 1,
+      status: 'published',
+    },
+  });
+  assert.equal(targetedExam.response.status, 200);
+  const catTargeted = await call('GET', '/v1/catalog', { auth: ownerToken });
+  const savedTargeted = catTargeted.data.exams.find((e) => e.id === 'zh-quiz-targeted');
+  assert.equal(savedTargeted.level_id, 'zh');
+  assert.equal(savedTargeted.time_zone, 'Asia/Shanghai');
 });

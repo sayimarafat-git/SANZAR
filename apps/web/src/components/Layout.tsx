@@ -16,6 +16,7 @@ import {
   Globe,
   LogOut,
   User as UserIcon,
+  X,
 } from 'lucide-react';
 import { useAuth } from '../lib/auth-context';
 import { useSettings } from '../lib/settings-context';
@@ -23,6 +24,7 @@ import { apiRequest } from '../lib/api-client';
 import type { AppNotification } from '../lib/models';
 import { AmbientBackdrop, BrandMark, useToast } from './SanzarUI';
 import { FirstVisitOnboarding, PostLoginOnboarding, postOnboardedKey } from './OnboardingFlow';
+import { FloatingTutorWidget } from './FloatingTutorWidget';
 
 type NotifData = { notifications: AppNotification[]; unread: number };
 
@@ -34,6 +36,7 @@ export const Layout: React.FC = () => {
   const toast = useToast();
   const qc = useQueryClient();
   const [notifOpen, setNotifOpen] = useState(false);
+  const [tutorOpen, setTutorOpen] = useState(false);
   const notifWrapRef = useRef<HTMLDivElement>(null);
 
   const [firstOnbDismissed, setFirstOnbDismissed] = useState(
@@ -109,7 +112,7 @@ export const Layout: React.FC = () => {
     { to: '/community', label: t('community'), icon: Users },
   ];
 
-  const hideTutorFab = ['/tutor', '/login', '/register', '/forgot-password'].includes(location.pathname);
+  const hideTutorFab = ['/login', '/register', '/forgot-password'].includes(location.pathname);
   const showFirstVisitOnboarding = !loading && !user && !firstOnbDismissed;
   const showPostLoginOnboarding =
     !!user &&
@@ -387,16 +390,19 @@ export const Layout: React.FC = () => {
         ))}
       </nav>
 
-      {/* Bottom-right Floating AI Tutor Button */}
+      {/* Bottom-right Floating AI Tutor Chatbot Widget & Button */}
+      <FloatingTutorWidget open={tutorOpen && !hideTutorFab} onClose={() => setTutorOpen(false)} />
       {!hideTutorFab && (
-        <Link
-          to="/tutor"
+        <button
+          type="button"
+          onClick={() => setTutorOpen((v) => !v)}
+          aria-expanded={tutorOpen}
           aria-label={t('tutor')}
           className="fixed right-5 bottom-24 md:bottom-6 z-40 px-4 py-3 rounded-2xl bg-brand-grad text-white font-bold text-sm shadow-xl hover:scale-[1.03] active:scale-[0.98] transition flex items-center gap-2 ring-1 ring-white/30"
         >
-          <Sparkles className="w-5 h-5" />
+          {tutorOpen ? <X className="w-5 h-5" /> : <Sparkles className="w-5 h-5" />}
           <span className="hidden sm:inline">{t('tutor')}</span>
-        </Link>
+        </button>
       )}
 
       {/* First-visit & Post-login Onboarding Flows */}
