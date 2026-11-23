@@ -65,9 +65,9 @@ export const Layout: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen flex flex-col bg-sanzar-bg text-sanzar-text pb-16 md:pb-0">
-      {/* Top Navbar */}
-      <header className="sticky top-0 z-40 bg-sanzar-surface/95 backdrop-blur border-b border-sanzar-border">
+    <div className="min-h-screen flex flex-col text-sanzar-text pb-24 md:pb-0">
+      {/* Top Navbar (iOS Frosted Glass) */}
+      <header className="sticky top-0 z-40 sanzar-glass-bar border-x-0 border-t-0 rounded-none">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
           <div className="flex items-center gap-6">
             <Link to="/" className="flex items-center gap-2.5 shrink-0">
@@ -225,14 +225,10 @@ export const Layout: React.FC = () => {
         </div>
       )}
 
-      {/* Main Content + Right Navigation Panel */}
+      {/* Left Navigation Panel + Main Content (iOS Glass Shell) */}
       <div className="flex-1 flex w-full max-w-7xl mx-auto">
-        <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-6">
-          <Outlet />
-        </main>
-
-        {/* Desktop Right Navigation Panel */}
-        <aside className="hidden md:flex flex-col w-60 shrink-0 border-l border-sanzar-border bg-sanzar-surface sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 justify-between">
+        {/* Desktop Left Navigation Panel */}
+        <aside className="hidden md:flex flex-col w-60 shrink-0 sticky top-20 h-[calc(100vh-6rem)] my-4 ml-4 lg:ml-6 rounded-[22px] sanzar-glass overflow-y-auto p-3.5 justify-between">
           <nav className="flex flex-col gap-1">
             {navItems.map((item) => (
               <NavLink
@@ -240,10 +236,10 @@ export const Layout: React.FC = () => {
                 to={item.to}
                 end={item.end}
                 className={({ isActive }) =>
-                  `px-3 py-2.5 rounded-xl text-sm font-semibold transition flex items-center gap-2.5 ${
+                  `px-3.5 py-2.5 rounded-2xl text-sm font-semibold transition flex items-center gap-2.5 ${
                     isActive
-                      ? 'bg-sanzar-primarySoft text-sanzar-primary'
-                      : 'text-sanzar-text2 hover:bg-sanzar-surface2 hover:text-sanzar-text'
+                      ? 'bg-sanzar-primarySoft text-sanzar-primary shadow-sm ring-1 ring-white/40 dark:ring-white/10'
+                      : 'text-sanzar-text2 hover:bg-white/45 dark:hover:bg-white/5 hover:text-sanzar-text'
                   }`
                 }
               >
@@ -255,10 +251,10 @@ export const Layout: React.FC = () => {
             <NavLink
               to="/profile"
               className={({ isActive }) =>
-                `px-3 py-2.5 rounded-xl text-sm font-semibold transition flex items-center gap-2.5 ${
+                `px-3.5 py-2.5 rounded-2xl text-sm font-semibold transition flex items-center gap-2.5 ${
                   isActive
-                    ? 'bg-sanzar-primarySoft text-sanzar-primary'
-                    : 'text-sanzar-text2 hover:bg-sanzar-surface2 hover:text-sanzar-text'
+                    ? 'bg-sanzar-primarySoft text-sanzar-primary shadow-sm ring-1 ring-white/40 dark:ring-white/10'
+                    : 'text-sanzar-text2 hover:bg-white/45 dark:hover:bg-white/5 hover:text-sanzar-text'
                 }`
               }
             >
@@ -270,10 +266,10 @@ export const Layout: React.FC = () => {
               <NavLink
                 to="/admin"
                 className={({ isActive }) =>
-                  `mt-2 px-3 py-2.5 rounded-xl text-sm font-semibold transition flex items-center gap-2.5 ${
+                  `mt-2 px-3.5 py-2.5 rounded-2xl text-sm font-semibold transition flex items-center gap-2.5 ${
                     isActive
-                      ? 'bg-sanzar-primary text-sanzar-onPrimary'
-                      : 'text-sanzar-primary bg-sanzar-primarySoft/50 hover:bg-sanzar-primarySoft'
+                      ? 'bg-sanzar-primary text-sanzar-onPrimary shadow-sm'
+                      : 'text-sanzar-primary bg-sanzar-primarySoft/80 hover:bg-sanzar-primarySoft'
                   }`
                 }
               >
@@ -283,17 +279,21 @@ export const Layout: React.FC = () => {
             )}
           </nav>
 
-          <div className="pt-4 border-t border-sanzar-border text-xs text-sanzar-muted space-y-1 px-1">
+          <div className="pt-4 border-t border-sanzar-border text-xs text-sanzar-muted space-y-1 px-1.5">
             <p className="font-semibold text-sanzar-text2 truncate">
               {profile?.display_name || user?.email?.split('@')[0] || 'SANZAR'}
             </p>
             <p className="truncate">{t('tagline')}</p>
           </div>
         </aside>
+
+        <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-6">
+          <Outlet />
+        </main>
       </div>
 
       {/* Footer */}
-      <footer className="hidden md:block border-t border-sanzar-border bg-sanzar-surface py-5 mt-auto">
+      <footer className="hidden md:block sanzar-glass-bar border-x-0 border-b-0 rounded-none py-5 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-sanzar-muted gap-2">
           <p>© 2026 SANZAR — {t('tagline')}</p>
           <div className="flex items-center gap-3">
@@ -309,8 +309,8 @@ export const Layout: React.FC = () => {
         </div>
       </footer>
 
-      {/* Mobile Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-sanzar-surface/95 backdrop-blur border-t border-sanzar-border flex items-center justify-around h-16 px-1">
+      {/* Mobile Floating Glass Bottom Dock */}
+      <nav className="md:hidden fixed bottom-3 inset-x-3 z-40 rounded-[24px] sanzar-glass-bar flex items-center justify-around h-16 px-1.5">
         {navItems.slice(0, 5).map((item) => (
           <NavLink
             key={item.to}

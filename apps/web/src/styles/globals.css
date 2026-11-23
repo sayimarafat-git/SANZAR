@@ -3,16 +3,16 @@
 @tailwind utilities;
 
 :root {
-  --bg: #F2F6F1;
-  --surface: #FFFFFF;
-  --surface2: #F4F7F2;
+  --bg: #EBF2EC;
+  --surface: rgba(255, 255, 255, 0.72);
+  --surface2: rgba(244, 247, 242, 0.64);
   --text: #15251B;
   --text2: #42584A;
   --muted: #637268;
-  --border: #DCE7DE;
+  --border: rgba(255, 255, 255, 0.65);
   --primary: #176B4B;
   --on-primary: #FFFFFF;
-  --primary-soft: #E2F0E7;
+  --primary-soft: rgba(23, 107, 75, 0.12);
   --brand-emerald: #176B4B;
   --brand-jade: #247754;
   --brand-forest: #12392A;
@@ -20,23 +20,45 @@
   --warning: #F5A524;
   --danger: #EF4444;
   --gold: #C6A46A;
-  --grad: linear-gradient(135deg, #0B523B 0%, #146C4D 55%, #247754 100%);
-  --hero-grad: linear-gradient(135deg, #0B1D14 0%, #12402D 55%, #1D6044 100%);
-  --radius: 14px;
+  --grad: linear-gradient(135deg, rgba(11, 82, 59, 0.94) 0%, rgba(20, 108, 77, 0.92) 55%, rgba(36, 119, 84, 0.94) 100%);
+  --hero-grad: linear-gradient(135deg, rgba(11, 29, 20, 0.94) 0%, rgba(18, 64, 45, 0.9) 55%, rgba(29, 96, 68, 0.92) 100%);
+  --glass-bg: rgba(255, 255, 255, 0.62);
+  --glass-bg-strong: rgba(255, 255, 255, 0.78);
+  --glass-border: rgba(255, 255, 255, 0.72);
+  --glass-outer-border: rgba(21, 37, 27, 0.08);
+  --glass-highlight: rgba(255, 255, 255, 0.88);
+  --glass-shadow: 0 10px 32px -10px rgba(15, 42, 28, 0.12), 0 2px 8px -2px rgba(15, 42, 28, 0.06);
+  --ambient-mesh:
+    radial-gradient(at 8% 12%, rgba(25, 180, 107, 0.22) 0px, transparent 46%),
+    radial-gradient(at 88% 10%, rgba(61, 107, 255, 0.14) 0px, transparent 42%),
+    radial-gradient(at 82% 88%, rgba(198, 164, 106, 0.18) 0px, transparent 48%),
+    radial-gradient(at 15% 84%, rgba(36, 119, 84, 0.16) 0px, transparent 45%);
+  --radius: 20px;
   color-scheme: light;
 }
 
 .dark {
-  --bg: #09140F;
-  --surface: #13231A;
-  --surface2: #1B2D22;
+  --bg: #07110C;
+  --surface: rgba(19, 35, 26, 0.68);
+  --surface2: rgba(27, 45, 34, 0.62);
   --text: #EEF5EF;
   --text2: #C8D7CA;
   --muted: #92A496;
-  --border: #2C4233;
+  --border: rgba(255, 255, 255, 0.12);
   --primary: #6FC294;
   --on-primary: #102017;
-  --primary-soft: #1D3D2B;
+  --primary-soft: rgba(111, 194, 148, 0.16);
+  --glass-bg: rgba(19, 35, 26, 0.58);
+  --glass-bg-strong: rgba(15, 29, 21, 0.76);
+  --glass-border: rgba(255, 255, 255, 0.13);
+  --glass-outer-border: rgba(0, 0, 0, 0.35);
+  --glass-highlight: rgba(255, 255, 255, 0.12);
+  --glass-shadow: 0 14px 36px -10px rgba(0, 0, 0, 0.55), 0 2px 10px -2px rgba(0, 0, 0, 0.35);
+  --ambient-mesh:
+    radial-gradient(at 10% 10%, rgba(23, 107, 75, 0.32) 0px, transparent 50%),
+    radial-gradient(at 88% 14%, rgba(26, 134, 160, 0.22) 0px, transparent 44%),
+    radial-gradient(at 82% 85%, rgba(198, 164, 106, 0.12) 0px, transparent 48%),
+    radial-gradient(at 15% 88%, rgba(18, 57, 42, 0.38) 0px, transparent 48%);
   color-scheme: dark;
 }
 
@@ -49,49 +71,86 @@ body {
   margin: 0;
   min-height: 100vh;
   background-color: var(--bg);
+  background-image: var(--ambient-mesh);
+  background-attachment: fixed;
   color: var(--text);
-  font-family: "Inter", "Hind Siliguri", system-ui, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Hind Siliguri", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 .bg-brand-grad {
   background: var(--grad);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  box-shadow: 0 10px 28px -10px rgba(11, 82, 59, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
 .bg-hero-grad {
   background: var(--hero-grad);
+  backdrop-filter: blur(22px) saturate(165%);
+  -webkit-backdrop-filter: blur(22px) saturate(165%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 18px 42px -14px rgba(11, 29, 20, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.22);
 }
 
-/* Admin dashboard utility classes matching reference globals.css */
+.sanzar-glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(22px) saturate(185%);
+  -webkit-backdrop-filter: blur(22px) saturate(185%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+}
+
+.sanzar-glass-bar {
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(26px) saturate(195%);
+  -webkit-backdrop-filter: blur(26px) saturate(195%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+}
+
+/* iOS glassy card & control utilities */
 .sanzar-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--glass-bg);
+  backdrop-filter: blur(22px) saturate(185%);
+  -webkit-backdrop-filter: blur(22px) saturate(185%);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
 }
 
 .sanzar-input {
   color: var(--text);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 8px 12px;
+  background: var(--surface2);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  padding: 9px 13px;
   width: 100%;
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s;
 }
 
 .sanzar-input:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 22%, transparent);
+  background: var(--glass-bg-strong);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 22%, transparent);
 }
 
 .sanzar-pill {
   display: inline-flex;
   align-items: center;
-  padding: 2px 10px;
+  padding: 3px 10px;
   border-radius: 9999px;
   font-size: 12px;
   font-weight: 600;
   background: var(--surface2);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   color: var(--text2);
 }
 

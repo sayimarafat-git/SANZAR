@@ -23,7 +23,7 @@ export const AdminLayout: React.FC = () => {
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-sanzar-bg">
+      <div className="min-h-screen flex items-center justify-center p-4">
         <div className="sanzar-card p-8 max-w-sm w-full text-center space-y-4">
           <div className="flex items-center justify-center gap-2.5">
             <BrandMark size={36} />
@@ -43,7 +43,7 @@ export const AdminLayout: React.FC = () => {
 
   if (!isStaff) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-sanzar-bg">
+      <div className="min-h-screen flex items-center justify-center p-4">
         <div className="sanzar-card p-8 max-w-md w-full space-y-4">
           <h1 className="text-xl font-bold">No access</h1>
           <p className="text-sm text-sanzar-text2">
@@ -61,8 +61,8 @@ export const AdminLayout: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen grid grid-cols-1 md:grid-cols-[232px_1fr] bg-sanzar-bg text-sanzar-text">
-      <aside className="bg-sanzar-surface border-b md:border-b-0 md:border-r border-sanzar-border p-4 md:sticky md:top-0 md:h-screen overflow-y-auto flex flex-col justify-between gap-4">
+    <div className="min-h-screen grid grid-cols-1 md:grid-cols-[248px_1fr] text-sanzar-text">
+      <aside className="sanzar-glass md:m-4 md:mr-0 md:rounded-[22px] p-4 md:sticky md:top-4 md:h-[calc(100vh-2rem)] overflow-y-auto flex flex-col justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5 font-extrabold px-1.5 mb-5">
             <BrandMark size={34} />
@@ -79,10 +79,10 @@ export const AdminLayout: React.FC = () => {
                 to={n.to}
                 end={n.end}
                 className={({ isActive }) =>
-                  `block px-3 py-2 rounded-xl text-sm font-medium transition ${
+                  `block px-3.5 py-2.5 rounded-2xl text-sm font-medium transition ${
                     isActive
-                      ? 'bg-sanzar-primarySoft text-sanzar-primary font-semibold'
-                      : 'text-sanzar-text2 hover:bg-sanzar-primarySoft/60 hover:text-sanzar-primary'
+                      ? 'bg-sanzar-primarySoft text-sanzar-primary font-semibold shadow-sm ring-1 ring-white/40 dark:ring-white/10'
+                      : 'text-sanzar-text2 hover:bg-white/45 dark:hover:bg-white/5 hover:text-sanzar-primary'
                   }`
                 }
               >
@@ -101,7 +101,7 @@ export const AdminLayout: React.FC = () => {
           </div>
           <Link
             to="/"
-            className="flex items-center gap-2 px-3 py-2 rounded-xl border border-sanzar-border text-xs font-semibold hover:bg-sanzar-surface2 transition"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-2xl border border-sanzar-border text-xs font-semibold hover:bg-white/45 dark:hover:bg-white/5 transition"
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Back to Student App
           </Link>
