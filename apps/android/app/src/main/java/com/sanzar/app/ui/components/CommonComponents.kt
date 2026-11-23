@@ -1,6 +1,9 @@
 package com.sanzar.app.ui.components
 
+import android.graphics.BitmapFactory
+import android.util.Base64
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -8,13 +11,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -26,6 +32,11 @@ import com.sanzar.app.ui.theme.LocalSanzarPalette
 import com.sanzar.app.ui.theme.SanzarColors
 import com.sanzar.app.ui.theme.SanzarRadius
 import com.sanzar.app.ui.theme.SanzarSpace
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.concurrent.ConcurrentHashMap
 
 @Composable
 fun BrandMark(
@@ -105,33 +116,80 @@ fun SectionTitle(
     }
 }
 
+private val coverHttpClient by lazy { OkHttpClient() }
+private val coverBitmapCache = ConcurrentHashMap<String, ImageBitmap>()
+
 @Composable
 fun BookCover(
     colors: List<String>,
     title: String,
     width: Dp = 96.dp,
+    imageUrl: String? = null,
+    aspectRatio: Float? = null,
     modifier: Modifier = Modifier
 ) {
     val c1 = SanzarColors.parseHex(colors.getOrNull(0), SanzarColors.BrandEmerald)
     val c2 = SanzarColors.parseHex(colors.getOrNull(1), SanzarColors.BrandJade)
-    Box(
-        modifier = modifier
-            .width(width)
-            .height(width * 1.3f)
-            .clip(RoundedCornerShape(SanzarRadius.SM.dp))
-            .background(Brush.linearGradient(listOf(c1, c2)))
-            .padding(SanzarSpace.S2.dp),
-        contentAlignment = Alignment.BottomStart
-    ) {
-        Text(
-            text = title,
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            fontSize = (width.value / 8.5f).coerceAtLeast(9f).sp,
-            lineHeight = (width.value / 7.2f).coerceAtLeast(11f).sp,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis
+    val safeRatio = (aspectRatio ?: 0.75f).coerceIn(0.45f, 2.0f)
+    val targetWidth = if (safeRatio > 1.05f) (width * 1.25f) else width
+    val targetHeight = targetWidth / safeRatio
+
+    var bitmap by remember(imageUrl) { mutableStateOf(imageUrl?.let { coverBitmapCache[it] }) }
+    LaunchedEffect(imageUrl) {
+        if (imageUrl.isNullOrBlank() || bitmap != null) return@LaunchedEffect
+        val loaded = withContext(Dispatchers.IO) {
+            runCatching {
+                if (imageUrl.startsWith("data:image/")) {
+                    val base64Part = imageUrl.substringAfter(",", "")
+                    val bytes = Base64.decode(base64Part, Base64.DEFAULT)
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                } else if (imageUrl.startsWith("https://")) {
+                    coverHttpClient.newCall(Request.Builder().url(imageUrl).build()).execute().use { resp ->
+                        if (!resp.isSuccessful) null
+                        else resp.body?.bytes()?.let { b ->
+                            BitmapFactory.decodeByteArray(b, 0, b.size)?.asImageBitmap()
+                        }
+                    }
+                } else null
+            }.getOrNull()
+        }
+        if (loaded != null) {
+            coverBitmapCache[imageUrl] = loaded
+            bitmap = loaded
+        }
+    }
+
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap!!,
+            contentDescription = title,
+            contentScale = ContentScale.Fit,
+            modifier = modifier
+                .width(targetWidth)
+                .height(targetHeight)
+                .clip(RoundedCornerShape(SanzarRadius.SM.dp))
+                .background(Color.White)
         )
+    } else {
+        Box(
+            modifier = modifier
+                .width(targetWidth)
+                .height(targetHeight)
+                .clip(RoundedCornerShape(SanzarRadius.SM.dp))
+                .background(Brush.linearGradient(listOf(c1, c2)))
+                .padding(SanzarSpace.S2.dp),
+            contentAlignment = Alignment.BottomStart
+        ) {
+            Text(
+                text = title,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = (width.value / 8.5f).coerceAtLeast(9f).sp,
+                lineHeight = (width.value / 7.2f).coerceAtLeast(11f).sp,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 

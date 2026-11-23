@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Bell,
   LogOut,
@@ -28,6 +28,7 @@ export const ProfilePage: React.FC = () => {
   const { lang, setLang, themeMode, setThemeMode, t } = useSettings();
   const navigate = useNavigate();
   const toast = useToast();
+  const qc = useQueryClient();
 
   const catQuery = useQuery({
     queryKey: ['catalog'],
@@ -364,9 +365,17 @@ export const ProfilePage: React.FC = () => {
           </h2>
           {(notifQuery.data?.unread ?? 0) > 0 && (
             <button
+              type="button"
               onClick={async () => {
-                await apiRequest('/v1/notifications/read', { method: 'POST', bodyJson: {} });
-                await notifQuery.refetch();
+                qc.setQueryData<{ notifications: AppNotification[]; unread: number }>(['notifications'], (prev) =>
+                  prev ? { notifications: prev.notifications.map((n) => ({ ...n, read: true })), unread: 0 } : prev
+                );
+                try {
+                  await apiRequest('/v1/notifications/read', { method: 'POST', bodyJson: {} });
+                } catch {
+                  await notifQuery.refetch();
+                  toast(t('err.generic'));
+                }
               }}
               className="text-xs font-semibold text-sanzar-primary hover:underline"
             >
@@ -379,10 +388,32 @@ export const ProfilePage: React.FC = () => {
         ) : (
           <div className="space-y-2 max-h-60 overflow-y-auto">
             {notifQuery.data!.notifications.slice(0, 10).map((n) => (
-              <div key={n.id} className="p-3 rounded-xl bg-sanzar-surface2 text-xs">
-                <p className="font-bold">{n.title}</p>
-                {n.body && <p className="text-sanzar-muted mt-0.5">{n.body}</p>}
-              </div>
+              <button
+                key={n.id}
+                type="button"
+                onClick={async () => {
+                  if (n.read) return;
+                  qc.setQueryData<{ notifications: AppNotification[]; unread: number }>(['notifications'], (prev) => {
+                    if (!prev) return prev;
+                    const next = prev.notifications.map((x) => (x.id === n.id ? { ...x, read: true } : x));
+                    return { notifications: next, unread: next.filter((x) => !x.read).length };
+                  });
+                  try {
+                    await apiRequest('/v1/notifications/read', { method: 'POST', bodyJson: { id: n.id } });
+                  } catch {
+                    await notifQuery.refetch();
+                  }
+                }}
+                className={`w-full text-left p-3 rounded-xl text-xs transition flex items-start gap-2 ${
+                  n.read ? 'bg-sanzar-surface2/60' : 'bg-sanzar-primarySoft/70 border border-sanzar-primary/25'
+                }`}
+              >
+                {!n.read && <span className="w-2 h-2 rounded-full bg-sanzar-primary shrink-0 mt-1" />}
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold">{n.title}</p>
+                  {n.body && <p className="text-sanzar-muted mt-0.5">{n.body}</p>}
+                </div>
+              </button>
             ))}
           </div>
         )}

@@ -74,7 +74,13 @@ fun BookDetailScreen(
                     modifier = Modifier.padding(bottom = SanzarSpace.S3.dp),
                     verticalAlignment = Alignment.Top
                 ) {
-                    BookCover(colors = book.cover, title = book.title, width = 100.dp)
+                    BookCover(
+                        colors = book.cover,
+                        title = book.title,
+                        width = 100.dp,
+                        imageUrl = book.coverImage,
+                        aspectRatio = book.coverRatio
+                    )
                     Spacer(Modifier.width(SanzarSpace.S4.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(

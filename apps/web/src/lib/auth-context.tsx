@@ -11,6 +11,7 @@ import { atLeast, type Role, type UserProfile } from './models';
 interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
+  profileLoaded: boolean;
   loading: boolean;
   isAdmin: boolean;
   isStaff: boolean;
@@ -26,6 +27,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType>({
   user: null,
   profile: null,
+  profileLoaded: false,
   loading: true,
   isAdmin: false,
   isStaff: false,
@@ -41,6 +43,7 @@ const AuthContext = createContext<AuthContextType>({
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [guestMode, setGuestModeState] = useState(() => localStorage.getItem('sanzar.guest') === '1');
 
@@ -58,6 +61,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     email_verified: currentUser.emailVerified,
     level_id: null,
     profile_visibility: 'private',
+    onboarding_completed: true,
   });
 
   const fetchProfile = async (currentUser: User) => {
@@ -66,6 +70,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setProfile(data.user);
     } catch {
       setProfile((prev) => prev ?? fallbackProfile(currentUser));
+    } finally {
+      setProfileLoaded(true);
     }
   };
 
@@ -74,11 +80,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(currentUser);
       if (currentUser) {
         setGuestMode(false);
+        setProfileLoaded(false);
         setProfile((prev) => (prev?.uid === currentUser.uid ? prev : fallbackProfile(currentUser)));
         setLoading(false);
         void fetchProfile(currentUser);
       } else {
         setProfile(null);
+        setProfileLoaded(false);
         setLoading(false);
       }
     });
@@ -95,6 +103,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       bodyJson: patch,
     });
     setProfile(data.user);
+    setProfileLoaded(true);
   };
 
   const deleteAccount = async () => {
@@ -107,11 +116,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
     setProfile(null);
+    setProfileLoaded(false);
   };
 
   const signOut = async () => {
     await fbSignOut(auth);
     setProfile(null);
+    setProfileLoaded(false);
     setGuestMode(false);
   };
 
@@ -124,6 +135,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         user,
         profile,
+        profileLoaded,
         loading,
         isAdmin,
         isStaff,

@@ -1,13 +1,15 @@
 import React from 'react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Moon, Sun } from 'lucide-react';
 import { useAuth } from '../../lib/auth-context';
+import { useSettings } from '../../lib/settings-context';
 import { atLeast, type Role } from '../../lib/models';
 import { AmbientBackdrop, BrandMark, LoadingState } from '../../components/SanzarUI';
 
 const NAV: { to: string; label: string; min: Role; end?: boolean }[] = [
   { to: '/admin', label: 'Overview', min: 'moderator', end: true },
   { to: '/admin/content', label: 'Content', min: 'content_admin' },
+  { to: '/admin/dictionary', label: 'Dictionary', min: 'content_admin' },
   { to: '/admin/exams', label: 'Exams', min: 'content_admin' },
   { to: '/admin/users', label: 'Users', min: 'admin' },
   { to: '/admin/moderation', label: 'Moderation', min: 'moderator' },
@@ -18,6 +20,7 @@ const NAV: { to: string; label: string; min: Role; end?: boolean }[] = [
 
 export const AdminLayout: React.FC = () => {
   const { user, profile, loading, isStaff } = useAuth();
+  const { themeMode, setThemeMode, t } = useSettings();
 
   if (loading) return <LoadingState />;
 
@@ -94,11 +97,22 @@ export const AdminLayout: React.FC = () => {
         </div>
 
         <div className="space-y-3 pt-3 border-t border-sanzar-border">
-          <div className="px-2 text-xs text-sanzar-muted space-y-1">
-            <p className="truncate font-semibold text-sanzar-text2">
-              {profile?.display_name || profile?.email}
-            </p>
-            <span className="sanzar-pill">{profile?.role}</span>
+          <div className="flex items-center justify-between gap-2 px-2">
+            <div className="text-xs text-sanzar-muted space-y-1 min-w-0">
+              <p className="truncate font-semibold text-sanzar-text2">
+                {profile?.display_name || profile?.email}
+              </p>
+              <span className="sanzar-pill">{profile?.role}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setThemeMode(themeMode === 'dark' ? 'light' : 'dark')}
+              title={themeMode === 'dark' ? t('themeDark') : t('themeLight')}
+              aria-label={t('theme')}
+              className="p-2 rounded-xl border border-sanzar-border bg-sanzar-surface2 text-sanzar-text2 hover:text-sanzar-primary transition shrink-0"
+            >
+              {themeMode === 'dark' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+            </button>
           </div>
           <Link
             to="/"

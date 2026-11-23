@@ -160,7 +160,14 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
         </Link>
 
         <div className="sanzar-card p-6 flex flex-col sm:flex-row items-start gap-6">
-          <BookCover colors={book.cover} title={book.title} className="w-28 h-36" />
+          <BookCover
+            colors={book.cover}
+            title={book.title}
+            imageUrl={book.coverImage}
+            aspectRatio={book.coverRatio}
+            previewDoc={book.previewDoc}
+            size="lg"
+          />
           <div className="space-y-2">
             <h1 className="text-2xl font-extrabold">{book.title}</h1>
             {book.author && <p className="text-sm text-sanzar-text2">{book.author}</p>}

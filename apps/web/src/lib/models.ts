@@ -29,6 +29,7 @@ export interface UserProfile {
   institution?: string | null;
   locale?: string | null;
   profile_visibility?: 'public' | 'followers' | 'private';
+  onboarding_completed?: boolean;
   blocked?: number | boolean;
 }
 
@@ -74,9 +75,28 @@ export interface Book {
   edition: string;
   author: string;
   cover: string[];
+  coverImage?: string | null;
+  coverRatio?: number | null;
+  previewDoc?: { url: string; type: string } | null;
   levels: string[];
   featuredRank: number | null;
   chapters: Chapter[];
+}
+
+export interface DictionaryEntry {
+  id: string;
+  language: 'zh' | 'en';
+  word: string;
+  phonetic: string;
+  part_of_speech: string;
+  meaning_en: string;
+  meaning_bn: string;
+  meaning_zh: string;
+  example: string;
+  example_translation: string;
+  hsk_level: string;
+  status?: string;
+  updated_at?: number;
 }
 
 export interface NoteSection {

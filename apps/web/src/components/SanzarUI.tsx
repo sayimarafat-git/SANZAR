@@ -72,13 +72,93 @@ export const SubjectIcon: React.FC<{ icon?: string; className?: string; color?: 
 export const BookCover: React.FC<{
   colors: string[];
   title: string;
+  imageUrl?: string | null;
+  aspectRatio?: number | null;
+  previewDoc?: { url: string; type: string } | null;
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'card';
   className?: string;
-}> = ({ colors, title, className = 'w-24 h-32' }) => {
+}> = ({ colors, title, imageUrl, aspectRatio, previewDoc, size = 'md', className = '' }) => {
   const c1 = colors?.[0] || '#176B4B';
   const c2 = colors?.[1] || '#247754';
+
+  const [imgFailed, setImgFailed] = useState(false);
+  const [detected, setDetected] = useState<{ src: string; ratio: number } | null>(null);
+  const [naturalRatio, setNaturalRatio] = useState<number | null>(null);
+
+  useEffect(() => {
+    setImgFailed(false);
+    setNaturalRatio(null);
+  }, [imageUrl]);
+
+  useEffect(() => {
+    if (imageUrl || !previewDoc?.url) return;
+    let cancelled = false;
+    void import('../lib/thumbnail-extractor')
+      .then((m) => m.tryExtractPublicPdfCover(previewDoc.url))
+      .then((res) => {
+        if (!cancelled && res) {
+          setDetected({ src: res.coverImage, ratio: res.coverRatio });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [imageUrl, previewDoc?.url]);
+
+  const effectiveSrc = !imgFailed && imageUrl ? imageUrl : detected?.src || null;
+  const fallbackRatio = previewDoc?.type === 'ppt' ? 1.5 : 0.72;
+  const rawRatio = naturalRatio ?? aspectRatio ?? detected?.ratio ?? fallbackRatio;
+  const ratio = Math.max(0.5, Math.min(2.0, Number.isFinite(rawRatio) && rawRatio > 0 ? rawRatio : 0.72));
+
+  const frameStyle: React.CSSProperties = (() => {
+    if (size === 'card') {
+      return { aspectRatio: String(ratio) };
+    }
+    const dim = size === 'xs'
+      ? { maxW: 58, maxH: 48 }
+      : size === 'sm'
+        ? { maxW: 110, maxH: 88 }
+        : size === 'lg'
+          ? { maxW: 210, maxH: 156 }
+          : { maxW: 132, maxH: 108 };
+
+    if (ratio >= 1) {
+      const w = dim.maxW;
+      const h = Math.max(32, Math.round(w / ratio));
+      return { width: `${w}px`, height: `${h}px` };
+    }
+    const h = dim.maxH;
+    const w = Math.max(28, Math.round(h * ratio));
+    return { width: `${w}px`, height: `${h}px` };
+  })();
+
+  if (effectiveSrc) {
+    return (
+      <div
+        style={frameStyle}
+        className={`rounded-xl overflow-hidden shadow-sm border border-sanzar-border bg-white dark:bg-slate-900 shrink-0 relative ${className}`}
+      >
+        <img
+          src={effectiveSrc}
+          alt={title}
+          loading="lazy"
+          onLoad={(e) => {
+            const el = e.currentTarget;
+            if (el.naturalWidth > 0 && el.naturalHeight > 0 && !aspectRatio) {
+              setNaturalRatio(el.naturalWidth / el.naturalHeight);
+            }
+          }}
+          onError={() => setImgFailed(true)}
+          className="w-full h-full object-contain block"
+        />
+      </div>
+    );
+  }
+
   return (
     <div
-      style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}
+      style={{ background: `linear-gradient(135deg, ${c1}, ${c2})`, ...frameStyle }}
       className={`rounded-xl p-2.5 flex items-end shadow-sm shrink-0 relative overflow-hidden ${className}`}
     >
       <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-white/10 pointer-events-none" />
@@ -173,7 +253,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       {msg && (
         <div
           role="status"
-          className="fixed right-5 bottom-20 md:bottom-6 z-50 bg-sanzar-text text-sanzar-bg px-4 py-2.5 rounded-xl text-sm font-semibold shadow-lg max-w-sm animate-fade-in"
+          className="fixed left-1/2 -translate-x-1/2 bottom-24 md:bottom-6 z-50 bg-sanzar-text text-sanzar-bg px-4 py-2.5 rounded-xl text-sm font-semibold shadow-lg max-w-sm animate-fade-in"
         >
           {msg}
         </div>

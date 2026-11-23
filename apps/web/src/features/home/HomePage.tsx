@@ -12,6 +12,7 @@ import {
   ChevronRight,
   CloudOff,
   BookOpen,
+  BookA,
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth-context';
 import { useSettings } from '../../lib/settings-context';
@@ -228,9 +229,9 @@ export const HomePage: React.FC = () => {
         <h2 className="text-base font-bold">{t('quickActions')}</h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { to: '/tutor', label: t('tutor'), icon: Sparkles },
+            { to: '/library', label: t('library'), icon: BookOpen },
+            { to: '/dictionary', label: t('dictionary'), icon: BookA },
             { to: '/exams', label: t('exams'), icon: ClipboardCheck },
-            { to: '/progress', label: t('progress'), icon: TrendingUp },
             { to: '/progress?tab=leaderboard', label: t('leaderboard'), icon: Trophy },
           ].map((qa) => (
             <Link
@@ -314,18 +315,24 @@ export const HomePage: React.FC = () => {
                   {t('seeAll')}
                 </Link>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-6 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-6 gap-4 items-end">
                 {featuredBooks.map((b) => (
                   <Link
                     key={b.id}
                     to={`/learn/book/${b.id}`}
-                    className="group space-y-2"
+                    className="group space-y-2 flex flex-col"
                   >
-                    <BookCover
-                      colors={b.cover}
-                      title={b.title}
-                      className="w-full h-44 group-hover:scale-[1.02] transition-transform"
-                    />
+                    <div className="w-full h-44 flex items-end justify-center">
+                      <BookCover
+                        colors={b.cover}
+                        title={b.title}
+                        imageUrl={b.coverImage}
+                        aspectRatio={b.coverRatio}
+                        previewDoc={b.previewDoc}
+                        size="card"
+                        className="w-full max-h-44 group-hover:scale-[1.02] transition-transform"
+                      />
+                    </div>
                     <div>
                       <p className="font-bold text-sm line-clamp-1">{b.title}</p>
                       <p className="text-xs text-sanzar-muted">

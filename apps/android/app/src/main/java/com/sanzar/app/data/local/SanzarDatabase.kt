@@ -13,7 +13,9 @@ data class BookEntity(
     val coverJson: String,
     val levelsJson: String,
     val featuredRank: Int?,
-    val sortOrder: Int
+    val sortOrder: Int,
+    val coverImage: String? = null,
+    val coverRatio: Float? = null
 )
 
 @Entity(
@@ -224,7 +226,7 @@ interface InstalledResourceDao {
         PendingSyncEntity::class,
         InstalledResourceEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class SanzarDatabase : RoomDatabase() {

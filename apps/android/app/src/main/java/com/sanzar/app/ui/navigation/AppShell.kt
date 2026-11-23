@@ -30,7 +30,7 @@ import com.sanzar.app.ui.theme.LocalSanzarPalette
 import com.sanzar.app.ui.theme.SanzarColors
 
 enum class MainTab {
-    Home, Library, Tutor, Community, Profile
+    Home, Library, Dictionary, Exams, Community, Profile
 }
 
 sealed interface SanzarRoute {
@@ -38,6 +38,7 @@ sealed interface SanzarRoute {
     data class BookDetail(val bookId: String) : SanzarRoute
     data class ChapterDetail(val bookId: String, val chapterId: String) : SanzarRoute
     data class ResourceReader(val bookId: String, val chapterId: String, val resourceId: String? = null) : SanzarRoute
+    data object Tutor : SanzarRoute
     data object Exams : SanzarRoute
     data class ExamRunner(val examId: String) : SanzarRoute
     data class ExamResult(val attemptId: String, val initialResult: AttemptResult? = null) : SanzarRoute
@@ -84,7 +85,7 @@ fun AppShell(
         backStack.add(SanzarRoute.Main(tab = tab, librarySubject = librarySubject))
     }
 
-    // Auth & setup gates
+    // Auth & two-stage onboarding gates
     when {
         !state.onboarded -> {
             OnboardingScreen(
@@ -112,14 +113,20 @@ fun AppShell(
             )
             return
         }
-        (state.profile?.levelId ?: state.selectedLevelId) == null -> {
+        (state.profile != null && !state.profile!!.onboardingCompleted) ||
+            ((state.profile?.levelId ?: state.selectedLevelId) == null) -> {
             ChooseClassScreen(
                 levels = state.catalog?.levels.orEmpty(),
-                initialLevelId = state.selectedLevelId,
+                initialLevelId = state.profile?.levelId ?: state.selectedLevelId,
+                initialName = state.profile?.displayName
+                    ?.ifBlank { state.firebaseUser?.displayName.orEmpty() }
+                    ?: state.firebaseUser?.displayName.orEmpty(),
+                initialLanguage = state.language,
                 loading = state.catalogLoading,
                 error = state.catalogError,
                 onRetry = viewModel::refreshCatalog,
-                onConfirm = viewModel::chooseClass
+                onSelectLanguage = viewModel::setLanguage,
+                onConfirm = viewModel::completePostLoginOnboarding
             )
             return
         }
@@ -131,6 +138,26 @@ fun AppShell(
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        floatingActionButton = {
+            if (currentRoute is SanzarRoute.Main) {
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .shadow(8.dp, CircleShape)
+                        .clip(CircleShape)
+                        .background(SanzarColors.BrandGradient)
+                        .clickable { pushRoute(SanzarRoute.Tutor) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.AutoAwesome,
+                        contentDescription = s("tutor"),
+                        tint = Color.White,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+            }
+        },
         bottomBar = {
             if (currentRoute is SanzarRoute.Main) {
                 SanzarBottomBar(
@@ -159,10 +186,10 @@ fun AppShell(
                             viewModel.setThemeMode(next)
                         },
                         onSelectLanguage = viewModel::setLanguage,
-                        onOpenExams = { pushRoute(SanzarRoute.Exams) },
+                        onOpenExams = { switchTab(MainTab.Exams) },
                         onOpenProgress = { pushRoute(SanzarRoute.Progress) },
                         onOpenLeaderboard = { pushRoute(SanzarRoute.Leaderboard) },
-                        onOpenTutor = { switchTab(MainTab.Tutor) },
+                        onOpenDictionary = { switchTab(MainTab.Dictionary) },
                         onOpenSubjectLibrary = { subId -> switchTab(MainTab.Library, librarySubject = subId) },
                         onOpenAllLibrary = { switchTab(MainTab.Library) },
                         onOpenBook = { bookId -> pushRoute(SanzarRoute.BookDetail(bookId)) },
@@ -176,12 +203,17 @@ fun AppShell(
                         onOpenBook = { bookId -> pushRoute(SanzarRoute.BookDetail(bookId)) }
                     )
 
-                    MainTab.Tutor -> TutorScreen(
+                    MainTab.Dictionary -> DictionaryScreen(
                         state = state,
-                        onAsk = viewModel::askTutor,
-                        onOpenChapter = { bookId, chapterId ->
-                            pushRoute(SanzarRoute.ChapterDetail(bookId, chapterId))
-                        }
+                        onSearch = viewModel::searchDictionary
+                    )
+
+                    MainTab.Exams -> ExamsScreen(
+                        state = state,
+                        onBack = null,
+                        onLoadHistory = viewModel::loadAttemptHistory,
+                        onStartExam = { examId -> pushRoute(SanzarRoute.ExamRunner(examId)) },
+                        onOpenResult = { attemptId -> pushRoute(SanzarRoute.ExamResult(attemptId)) }
                     )
 
                     MainTab.Community -> CommunityScreen(
@@ -201,7 +233,7 @@ fun AppShell(
                         state = state,
                         onEditProfile = { pushRoute(SanzarRoute.EditProfile) },
                         onOpenProgress = { pushRoute(SanzarRoute.Progress) },
-                        onOpenExams = { pushRoute(SanzarRoute.Exams) },
+                        onOpenExams = { switchTab(MainTab.Exams) },
                         onOpenLeaderboard = { pushRoute(SanzarRoute.Leaderboard) },
                         onChangeVisibility = viewModel::updateVisibility,
                         onChangeLanguage = viewModel::setLanguage,
@@ -213,6 +245,15 @@ fun AppShell(
                         onDeleteAccount = viewModel::deleteAccount
                     )
                 }
+
+                is SanzarRoute.Tutor -> TutorScreen(
+                    state = state,
+                    onBack = ::popRoute,
+                    onAsk = viewModel::askTutor,
+                    onOpenChapter = { bookId, chapterId ->
+                        pushRoute(SanzarRoute.ChapterDetail(bookId, chapterId))
+                    }
+                )
 
                 is SanzarRoute.BookDetail -> BookDetailScreen(
                     bookId = route.bookId,
@@ -342,7 +383,7 @@ private fun SanzarBottomBar(
         Row(
             modifier = Modifier
                 .navigationBarsPadding()
-                .height(66.dp)
+                .height(64.dp)
                 .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -362,39 +403,22 @@ private fun SanzarBottomBar(
                 onClick = { onSelectTab(MainTab.Library) },
                 modifier = Modifier.weight(1f)
             )
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable { onSelectTab(MainTab.Tutor) },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .offset(y = (-8).dp)
-                        .size(50.dp)
-                        .shadow(8.dp, CircleShape)
-                        .clip(CircleShape)
-                        .background(SanzarColors.BrandGradient),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.SmartToy,
-                        contentDescription = s("tutor"),
-                        tint = Color.White,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
-                Text(
-                    text = s("tutor"),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (selectedTab == MainTab.Tutor) palette.primary else palette.muted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.offset(y = (-6).dp)
-                )
-            }
+            NavTabItem(
+                selected = selectedTab == MainTab.Dictionary,
+                icon = Icons.Outlined.MenuBook,
+                activeIcon = Icons.Rounded.MenuBook,
+                label = s("dictionary"),
+                onClick = { onSelectTab(MainTab.Dictionary) },
+                modifier = Modifier.weight(1f)
+            )
+            NavTabItem(
+                selected = selectedTab == MainTab.Exams,
+                icon = Icons.Outlined.Assignment,
+                activeIcon = Icons.Rounded.Assignment,
+                label = s("exams"),
+                onClick = { onSelectTab(MainTab.Exams) },
+                modifier = Modifier.weight(1f)
+            )
             NavTabItem(
                 selected = selectedTab == MainTab.Community,
                 icon = Icons.Outlined.Forum,
@@ -429,19 +453,21 @@ private fun NavTabItem(
     Column(
         modifier = modifier
             .fillMaxHeight()
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            .padding(horizontal = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         Icon(
             imageVector = if (selected) activeIcon else icon,
             contentDescription = label,
-            tint = tint
+            tint = tint,
+            modifier = Modifier.size(21.dp)
         )
         Spacer(Modifier.height(2.dp))
         Text(
             text = label,
-            fontSize = 11.sp,
+            fontSize = 10.sp,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             color = tint,
             maxLines = 1,

@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -34,6 +35,7 @@ import com.sanzar.app.ui.theme.SanzarSpace
 @Composable
 fun TutorScreen(
     state: SanzarUiState,
+    onBack: (() -> Unit)? = null,
     onAsk: (String) -> Unit,
     onOpenChapter: (String, String) -> Unit
 ) {
@@ -57,6 +59,13 @@ fun TutorScreen(
                         BrandMark(size = 30.dp)
                         Spacer(Modifier.width(SanzarSpace.S2.dp))
                         Text(s("tutor"))
+                    }
+                },
+                navigationIcon = {
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.Rounded.ArrowBack, contentDescription = null)
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = palette.bg)

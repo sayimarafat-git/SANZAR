@@ -199,14 +199,10 @@ fun ProfileScreen(
                             Spacer(Modifier.width(SanzarSpace.S3.dp))
                             Text(s("theme"), modifier = Modifier.weight(1f))
                             Box {
-                                val tKey = when (state.themeMode) {
-                                    "light" -> "themeLight"
-                                    "dark" -> "themeDark"
-                                    else -> "themeSystem"
-                                }
+                                val tKey = if (state.themeMode == "dark") "themeDark" else "themeLight"
                                 Text(s(tKey), color = palette.primary, fontWeight = FontWeight.SemiBold)
                                 DropdownMenu(expanded = themeExpanded, onDismissRequest = { themeExpanded = false }) {
-                                    listOf("system" to "themeSystem", "light" to "themeLight", "dark" to "themeDark").forEach { (mode, key) ->
+                                    listOf("light" to "themeLight", "dark" to "themeDark").forEach { (mode, key) ->
                                         DropdownMenuItem(
                                             text = { Text(s(key)) },
                                             onClick = {

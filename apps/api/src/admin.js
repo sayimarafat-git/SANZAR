@@ -8,11 +8,13 @@
  * for notes, resources and questions: each save adds a version and
  * rollback just points current_version back.
  */
-import { HttpError, now, json, str, body, audit, requireRole } from './worker.js';
+import { HttpError, now, json, str, body, audit, requireRole, driveThumbFromUrl } from './worker.js';
 
 const STATUS = new Set(['draft', 'published', 'archived']);
 const LEVEL_IDS = new Set(['zh', 'en']);
 const RES_TYPES = new Set(['video', 'pdf', 'ppt', 'link']);
+const DICT_LANGS = new Set(['zh', 'en']);
+const MAX_PREVIEW_BYTES = 15 * 1024 * 1024;
 const slug = (v, field) => {
   if (typeof v !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/i.test(v)) throw new HttpError(400, 'invalid-argument', `${field} id may use letters, digits, dot, dash and underscore (max 64)`);
   return v;
@@ -32,6 +34,22 @@ const color = (v, d) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v 
 const httpsUrl = (v, field = 'Link') => {
   if (typeof v !== 'string' || !/^https:\/\/[^\s]{4,1000}$/.test(v)) throw new HttpError(400, 'invalid-argument', `${field} must be an https:// link`);
   return v;
+};
+const validateCoverImage = (v) => {
+  if (v === undefined) return undefined;
+  if (v === null || v === '') return null;
+  if (typeof v !== 'string') throw new HttpError(400, 'invalid-argument', 'Thumbnail image must be text');
+  const trimmed = v.trim();
+  if (/^https:\/\/[^\s]{4,1000}$/.test(trimmed)) return trimmed;
+  if (/^data:image\/(webp|jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(trimmed) && trimmed.length <= 250_000) return trimmed;
+  throw new HttpError(400, 'invalid-argument', 'Thumbnail must be an https:// link or compact image data URI (<= 250 KB)');
+};
+const validateCoverRatio = (v) => {
+  if (v === undefined) return undefined;
+  if (v === null || v === '') return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) throw new HttpError(400, 'invalid-argument', 'Cover ratio must be a number');
+  return Math.round(Math.max(0.35, Math.min(3.0, n)) * 10000) / 10000;
 };
 
 async function content(env) {
@@ -84,19 +102,39 @@ async function putBook(env, ctx, id, i) {
   if (!(await env.DB.prepare('SELECT 1 FROM subjects WHERE id = ?').bind(subject).first())) throw new HttpError(400, 'invalid-argument', 'Unknown subject');
   const levels = Array.isArray(i.levels) ? [...new Set(i.levels)] : [];
   if (levels.length !== 1 || !LEVEL_IDS.has(levels[0])) throw new HttpError(400, 'invalid-argument', 'Choose one valid learning language');
+  const existing = await env.DB.prepare('SELECT cover_image, cover_ratio FROM books WHERE id = ?').bind(id).first();
+  const parsedImage = validateCoverImage(i.cover_image);
+  const parsedRatio = validateCoverRatio(i.cover_ratio);
+  const coverImage = parsedImage !== undefined ? parsedImage : (existing?.cover_image ?? null);
+  const coverRatio = parsedRatio !== undefined ? parsedRatio : (existing?.cover_ratio ?? null);
   const t = now();
   const cover = Array.isArray(i.cover) ? i.cover : [];
   await env.DB.batch([
-    env.DB.prepare(`INSERT INTO books (id, title, subject_id, edition, author, cover_c1, cover_c2, featured_rank, sort, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    env.DB.prepare(`INSERT INTO books (id, title, subject_id, edition, author, cover_c1, cover_c2, cover_image, cover_ratio, featured_rank, sort, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET title = excluded.title, subject_id = excluded.subject_id, edition = excluded.edition, author = excluded.author, cover_c1 = excluded.cover_c1,
-      cover_c2 = excluded.cover_c2, featured_rank = excluded.featured_rank, sort = excluded.sort, status = excluded.status, updated_at = excluded.updated_at`)
+      cover_c2 = excluded.cover_c2, cover_image = excluded.cover_image, cover_ratio = excluded.cover_ratio, featured_rank = excluded.featured_rank, sort = excluded.sort, status = excluded.status, updated_at = excluded.updated_at`)
       .bind(id, str(i.title, { min: 2, max: 120, field: 'Title' }), subject, str(i.edition ?? '', { max: 60, field: 'Edition' }), str(i.author ?? '', { max: 120, field: 'Author' }),
-        color(cover[0], '#2b2fd1'), color(cover[1], '#7a3ff0'), num(i.featured_rank, 'Featured rank', 1, 1000), num(i.sort, 'Order', 0, 100000, 0), status(i.status), t, t),
+        color(cover[0], '#2b2fd1'), color(cover[1], '#7a3ff0'), coverImage, coverRatio, num(i.featured_rank, 'Featured rank', 1, 1000), num(i.sort, 'Order', 0, 100000, 0), status(i.status), t, t),
     env.DB.prepare('DELETE FROM book_levels WHERE book_id = ?').bind(id),
     ...levels.map((l) => env.DB.prepare('INSERT INTO book_levels (book_id, level_id) VALUES (?, ?)').bind(id, l)),
   ]);
   await audit(env, ctx, 'book.save', id, { status: i.status });
   return { id };
+}
+
+async function patchBookCover(env, ctx, id, i) {
+  requireRole(ctx.user, 'content_admin');
+  slug(id, 'Book');
+  const existing = await env.DB.prepare('SELECT id, cover_image, cover_ratio FROM books WHERE id = ?').bind(id).first();
+  if (!existing) throw new HttpError(404, 'not-found', 'Book not found');
+  const parsedImage = validateCoverImage(i.cover_image);
+  const parsedRatio = validateCoverRatio(i.cover_ratio);
+  const coverImage = parsedImage !== undefined ? parsedImage : existing.cover_image;
+  const coverRatio = parsedRatio !== undefined ? parsedRatio : existing.cover_ratio;
+  await env.DB.prepare('UPDATE books SET cover_image = ?, cover_ratio = ?, updated_at = ? WHERE id = ?')
+    .bind(coverImage, coverRatio, now(), id).run();
+  await audit(env, ctx, 'book.cover', id, { hasImage: !!coverImage, coverRatio });
+  return { id, cover_image: coverImage, cover_ratio: coverRatio };
 }
 
 async function putChapter(env, ctx, id, i) {
@@ -184,6 +222,16 @@ async function putResource(env, ctx, id, i) {
     .bind(id, chapterId, i.type, title, num(i.sort, 'Order', 0, 100000, 0), videoAsset, version, num(i.pages, 'Pages', 1, 10000), str(i.licence ?? '', { max: 200, field: 'Licence' }), status(i.status), t));
   // Order matters for foreign keys: video asset → resource → resource version.
   await env.DB.batch([...pre, res, ...stmts]);
+  if ((i.type === 'pdf' || i.type === 'ppt') && url) {
+    const thumb = driveThumbFromUrl(url);
+    if (thumb) {
+      const book = await env.DB.prepare('SELECT b.id, b.cover_image FROM chapters c JOIN books b ON b.id = c.book_id WHERE c.id = ?').bind(chapterId).first();
+      if (book && !book.cover_image) {
+        await env.DB.prepare('UPDATE books SET cover_image = ?, cover_ratio = COALESCE(cover_ratio, ?), updated_at = ? WHERE id = ?')
+          .bind(thumb, i.type === 'ppt' ? 1.7778 : 0.7071, t, book.id).run();
+      }
+    }
+  }
   await audit(env, ctx, 'resource.save', id, { version });
   return { id, version };
 }
@@ -284,6 +332,105 @@ async function deleteAnnouncement(env, ctx, id) {
   return { deleted: true };
 }
 
+async function listDictionary(env, ctx) {
+  requireRole(ctx.user, 'content_admin');
+  const rows = (await env.DB.prepare('SELECT * FROM dictionary_entries ORDER BY updated_at DESC, word ASC LIMIT 300').all()).results;
+  return { entries: rows };
+}
+
+async function putDictionary(env, ctx, id, i) {
+  requireRole(ctx.user, 'content_admin');
+  slug(id, 'Dictionary entry');
+  const language = DICT_LANGS.has(i.language) ? i.language : null;
+  if (!language) throw new HttpError(400, 'invalid-argument', 'Language must be zh or en');
+  const word = str(i.word, { min: 1, max: 120, field: 'Word' });
+  const t = now();
+  await env.DB.prepare(`INSERT INTO dictionary_entries
+    (id, language, word, phonetic, part_of_speech, meaning_en, meaning_bn, meaning_zh, example, example_translation, hsk_level, status, created_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      language = excluded.language, word = excluded.word, phonetic = excluded.phonetic, part_of_speech = excluded.part_of_speech,
+      meaning_en = excluded.meaning_en, meaning_bn = excluded.meaning_bn, meaning_zh = excluded.meaning_zh,
+      example = excluded.example, example_translation = excluded.example_translation, hsk_level = excluded.hsk_level,
+      status = excluded.status, updated_at = excluded.updated_at`)
+    .bind(
+      id, language, word,
+      str(i.phonetic ?? '', { max: 120, field: 'Phonetic' }),
+      str(i.part_of_speech ?? '', { max: 40, field: 'Part of speech' }),
+      str(i.meaning_en ?? '', { max: 400, field: 'English meaning' }),
+      str(i.meaning_bn ?? '', { max: 400, field: 'Bengali meaning' }),
+      str(i.meaning_zh ?? '', { max: 400, field: 'Chinese meaning' }),
+      str(i.example ?? '', { max: 500, field: 'Example' }),
+      str(i.example_translation ?? '', { max: 500, field: 'Example translation' }),
+      str(i.hsk_level ?? '', { max: 20, field: 'HSK level' }),
+      status(i.status), ctx.user.uid, t, t
+    ).run();
+  await audit(env, ctx, 'dictionary.save', id, { language, word });
+  return { id };
+}
+
+async function deleteDictionary(env, ctx, id) {
+  requireRole(ctx.user, 'content_admin');
+  slug(id, 'Dictionary entry');
+  await env.DB.prepare('DELETE FROM dictionary_entries WHERE id = ?').bind(id).run();
+  await audit(env, ctx, 'dictionary.delete', id);
+  return { deleted: true };
+}
+
+function isPublicHttpsUrl(raw) {
+  let u;
+  try { u = new URL(raw); } catch { return null; }
+  if (u.protocol !== 'https:' || u.username || u.password) return null;
+  if (u.port && u.port !== '443') return null;
+  const host = u.hostname.toLowerCase();
+  if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal') || host.endsWith('.arpa')) return null;
+  if (host.startsWith('[') || host.includes(':')) return null;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return null;
+  if (!host.includes('.')) return null;
+  return u;
+}
+
+async function fetchPreview(env, ctx, url) {
+  requireRole(ctx.user, 'content_admin');
+  const raw = (url.searchParams.get('url') || '').trim();
+  const target = isPublicHttpsUrl(raw);
+  if (!target) throw new HttpError(400, 'invalid-argument', 'Valid public https:// URL required');
+  let upstream;
+  try {
+    upstream = await fetch(target.href, { redirect: 'follow' });
+  } catch {
+    throw new HttpError(502, 'bad-gateway', 'Could not reach file URL');
+  }
+  if (!upstream.ok) throw new HttpError(502, 'bad-gateway', `File host returned HTTP ${upstream.status}`);
+  const cl = Number(upstream.headers.get('content-length') || 0);
+  if (cl > MAX_PREVIEW_BYTES) throw new HttpError(413, 'payload-too-large', 'File is larger than 15 MB preview limit');
+  const reader = upstream.body?.getReader();
+  if (!reader) throw new HttpError(502, 'bad-gateway', 'Empty upstream response');
+  const chunks = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_PREVIEW_BYTES) {
+      await reader.cancel();
+      throw new HttpError(413, 'payload-too-large', 'File is larger than 15 MB preview limit');
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  return new Response(bytes, {
+    status: 200,
+    headers: {
+      'content-type': upstream.headers.get('content-type') || 'application/octet-stream',
+      'x-content-type-options': 'nosniff',
+      'cache-control': 'no-store',
+    },
+  });
+}
+
 async function stats(env, ctx) {
   requireRole(ctx.user, 'moderator');
   const t = now();
@@ -309,7 +456,8 @@ export async function routeAdmin(req, env, ctx, url) {
   if (path === '/v1/admin/content' && m === 'GET') { requireRole(ctx.user, 'content_admin'); return json(await content(env)); }
   if (path === '/v1/admin/stats' && m === 'GET') return json(await stats(env, ctx));
   if ((mm = path.match(/^\/v1\/admin\/subjects\/([^/]+)$/)) && m === 'PUT') return json(await putSubject(env, ctx, mm[1], await body(req, 5000)));
-  if ((mm = path.match(/^\/v1\/admin\/books\/([^/]+)$/)) && m === 'PUT') return json(await putBook(env, ctx, mm[1], await body(req, 10_000)));
+  if ((mm = path.match(/^\/v1\/admin\/books\/([^/]+)\/cover$/)) && m === 'PATCH') return json(await patchBookCover(env, ctx, mm[1], await body(req, 300_000)));
+  if ((mm = path.match(/^\/v1\/admin\/books\/([^/]+)$/)) && m === 'PUT') return json(await putBook(env, ctx, mm[1], await body(req, 300_000)));
   if ((mm = path.match(/^\/v1\/admin\/chapters\/([^/]+)$/)) && m === 'PUT') return json(await putChapter(env, ctx, mm[1], await body(req, 10_000)));
   if ((mm = path.match(/^\/v1\/admin\/notes\/([\w.-]{1,64})$/)) && m === 'GET') return json(await getNotes(env, ctx, mm[1]));
   if ((mm = path.match(/^\/v1\/admin\/notes\/([\w.-]{1,64})$/)) && m === 'PUT') return json(await putNotes(env, ctx, mm[1], await body(req, 600_000)));
@@ -321,6 +469,10 @@ export async function routeAdmin(req, env, ctx, url) {
   if (path === '/v1/admin/questions' && m === 'GET') return json(await listQuestions(env, ctx, url));
   if ((mm = path.match(/^\/v1\/admin\/questions\/([^/]+)$/)) && m === 'PUT') return json(await putQuestion(env, ctx, mm[1], await body(req, 20_000)));
   if ((mm = path.match(/^\/v1\/admin\/exams\/([^/]+)$/)) && m === 'PUT') return json(await putExam(env, ctx, mm[1], await body(req, 5000)));
+  if (path === '/v1/admin/dictionary' && m === 'GET') return json(await listDictionary(env, ctx));
+  if ((mm = path.match(/^\/v1\/admin\/dictionary\/([^/]+)$/)) && m === 'PUT') return json(await putDictionary(env, ctx, mm[1], await body(req, 10_000)));
+  if ((mm = path.match(/^\/v1\/admin\/dictionary\/([^/]+)$/)) && m === 'DELETE') return json(await deleteDictionary(env, ctx, mm[1]));
+  if (path === '/v1/admin/fetch-preview' && m === 'GET') return fetchPreview(env, ctx, url);
   if (path === '/v1/admin/announcements' && m === 'POST') return json(await postAnnouncement(env, ctx, await body(req, 5000)));
   if ((mm = path.match(/^\/v1\/admin\/announcements\/([\w-]{1,64})$/)) && m === 'DELETE') return json(await deleteAnnouncement(env, ctx, mm[1]));
   if (path === '/v1/admin/notifications' && m === 'POST') return json(await postBroadcastNotification(env, ctx, await body(req, 5000)));

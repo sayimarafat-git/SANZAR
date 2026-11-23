@@ -330,10 +330,13 @@ fun VerifyEmailScreen(
 fun ChooseClassScreen(
     levels: List<Level>,
     initialLevelId: String?,
+    initialName: String = "",
+    initialLanguage: String = "en",
     loading: Boolean,
     error: String?,
     onRetry: () -> Unit,
-    onConfirm: (String) -> Unit
+    onSelectLanguage: (String) -> Unit,
+    onConfirm: (displayName: String, language: String, levelId: String) -> Unit
 ) {
     val s = LocalStrings.current
     val palette = LocalSanzarPalette.current
@@ -345,13 +348,16 @@ fun ChooseClassScreen(
             )
         }
     }
+    var step by remember { mutableIntStateOf(0) }
+    var name by remember(initialName) { mutableStateOf(initialName) }
+    var selectedLang by remember(initialLanguage) { mutableStateOf(initialLanguage) }
     var selected by remember(initialLevelId) { mutableStateOf(initialLevelId) }
 
     Scaffold(
         containerColor = palette.bg,
         topBar = {
             TopAppBar(
-                title = { Text(s("chooseClass")) },
+                title = { Text(s("welcomeToSanzar")) },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = palette.bg)
             )
         }
@@ -368,44 +374,153 @@ fun ChooseClassScreen(
                 else -> Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(SanzarSpace.S4.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(SanzarSpace.S4.dp),
+                    verticalArrangement = Arrangement.spacedBy(SanzarSpace.S3.dp)
                 ) {
-                    displayLevels.forEach { level ->
-                        SanzarCard(
-                            onClick = { selected = level.id },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = SanzarSpace.S2.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { selected = level.id }
-                                    .padding(horizontal = SanzarSpace.S4.dp, vertical = SanzarSpace.S3.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                RadioButton(
-                                    selected = selected == level.id,
-                                    onClick = { selected = level.id }
-                                )
-                                Spacer(Modifier.width(SanzarSpace.S2.dp))
-                                Text(
-                                    text = level.name(s.lang),
-                                    style = MaterialTheme.typography.titleMedium
-                                )
+                    Text(
+                        text = s("stepOf", mapOf("a" to (step + 1), "b" to 3)),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = palette.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    when (step) {
+                        0 -> {
+                            Text(
+                                text = s("setupProfile"),
+                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = s("setupSubtitle"),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = palette.muted
+                            )
+                            OutlinedTextField(
+                                value = name,
+                                onValueChange = { name = it },
+                                label = { Text(s("name")) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(SanzarRadius.SM.dp)
+                            )
+                            Text(s("language"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                            listOf("en" to "English", "bn" to "বাংলা", "zh" to "中文").forEach { (code, label) ->
+                                SanzarCard(
+                                    onClick = {
+                                        selectedLang = code
+                                        onSelectLanguage(code)
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = SanzarSpace.S3.dp, vertical = SanzarSpace.S2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        RadioButton(
+                                            selected = selectedLang == code,
+                                            onClick = {
+                                                selectedLang = code
+                                                onSelectLanguage(code)
+                                            }
+                                        )
+                                        Spacer(Modifier.width(SanzarSpace.S2.dp))
+                                        Text(label, style = MaterialTheme.typography.titleMedium)
+                                    }
+                                }
+                            }
+                        }
+
+                        1 -> {
+                            Text(
+                                text = s("chooseClass"),
+                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                            )
+                            displayLevels.forEach { level ->
+                                SanzarCard(
+                                    onClick = { selected = level.id },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = SanzarSpace.S4.dp, vertical = SanzarSpace.S3.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        RadioButton(
+                                            selected = selected == level.id,
+                                            onClick = { selected = level.id }
+                                        )
+                                        Spacer(Modifier.width(SanzarSpace.S2.dp))
+                                        Text(
+                                            text = level.name(s.lang),
+                                            style = MaterialTheme.typography.titleMedium
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        else -> {
+                            Text(
+                                text = s("quickTour"),
+                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                            )
+                            SanzarCard(modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.padding(SanzarSpace.S4.dp)) {
+                                    Text(s("library"), fontWeight = FontWeight.Bold)
+                                    Text(s("onb1.body"), style = MaterialTheme.typography.bodySmall, color = palette.text2)
+                                }
+                            }
+                            SanzarCard(modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.padding(SanzarSpace.S4.dp)) {
+                                    Text(s("dictionary"), fontWeight = FontWeight.Bold)
+                                    Text(s("dictionarySubtitle"), style = MaterialTheme.typography.bodySmall, color = palette.text2)
+                                }
+                            }
+                            SanzarCard(modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.padding(SanzarSpace.S4.dp)) {
+                                    Text(s("tutor"), fontWeight = FontWeight.Bold)
+                                    Text(s("onb4.body"), style = MaterialTheme.typography.bodySmall, color = palette.text2)
+                                }
                             }
                         }
                     }
-                    Spacer(Modifier.height(SanzarSpace.S4.dp))
-                    Button(
-                        onClick = { selected?.let(onConfirm) },
-                        enabled = selected != null,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp),
-                        shape = RoundedCornerShape(SanzarRadius.MD.dp)
+
+                    Spacer(Modifier.height(SanzarSpace.S3.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(SanzarSpace.S3.dp)
                     ) {
-                        Text(s("continue"))
+                        if (step > 0) {
+                            OutlinedButton(
+                                onClick = { step -= 1 },
+                                modifier = Modifier.weight(1f).height(52.dp),
+                                shape = RoundedCornerShape(SanzarRadius.MD.dp)
+                            ) {
+                                Text("←")
+                            }
+                        }
+                        Button(
+                            onClick = {
+                                if (step < 2) {
+                                    step += 1
+                                } else {
+                                    selected?.let { onConfirm(name, selectedLang, it) }
+                                }
+                            },
+                            enabled = when (step) {
+                                0 -> name.trim().length >= 2 || initialName.isBlank()
+                                1 -> selected != null
+                                else -> selected != null
+                            },
+                            modifier = Modifier.weight(2f).height(52.dp),
+                            shape = RoundedCornerShape(SanzarRadius.MD.dp)
+                        ) {
+                            Text(s(if (step < 2) "continue" else "finishSetup"))
+                        }
                     }
                 }
             }

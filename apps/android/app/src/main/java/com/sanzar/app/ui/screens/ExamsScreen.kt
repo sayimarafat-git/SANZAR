@@ -36,7 +36,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun ExamsScreen(
     state: SanzarUiState,
-    onBack: () -> Unit,
+    onBack: (() -> Unit)? = null,
     onLoadHistory: () -> Unit,
     onStartExam: (String) -> Unit,
     onOpenResult: (String) -> Unit
@@ -57,8 +57,10 @@ fun ExamsScreen(
                 TopAppBar(
                     title = { Text(s("exams")) },
                     navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.Rounded.ArrowBack, contentDescription = null)
+                        if (onBack != null) {
+                            IconButton(onClick = onBack) {
+                                Icon(Icons.Rounded.ArrowBack, contentDescription = null)
+                            }
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = palette.bg)

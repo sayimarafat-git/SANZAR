@@ -13,7 +13,7 @@ import {
   validateSections,
   type NoteSection,
 } from '../../lib/models';
-import { ErrorRetry, LoadingState, Modal, StatusPill, useToast } from '../../components/SanzarUI';
+import { ErrorRetry, LoadingState, Modal, StatusPill, BookCover, useToast } from '../../components/SanzarUI';
 
 export interface AdminBook {
   id: string;
@@ -23,6 +23,8 @@ export interface AdminBook {
   author: string;
   cover_c1: string;
   cover_c2: string;
+  cover_image?: string | null;
+  cover_ratio?: number | null;
   featured_rank: number | null;
   sort: number;
   status: string;
@@ -177,13 +179,24 @@ const BooksAndSubjectsView: React.FC = () => {
             {books.map((b) => (
               <tr key={b.id} className="border-b border-sanzar-border last:border-0">
                 <td className="p-3">
-                  <Link
-                    to={`/admin/content/book/${encodeURIComponent(b.id)}`}
-                    className="font-bold text-sanzar-primary hover:underline"
-                  >
-                    {b.title}
-                  </Link>
-                  <div className="text-xs text-sanzar-muted">{b.id}</div>
+                  <div className="flex items-center gap-3">
+                    <BookCover
+                      colors={[b.cover_c1, b.cover_c2]}
+                      title={b.title}
+                      imageUrl={b.cover_image}
+                      aspectRatio={b.cover_ratio}
+                      size="xs"
+                    />
+                    <div className="min-w-0">
+                      <Link
+                        to={`/admin/content/book/${encodeURIComponent(b.id)}`}
+                        className="font-bold text-sanzar-primary hover:underline"
+                      >
+                        {b.title}
+                      </Link>
+                      <div className="text-xs text-sanzar-muted">{b.id}</div>
+                    </div>
+                  </div>
                 </td>
                 <td className="p-3">{subName(b.subject_id)}</td>
                 <td className="p-3 text-xs">
@@ -300,6 +313,8 @@ const BookForm: React.FC<{ book: Partial<AdminBook> | null; content: AdminConten
     author: book?.author ?? '',
     c1: book?.cover_c1 ?? '#0b523b',
     c2: book?.cover_c2 ?? '#247754',
+    cover_image: book?.cover_image ?? (null as string | null),
+    cover_ratio: book?.cover_ratio ?? (null as number | null),
     featured: book?.featured_rank?.toString() ?? '',
     sort: String(book?.sort ?? 0),
     status: book?.status ?? 'draft',
@@ -307,6 +322,43 @@ const BookForm: React.FC<{ book: Partial<AdminBook> | null; content: AdminConten
   });
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [detectBusy, setDetectBusy] = useState(false);
+
+  const bookChapters = book?.id ? content.chapters.filter((c) => c.book_id === book.id).map((c) => c.id) : [];
+  const firstDocRes = bookChapters.length
+    ? content.resources.find((r) => bookChapters.includes(r.chapter_id) && (r.type === 'pdf' || r.type === 'ppt') && r.url)
+    : undefined;
+
+  const detectFromFile = async (file: File) => {
+    setDetectBusy(true);
+    setErrors([]);
+    try {
+      const { extractThumbnailFromFile } = await import('../../lib/thumbnail-extractor');
+      const res = await extractThumbnailFromFile(file, f.title);
+      setF((prev) => ({ ...prev, cover_image: res.coverImage, cover_ratio: res.coverRatio }));
+      toast('Detected page 1 thumbnail & aspect ratio');
+    } catch (e) {
+      setErrors([errorText(e)]);
+    } finally {
+      setDetectBusy(false);
+    }
+  };
+
+  const detectFromBookUrl = async () => {
+    if (!firstDocRes?.url) return;
+    setDetectBusy(true);
+    setErrors([]);
+    try {
+      const { extractThumbnailFromUrl } = await import('../../lib/thumbnail-extractor');
+      const res = await extractThumbnailFromUrl(firstDocRes.url, firstDocRes.type as 'pdf' | 'ppt', f.title);
+      setF((prev) => ({ ...prev, cover_image: res.coverImage, cover_ratio: res.coverRatio }));
+      toast('Detected thumbnail from material');
+    } catch (e) {
+      setErrors([errorText(e)]);
+    } finally {
+      setDetectBusy(false);
+    }
+  };
 
   const submit = async () => {
     const id = isNew ? f.id || slugify(f.title) : f.id;
@@ -331,6 +383,8 @@ const BookForm: React.FC<{ book: Partial<AdminBook> | null; content: AdminConten
           edition: f.edition,
           author: f.author,
           cover: [f.c1, f.c2],
+          cover_image: f.cover_image,
+          cover_ratio: f.cover_ratio,
           levels: f.levels,
           featured_rank: f.featured === '' ? null : Number(f.featured),
           sort: Number(f.sort) || 0,
@@ -396,10 +450,66 @@ const BookForm: React.FC<{ book: Partial<AdminBook> | null; content: AdminConten
           <input type="number" min={0} value={f.sort} onChange={(e) => setF({ ...f, sort: e.target.value })} className="sanzar-input text-sm" />
         </label>
         <div className="space-y-1 sm:col-span-2">
-          <span>Cover colours</span>
+          <span>Fallback cover colours</span>
           <div className="flex gap-2">
             <input type="color" value={f.c1} onChange={(e) => setF({ ...f, c1: e.target.value })} className="w-16 h-9 rounded border border-sanzar-border" />
             <input type="color" value={f.c2} onChange={(e) => setF({ ...f, c2: e.target.value })} className="w-16 h-9 rounded border border-sanzar-border" />
+          </div>
+        </div>
+      </div>
+
+      {/* Auto Thumbnail & Aspect Ratio Section */}
+      <div className="p-3.5 rounded-xl bg-sanzar-surface2 border border-sanzar-border space-y-3 text-xs">
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-semibold text-sanzar-text2">Auto Thumbnail (PDF Page 1 / PPT Slide 1)</span>
+          {f.cover_ratio != null && (
+            <span className="sanzar-pill">Ratio {f.cover_ratio.toFixed(2)}:1</span>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-4">
+          <BookCover
+            colors={[f.c1, f.c2]}
+            title={f.title || 'Book'}
+            imageUrl={f.cover_image}
+            aspectRatio={f.cover_ratio}
+            size="md"
+          />
+          <div className="flex-1 min-w-[200px] space-y-2">
+            <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-sanzar-border bg-sanzar-surface cursor-pointer font-semibold hover:border-sanzar-primary transition">
+              <span>{detectBusy ? 'Detecting…' : 'Detect from PDF / PPT file'}</span>
+              <input
+                type="file"
+                disabled={detectBusy}
+                accept=".pdf,.ppt,.pptx,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void detectFromFile(file);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {firstDocRes?.url && (
+                <button
+                  type="button"
+                  disabled={detectBusy}
+                  onClick={detectFromBookUrl}
+                  className="px-3 py-1 rounded-lg border border-sanzar-primary/40 text-sanzar-primary font-semibold hover:bg-sanzar-primarySoft transition disabled:opacity-50"
+                >
+                  Auto-detect from material URL
+                </button>
+              )}
+              {f.cover_image && (
+                <button
+                  type="button"
+                  onClick={() => setF({ ...f, cover_image: null, cover_ratio: null })}
+                  className="px-3 py-1 rounded-lg border border-sanzar-border text-sanzar-muted font-semibold hover:text-sanzar-danger transition"
+                >
+                  Clear thumbnail
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -934,6 +1044,7 @@ const ChapterDetailView: React.FC<{ chapterId: string }> = ({ chapterId }) => {
         <Modal title={resModal ? 'Edit material' : 'Add material'} onClose={() => setResModal(undefined)}>
           <ResourceForm
             chapterId={chapterId}
+            book={book}
             res={resModal}
             onDone={() => {
               setResModal(undefined);
@@ -1124,8 +1235,9 @@ const NotesEditor: React.FC<{ chapterId: string }> = ({ chapterId }) => {
   );
 };
 
-const ResourceForm: React.FC<{ chapterId: string; res: AdminResource | null; onDone: () => void }> = ({
+const ResourceForm: React.FC<{ chapterId: string; book?: AdminBook; res: AdminResource | null; onDone: () => void }> = ({
   chapterId,
+  book,
   res,
   onDone,
 }) => {
@@ -1139,6 +1251,8 @@ const ResourceForm: React.FC<{ chapterId: string; res: AdminResource | null; onD
     status: res?.status ?? 'published',
     note: '',
   });
+  const [localFile, setLocalFile] = useState<File | null>(null);
+  const [autoThumb, setAutoThumb] = useState(() => !book?.cover_image);
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -1168,7 +1282,23 @@ const ResourceForm: React.FC<{ chapterId: string; res: AdminResource | null; onD
           change_note: f.note,
         },
       });
-      toast('Saved');
+      if ((f.type === 'pdf' || f.type === 'ppt') && book && (localFile || (autoThumb && trimmedUrl))) {
+        try {
+          const { extractThumbnailFromFile, extractThumbnailFromUrl } = await import('../../lib/thumbnail-extractor');
+          const thumb = localFile
+            ? await extractThumbnailFromFile(localFile, f.title)
+            : await extractThumbnailFromUrl(trimmedUrl, f.type as 'pdf' | 'ppt', f.title);
+          await apiRequest(`/v1/admin/books/${encodeURIComponent(book.id)}/cover`, {
+            method: 'PATCH',
+            bodyJson: { cover_image: thumb.coverImage, cover_ratio: thumb.coverRatio },
+          });
+          toast('Saved material & updated book thumbnail');
+        } catch (thumbErr) {
+          toast(`Material saved (thumbnail skipped: ${errorText(thumbErr)})`);
+        }
+      } else {
+        toast('Saved');
+      }
       onDone();
     } catch (e) {
       setErrors([errorText(e)]);
@@ -1209,6 +1339,39 @@ const ResourceForm: React.FC<{ chapterId: string; res: AdminResource | null; onD
         </span>
         <input value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} placeholder="https://" className="sanzar-input text-sm" />
       </label>
+      {(f.type === 'pdf' || f.type === 'ppt') && book && (
+        <div className="p-3 rounded-xl bg-sanzar-surface2 border border-sanzar-border space-y-2">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={autoThumb || !!localFile}
+              onChange={(e) => setAutoThumb(e.target.checked)}
+              className="accent-sanzar-primary"
+            />
+            <span>Set page 1 as book thumbnail &amp; match aspect ratio</span>
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="px-3 py-1 rounded-lg border border-sanzar-border bg-sanzar-surface cursor-pointer hover:border-sanzar-primary transition">
+              <span>{localFile ? localFile.name : 'Pick PDF / PPT file for thumbnail (optional)'}</span>
+              <input
+                type="file"
+                accept=".pdf,.ppt,.pptx,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] || null;
+                  setLocalFile(file);
+                  if (file) setAutoThumb(true);
+                }}
+              />
+            </label>
+            {localFile && (
+              <button type="button" onClick={() => setLocalFile(null)} className="text-sanzar-danger hover:underline">
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       <label className="block space-y-1">
         <span>Licence / source</span>
         <input value={f.licence} onChange={(e) => setF({ ...f, licence: e.target.value })} className="sanzar-input text-sm" />
@@ -1221,7 +1384,7 @@ const ResourceForm: React.FC<{ chapterId: string; res: AdminResource | null; onD
       )}
       <ErrorsBox list={errors} />
       <button onClick={submit} disabled={busy} className="px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold">
-        Save material
+        {busy ? 'Saving…' : 'Save material'}
       </button>
     </div>
   );

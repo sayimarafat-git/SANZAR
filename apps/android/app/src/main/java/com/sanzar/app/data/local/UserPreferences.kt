@@ -15,7 +15,7 @@ private val Context.sanzarDataStore: DataStore<Preferences> by preferencesDataSt
 
 data class UserPrefState(
     val onboarded: Boolean = false,
-    val themeMode: String = "system",
+    val themeMode: String = "light",
     val language: String = "bn",
     val selectedLevelId: String? = null,
     val guestMode: Boolean = false,
@@ -37,9 +37,10 @@ class UserPreferences(private val context: Context) {
     }
 
     val state: Flow<UserPrefState> = context.sanzarDataStore.data.map { prefs ->
+        val rawTheme = prefs[Keys.THEME_MODE]
         UserPrefState(
             onboarded = prefs[Keys.ONBOARDED] ?: false,
-            themeMode = prefs[Keys.THEME_MODE] ?: "system",
+            themeMode = if (rawTheme == "dark") "dark" else "light",
             language = prefs[Keys.LANGUAGE] ?: "bn",
             selectedLevelId = prefs[Keys.SELECTED_LEVEL_ID],
             guestMode = prefs[Keys.GUEST_MODE] ?: false,

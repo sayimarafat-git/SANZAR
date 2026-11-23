@@ -36,7 +36,7 @@ fun OnboardingScreen(
 ) {
     val s = LocalStrings.current
     val palette = LocalSanzarPalette.current
-    val pagerState = rememberPagerState(pageCount = { 3 })
+    val pagerState = rememberPagerState(pageCount = { 4 })
     val scope = rememberCoroutineScope()
     var langMenuExpanded by remember { mutableStateOf(false) }
 
@@ -44,6 +44,7 @@ fun OnboardingScreen(
         listOf(
             Triple(Icons.Rounded.MenuBook, "onb1.title", "onb1.body"),
             Triple(Icons.Rounded.CenterFocusStrong, "onb2.title", "onb2.body"),
+            Triple(Icons.Rounded.Translate, "onb4.title", "onb4.body"),
             Triple(Icons.Rounded.VolunteerActivism, "onb3.title", "onb3.body")
         )
     }

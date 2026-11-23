@@ -31,7 +31,7 @@ data class TutorChatMessage(
 
 data class SanzarUiState(
     val onboarded: Boolean = false,
-    val themeMode: String = "system",
+    val themeMode: String = "light",
     val language: String = "bn",
     val guestMode: Boolean = false,
     val selectedLevelId: String? = null,
@@ -59,6 +59,9 @@ data class SanzarUiState(
     val feedLoading: Boolean = false,
     val feedError: String? = null,
     val feedCategory: String? = null,
+    val feedQuery: String = "",
+    val dictionaryEntries: List<DictionaryEntry> = emptyList(),
+    val dictionaryLoading: Boolean = false,
     val attemptHistory: List<AttemptSummary> = emptyList(),
     val historyLoading: Boolean = false,
     val activeStudySeconds: Int = 0
@@ -294,27 +297,48 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun chooseClass(levelId: String) {
+        completePostLoginOnboarding(
+            displayName = _uiState.value.profile?.displayName.orEmpty(),
+            language = _uiState.value.language,
+            levelId = levelId
+        )
+    }
+
+    fun completePostLoginOnboarding(displayName: String, language: String, levelId: String) {
         viewModelScope.launch {
+            prefs.setLanguage(language)
             prefs.setSelectedLevelId(levelId)
-            val lang = _uiState.value.language
+            val cleanName = displayName.trim()
             if (auth.currentUser != null) {
                 try {
-                    val updated = api.updateMe(mapOf("level_id" to levelId, "locale" to lang))
-                    _uiState.update { it.copy(profile = updated, selectedLevelId = levelId) }
+                    val payload = mutableMapOf<String, Any?>(
+                        "level_id" to levelId,
+                        "locale" to language,
+                        "onboarding_completed" to true
+                    )
+                    if (cleanName.length >= 2) payload["display_name"] = cleanName
+                    val updated = api.updateMe(payload)
+                    _uiState.update { it.copy(profile = updated, selectedLevelId = levelId, language = language) }
                 } catch (_: Exception) {
                     enqueueSync(
                         "update_profile",
-                        JSONObject().put("level_id", levelId).put("locale", lang)
+                        JSONObject().put("level_id", levelId).put("locale", language).put("onboarding_completed", true)
                     )
                     _uiState.update {
                         it.copy(
                             selectedLevelId = levelId,
-                            profile = it.profile?.copy(levelId = levelId)
+                            language = language,
+                            profile = it.profile?.copy(
+                                levelId = levelId,
+                                locale = language,
+                                onboardingCompleted = true,
+                                displayName = if (cleanName.length >= 2) cleanName else it.profile.displayName
+                            )
                         )
                     }
                 }
             } else {
-                _uiState.update { it.copy(selectedLevelId = levelId) }
+                _uiState.update { it.copy(selectedLevelId = levelId, language = language) }
             }
         }
     }
@@ -478,7 +502,9 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
                 coverJson = JSONArray(b.cover).toString(),
                 levelsJson = JSONArray(b.levels).toString(),
                 featuredRank = b.featuredRank,
-                sortOrder = idx
+                sortOrder = idx,
+                coverImage = b.coverImage,
+                coverRatio = b.coverRatio
             )
             b.chapters.forEach { ch ->
                 chapters += ChapterEntity(
@@ -583,17 +609,25 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun markNotificationsRead() {
+    fun markNotificationsRead(id: String? = null) {
+        val snapshot = _uiState.value.notifications
+        val snapshotUnread = _uiState.value.unreadNotifications
+        _uiState.update { state ->
+            val updated = state.notifications.map { n ->
+                if (id == null || n.id == id) n.copy(read = true) else n
+            }
+            state.copy(
+                notifications = updated,
+                unreadNotifications = updated.count { !it.read }
+            )
+        }
         viewModelScope.launch {
             try {
-                api.markNotificationsRead()
-                _uiState.update { state ->
-                    state.copy(
-                        notifications = state.notifications.map { it.copy(read = true) },
-                        unreadNotifications = 0
-                    )
-                }
+                api.markNotificationsRead(id)
             } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(notifications = snapshot, unreadNotifications = snapshotUnread)
+                }
                 showSnack(e.message ?: "Error")
             }
         }
@@ -906,15 +940,33 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
         return null
     }
 
+    // --- Dictionary ---
+
+    fun searchDictionary(query: String = "", lang: String = "all") {
+        viewModelScope.launch {
+            _uiState.update { it.copy(dictionaryLoading = true) }
+            try {
+                val entries = api.fetchDictionary(query = query, lang = lang)
+                _uiState.update { it.copy(dictionaryEntries = entries, dictionaryLoading = false) }
+            } catch (_: Exception) {
+                _uiState.update { it.copy(dictionaryLoading = false) }
+            }
+        }
+    }
+
     // --- Community ---
 
-    fun loadFeed(reset: Boolean = false, category: String? = _uiState.value.feedCategory) {
+    fun loadFeed(
+        reset: Boolean = false,
+        category: String? = _uiState.value.feedCategory,
+        query: String = _uiState.value.feedQuery
+    ) {
         viewModelScope.launch {
             if (_uiState.value.feedLoading) return@launch
-            _uiState.update { it.copy(feedLoading = true, feedError = null, feedCategory = category) }
+            _uiState.update { it.copy(feedLoading = true, feedError = null, feedCategory = category, feedQuery = query) }
             try {
                 val before = if (reset) null else _uiState.value.feedNextCursor
-                val (posts, next) = api.fetchFeed(before = before, category = category)
+                val (posts, next) = api.fetchFeed(before = before, category = category, query = query)
                 _uiState.update { state ->
                     state.copy(
                         feedPosts = if (reset) posts else state.feedPosts + posts,

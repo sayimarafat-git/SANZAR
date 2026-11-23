@@ -83,7 +83,7 @@ before(async () => {
     APP_ENV: 'test',
   };
   const migration = await migrate(env);
-  assert.deepEqual(migration.applied, ['0001_init', '0002_existing_profiles', '0003_sync_and_resources', '0004_learning_languages', '0005_admin_enhancements']);
+  assert.deepEqual(migration.applied, ['0001_init', '0002_existing_profiles', '0003_sync_and_resources', '0004_learning_languages', '0005_admin_enhancements', '0006_dictionary_and_thumbnails']);
   const preserved = await DB.prepare('SELECT uid, email, display_name, created_at FROM users WHERE uid = ?').bind('preserved-profile').first();
   assert.equal(preserved.uid, 'preserved-profile');
   assert.equal(preserved.email, 'preserved@example.test');
@@ -95,7 +95,7 @@ before(async () => {
 test('health reports completed schema migrations', async () => {
   const { response, data } = await call('GET', '/v1/health');
   assert.equal(response.status, 200);
-  assert.equal(data.schema, '5/5');
+  assert.equal(data.schema, '6/6');
 });
 
 test('catalog starts with platform levels and no imported course data', async () => {
@@ -347,4 +347,68 @@ test('admin enhancements: optional pdf url, single book language, expiry, push n
     body: { answers: { 'q-custom-xp': 0 } },
   });
   assert.equal(sub.data.xpAwarded, 50);
+});
+
+test('onboarding, single notification read, community search, dictionary, and book thumbnails work end-to-end', async () => {
+  const beforeMe = await call('GET', '/v1/me', { auth: ownerToken });
+  assert.equal(beforeMe.data.user.onboarding_completed, false);
+
+  const patchedMe = await call('PATCH', '/v1/me', {
+    auth: ownerToken,
+    body: { onboarding_completed: true, level_id: 'zh' },
+  });
+  assert.equal(patchedMe.response.status, 200);
+  assert.equal(patchedMe.data.user.onboarding_completed, true);
+
+  await env.DB.prepare('INSERT INTO notifications (id, uid, title, body, read, created_at) VALUES (?, ?, ?, ?, 0, ?)').bind('n-single-1', 'owner-user', 'First', 'One', 1000).run();
+  await env.DB.prepare('INSERT INTO notifications (id, uid, title, body, read, created_at) VALUES (?, ?, ?, ?, 0, ?)').bind('n-single-2', 'owner-user', 'Second', 'Two', 2000).run();
+  const markOne = await call('POST', '/v1/notifications/read', { auth: ownerToken, body: { id: 'n-single-1' } });
+  assert.equal(markOne.response.status, 200);
+  const notifsAfterOne = await call('GET', '/v1/notifications', { auth: ownerToken });
+  assert.equal(notifsAfterOne.data.notifications.find((n) => n.id === 'n-single-1')?.read, true);
+  assert.equal(notifsAfterOne.data.notifications.find((n) => n.id === 'n-single-2')?.read, false);
+
+  await call('POST', '/v1/posts', { auth: ownerToken, body: { text: 'Mandarin tones practice guide', category: 'general' } });
+  await call('POST', '/v1/posts', { auth: ownerToken, body: { text: 'English grammar notes summary', category: 'general' } });
+  const searchedFeed = await call('GET', '/v1/feed?q=mandarin', { auth: ownerToken });
+  assert.equal(searchedFeed.response.status, 200);
+  assert.equal(searchedFeed.data.posts.some((p) => p.text.includes('Mandarin')), true);
+  assert.equal(searchedFeed.data.posts.some((p) => p.text.includes('grammar')), false);
+
+  const dictPut = await call('PUT', '/v1/admin/dictionary/zh-ni-hao', {
+    auth: ownerToken,
+    body: {
+      language: 'zh',
+      word: '你好',
+      phonetic: 'nǐ hǎo',
+      part_of_speech: 'greeting',
+      meaning_en: 'Hello',
+      meaning_bn: 'হ্যালো / নমস্কার',
+      meaning_zh: '问候语',
+      example: '你好，欢迎来到 SANZAR！',
+      example_translation: 'Hello, welcome to SANZAR!',
+      hsk_level: 'HSK 1',
+      status: 'published',
+    },
+  });
+  assert.equal(dictPut.response.status, 200);
+  const dictSearch = await call('GET', '/v1/dictionary?q=n%C7%90&lang=zh', { auth: ownerToken });
+  assert.equal(dictSearch.response.status, 200);
+  assert.equal(dictSearch.data.entries.length, 1);
+  assert.equal(dictSearch.data.entries[0].word, '你好');
+
+  const coverPatch = await call('PATCH', '/v1/admin/books/foundations/cover', {
+    auth: ownerToken,
+    body: { cover_image: 'data:image/png;base64,iVBORw0KGgo=', cover_ratio: 1.7778 },
+  });
+  assert.equal(coverPatch.response.status, 200);
+  assert.equal(coverPatch.data.cover_ratio, 1.7778);
+
+  const catAfterCover = await call('GET', '/v1/catalog', { auth: ownerToken });
+  const book = catAfterCover.data.books.find((b) => b.id === 'foundations');
+  assert.equal(book.coverImage, 'data:image/png;base64,iVBORw0KGgo=');
+  assert.equal(book.coverRatio, 1.7778);
+
+  const dictDel = await call('DELETE', '/v1/admin/dictionary/zh-ni-hao', { auth: ownerToken });
+  assert.equal(dictDel.response.status, 200);
 });

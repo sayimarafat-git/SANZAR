@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { AdminLayout, RoleGuard } from './AdminLayout';
 import { AdminOverviewPage } from './AdminOverviewPage';
 import { AdminContentPage } from './AdminContentPage';
+import { AdminDictionaryPage } from './AdminDictionaryPage';
 import { AdminExamsPage } from './AdminExamsPage';
 import { AdminUsersPage } from './AdminUsersPage';
 import { AdminModerationPage } from './AdminModerationPage';
@@ -36,6 +37,14 @@ export const AdminDashboard: React.FC = () => {
           element={
             <RoleGuard min="content_admin">
               <AdminContentPage view="chapter" />
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="dictionary"
+          element={
+            <RoleGuard min="content_admin">
+              <AdminDictionaryPage />
             </RoleGuard>
           }
         />

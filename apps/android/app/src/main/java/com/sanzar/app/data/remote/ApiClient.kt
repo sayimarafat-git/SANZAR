@@ -199,10 +199,11 @@ class ApiClient(
         return list to me
     }
 
-    suspend fun fetchFeed(before: Long? = null, category: String? = null): Pair<List<Post>, Long?> {
+    suspend fun fetchFeed(before: Long? = null, category: String? = null, query: String? = null): Pair<List<Post>, Long?> {
         val params = buildList {
             if (before != null) add("before=$before")
             if (!category.isNullOrBlank()) add("category=$category")
+            if (!query.isNullOrBlank()) add("q=${java.net.URLEncoder.encode(query.trim(), "UTF-8")}")
         }.joinToString("&")
         val resp = send("GET", "/v1/feed${if (params.isEmpty()) "" else "?$params"}")
         val j = resp.optJson() ?: JSONObject()
@@ -317,8 +318,21 @@ class ApiClient(
         return list to j.optInt("unread", 0)
     }
 
-    suspend fun markNotificationsRead() {
-        send("POST", "/v1/notifications/read", JSONObject())
+    suspend fun markNotificationsRead(id: String? = null) {
+        val body = JSONObject().apply {
+            if (!id.isNullOrBlank()) put("id", id)
+        }
+        send("POST", "/v1/notifications/read", body)
+    }
+
+    suspend fun fetchDictionary(query: String = "", lang: String = "all"): List<DictionaryEntry> {
+        val params = buildList {
+            if (lang == "zh" || lang == "en") add("lang=$lang")
+            if (query.isNotBlank()) add("q=${java.net.URLEncoder.encode(query.trim(), "UTF-8")}")
+        }.joinToString("&")
+        val resp = send("GET", "/v1/dictionary${if (params.isEmpty()) "" else "?$params"}")
+        val arr = resp.optJson()?.optJSONArray("entries") ?: return emptyList()
+        return List(arr.length()) { DictionaryEntry.fromJson(arr.getJSONObject(it)) }
     }
 
     suspend fun fetchResourceManifest(): List<ResourceManifestItem> {

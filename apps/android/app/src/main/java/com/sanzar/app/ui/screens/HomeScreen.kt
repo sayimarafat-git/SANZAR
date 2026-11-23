@@ -34,13 +34,13 @@ import com.sanzar.app.ui.theme.SanzarSpace
 fun HomeScreen(
     state: SanzarUiState,
     onRefresh: () -> Unit,
-    onMarkNotificationsRead: () -> Unit,
+    onMarkNotificationsRead: (String?) -> Unit,
     onToggleTheme: () -> Unit,
     onSelectLanguage: (String) -> Unit,
     onOpenExams: () -> Unit,
     onOpenProgress: () -> Unit,
     onOpenLeaderboard: () -> Unit,
-    onOpenTutor: () -> Unit,
+    onOpenDictionary: () -> Unit,
     onOpenSubjectLibrary: (String) -> Unit,
     onOpenAllLibrary: () -> Unit,
     onOpenBook: (String) -> Unit,
@@ -130,6 +130,21 @@ fun HomeScreen(
                                         onClick = { notifOpen = false }
                                     )
                                 } else {
+                                    if (state.unreadNotifications > 0) {
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    s("markAllRead"),
+                                                    color = palette.primary,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            },
+                                            onClick = {
+                                                onMarkNotificationsRead(null)
+                                            }
+                                        )
+                                        HorizontalDivider(color = palette.border)
+                                    }
                                     state.notifications.take(6).forEach { n ->
                                         DropdownMenuItem(
                                             text = {
@@ -151,8 +166,7 @@ fun HomeScreen(
                                                 }
                                             },
                                             onClick = {
-                                                notifOpen = false
-                                                onMarkNotificationsRead()
+                                                onMarkNotificationsRead(n.id)
                                             }
                                         )
                                     }
@@ -299,9 +313,9 @@ fun HomeScreen(
                         modifier = Modifier.weight(1f)
                     )
                     QuickActionTile(
-                        icon = Icons.Rounded.SmartToy,
-                        label = s("tutor"),
-                        onClick = onOpenTutor,
+                        icon = Icons.Rounded.MenuBook,
+                        label = s("dictionary"),
+                        onClick = onOpenDictionary,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -470,7 +484,13 @@ private fun FeaturedBookItem(
             .width(110.dp)
             .clickable(onClick = onClick)
     ) {
-        BookCover(colors = book.cover, title = book.title, width = 110.dp)
+        BookCover(
+            colors = book.cover,
+            title = book.title,
+            width = 110.dp,
+            imageUrl = book.coverImage,
+            aspectRatio = book.coverRatio
+        )
         Spacer(Modifier.height(4.dp))
         Text(
             text = chaptersLabel,

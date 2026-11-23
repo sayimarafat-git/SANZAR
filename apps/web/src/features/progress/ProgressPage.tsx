@@ -123,34 +123,36 @@ export const ProgressPage: React.FC = () => {
           )}
         </div>
 
-        {/* Large Segmented Progress / Leaderboard Toggle */}
-        <div className="grid grid-cols-2 w-full sm:w-[340px] rounded-2xl sanzar-glass p-1.5 gap-1.5">
+        {/* Compact Frosted Segmented Toggle */}
+        <div className="inline-flex items-center rounded-xl sanzar-glass p-1 gap-1 self-start sm:self-auto">
           <button
+            type="button"
             onClick={() => {
               setTab('overview');
               setParams({});
             }}
-            className={`px-5 py-3 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 ${
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
               tab === 'overview'
-                ? 'bg-sanzar-primary text-sanzar-onPrimary shadow-md'
+                ? 'bg-sanzar-primary text-sanzar-onPrimary shadow-sm'
                 : 'text-sanzar-text2 hover:bg-white/40 dark:hover:bg-white/5'
             }`}
           >
-            <TrendingUp className="w-4 h-4" />
+            <TrendingUp className="w-3.5 h-3.5" />
             <span>{t('progress')}</span>
           </button>
           <button
+            type="button"
             onClick={() => {
               setTab('leaderboard');
               setParams({ tab: 'leaderboard' });
             }}
-            className={`px-5 py-3 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 ${
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
               tab === 'leaderboard'
-                ? 'bg-sanzar-primary text-sanzar-onPrimary shadow-md'
+                ? 'bg-sanzar-primary text-sanzar-onPrimary shadow-sm'
                 : 'text-sanzar-text2 hover:bg-white/40 dark:hover:bg-white/5'
             }`}
           >
-            <Trophy className="w-4 h-4" />
+            <Trophy className="w-3.5 h-3.5" />
             <span>{t('leaderboard')}</span>
           </button>
         </div>

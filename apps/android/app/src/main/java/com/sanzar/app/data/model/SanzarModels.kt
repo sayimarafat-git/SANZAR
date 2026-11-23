@@ -34,6 +34,7 @@ data class Profile(
     val levelId: String? = null,
     val group: String? = null,
     val institution: String? = null,
+    val onboardingCompleted: Boolean = false,
     val blocked: Boolean = false
 ) {
     val isStaff: Boolean get() = role != "student"
@@ -50,6 +51,7 @@ data class Profile(
             levelId = j.strOrNull("level_id"),
             group = j.strOrNull("grp"),
             institution = j.strOrNull("institution"),
+            onboardingCompleted = j.optBoolean("onboarding_completed", false),
             blocked = j.optInt("blocked", 0) == 1 || j.optBoolean("blocked", false)
         )
     }
@@ -168,7 +170,9 @@ data class Book(
     val cover: List<String>,
     val levels: List<String>,
     val chapters: List<Chapter>,
-    val featuredRank: Int? = null
+    val featuredRank: Int? = null,
+    val coverImage: String? = null,
+    val coverRatio: Float? = null
 ) {
     companion object {
         fun fromJson(j: JSONObject): Book {
@@ -176,6 +180,8 @@ data class Book(
             val chapters = if (chArr == null) emptyList() else List(chArr.length()) {
                 Chapter.fromJson(chArr.getJSONObject(it))
             }
+            val ratio = if (j.isNull("coverRatio") || !j.has("coverRatio")) null
+            else j.optDouble("coverRatio").toFloat().takeIf { !it.isNaN() && it > 0f }
             return Book(
                 id = j.str("id"),
                 title = j.str("title"),
@@ -185,9 +191,41 @@ data class Book(
                 cover = j.optJSONArray("cover").toStringList(),
                 levels = j.optJSONArray("levels").toStringList(),
                 chapters = chapters,
-                featuredRank = j.intOrNull("featuredRank")
+                featuredRank = j.intOrNull("featuredRank"),
+                coverImage = j.strOrNull("coverImage"),
+                coverRatio = ratio
             )
         }
+    }
+}
+
+data class DictionaryEntry(
+    val id: String,
+    val language: String,
+    val word: String,
+    val phonetic: String = "",
+    val partOfSpeech: String = "",
+    val meaningEn: String = "",
+    val meaningBn: String = "",
+    val meaningZh: String = "",
+    val example: String = "",
+    val exampleTranslation: String = "",
+    val hskLevel: String = ""
+) {
+    companion object {
+        fun fromJson(j: JSONObject): DictionaryEntry = DictionaryEntry(
+            id = j.str("id"),
+            language = j.str("language", "zh"),
+            word = j.str("word"),
+            phonetic = j.str("phonetic"),
+            partOfSpeech = j.str("part_of_speech"),
+            meaningEn = j.str("meaning_en"),
+            meaningBn = j.str("meaning_bn"),
+            meaningZh = j.str("meaning_zh"),
+            example = j.str("example"),
+            exampleTranslation = j.str("example_translation"),
+            hskLevel = j.str("hsk_level")
+        )
     }
 }
 

@@ -36,13 +36,14 @@ import com.sanzar.app.ui.theme.LocalSanzarPalette
 import com.sanzar.app.ui.theme.SanzarColors
 import com.sanzar.app.ui.theme.SanzarRadius
 import com.sanzar.app.ui.theme.SanzarSpace
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CommunityScreen(
     state: SanzarUiState,
-    onLoadFeed: (Boolean, String?) -> Unit,
+    onLoadFeed: (Boolean, String?, String) -> Unit,
     onCreatePost: suspend (String, String, String?, List<String>?, List<PostAttachment>) -> Boolean,
     onToggleLike: (Post) -> Unit,
     onVotePoll: (Post, Int) -> Unit,
@@ -55,11 +56,18 @@ fun CommunityScreen(
     val s = LocalStrings.current
     val palette = LocalSanzarPalette.current
     var showCompose by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf(state.feedQuery) }
 
     LaunchedEffect(Unit) {
         if (state.feedPosts.isEmpty() && !state.feedLoading) {
-            onLoadFeed(true, state.feedCategory)
+            onLoadFeed(true, state.feedCategory, searchQuery)
         }
+    }
+
+    LaunchedEffect(searchQuery) {
+        if (searchQuery == state.feedQuery) return@LaunchedEffect
+        delay(280)
+        onLoadFeed(true, state.feedCategory, searchQuery)
     }
 
     Scaffold(
@@ -68,21 +76,29 @@ fun CommunityScreen(
             TopAppBar(
                 title = { Text(s("community")) },
                 actions = {
-                    IconButton(onClick = { onLoadFeed(true, state.feedCategory) }) {
+                    TextButton(onClick = { showCompose = true }) {
+                        Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(s("post"), fontWeight = FontWeight.Bold)
+                    }
+                    IconButton(onClick = { onLoadFeed(true, state.feedCategory, searchQuery) }) {
                         Icon(Icons.Rounded.Refresh, contentDescription = s("retry"))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = palette.bg)
             )
-        },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { showCompose = true },
-                icon = { Icon(Icons.Rounded.Edit, contentDescription = null) },
-                text = { Text(s("post")) }
-            )
         }
     ) { padding ->
+        val filteredPosts = remember(state.feedPosts, searchQuery) {
+            val q = searchQuery.trim().lowercase()
+            if (q.isEmpty()) state.feedPosts
+            else state.feedPosts.filter {
+                it.text.lowercase().contains(q) ||
+                    it.authorName.lowercase().contains(q) ||
+                    (it.poll?.question?.lowercase()?.contains(q) == true)
+            }
+        }
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -90,6 +106,25 @@ fun CommunityScreen(
             contentPadding = PaddingValues(start = SanzarSpace.S4.dp, end = SanzarSpace.S4.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(SanzarSpace.S3.dp)
         ) {
+            item {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text(s("searchCommunity")) },
+                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Rounded.Clear, contentDescription = s("clearSearch"))
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(SanzarRadius.SM.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(SanzarSpace.S2.dp)) {
                     listOf(
@@ -99,30 +134,30 @@ fun CommunityScreen(
                     ).forEach { (cat, label) ->
                         FilterChip(
                             selected = state.feedCategory == cat,
-                            onClick = { onLoadFeed(true, cat) },
+                            onClick = { onLoadFeed(true, cat, searchQuery) },
                             label = { Text(label) }
                         )
                     }
                 }
             }
 
-            if (state.feedLoading && state.feedPosts.isEmpty()) {
+            if (state.feedLoading && filteredPosts.isEmpty()) {
                 item {
                     Box(modifier = Modifier.fillMaxWidth().padding(SanzarSpace.S6.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }
                 }
-            } else if (state.feedError != null && state.feedPosts.isEmpty()) {
+            } else if (state.feedError != null && filteredPosts.isEmpty()) {
                 item {
                     ErrorRetryView(
                         message = s("err.network"),
-                        onRetry = { onLoadFeed(true, state.feedCategory) }
+                        onRetry = { onLoadFeed(true, state.feedCategory, searchQuery) }
                     )
                 }
-            } else if (state.feedPosts.isEmpty()) {
+            } else if (filteredPosts.isEmpty()) {
                 item { EmptyStateView(message = s("noPosts"), icon = Icons.Rounded.Forum) }
             } else {
-                items(state.feedPosts, key = { it.id }) { post ->
+                items(filteredPosts, key = { it.id }) { post ->
                     PostCard(
                         post = post,
                         onToggleLike = { onToggleLike(post) },
@@ -137,7 +172,7 @@ fun CommunityScreen(
                 if (state.feedNextCursor != null && !state.feedLoading) {
                     item {
                         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            TextButton(onClick = { onLoadFeed(false, state.feedCategory) }) {
+                            TextButton(onClick = { onLoadFeed(false, state.feedCategory, searchQuery) }) {
                                 Text(s("loadMore"))
                             }
                         }

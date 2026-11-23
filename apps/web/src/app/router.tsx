@@ -5,6 +5,7 @@ import { LoadingState } from '../components/SanzarUI';
 
 const HomePage = lazy(() => import('../features/home/HomePage').then((m) => ({ default: m.HomePage })));
 const LibraryPage = lazy(() => import('../features/library/LibraryPage').then((m) => ({ default: m.LibraryPage })));
+const DictionaryPage = lazy(() => import('../features/dictionary/DictionaryPage').then((m) => ({ default: m.DictionaryPage })));
 const LearnPage = lazy(() => import('../features/learning/LearnPage').then((m) => ({ default: m.LearnPage })));
 const ExamsPage = lazy(() => import('../features/exams/ExamsPage').then((m) => ({ default: m.ExamsPage })));
 const ProgressPage = lazy(() => import('../features/progress/ProgressPage').then((m) => ({ default: m.ProgressPage })));
@@ -25,6 +26,7 @@ export const AppRouter: React.FC = () => {
         <Route path="/" element={<Layout />}>
           <Route index element={<HomePage />} />
           <Route path="library" element={<LibraryPage />} />
+          <Route path="dictionary" element={<DictionaryPage />} />
           <Route path="learn" element={<LearnPage mode="root" />} />
           <Route path="learn/book/:bookId" element={<LearnPage mode="book" />} />
           <Route path="learn/chapter/:bookId/:chapterId" element={<LearnPage mode="chapter" />} />

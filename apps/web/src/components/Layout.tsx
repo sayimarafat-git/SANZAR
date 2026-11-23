@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Home,
   BookOpen,
+  BookA,
   ClipboardCheck,
   TrendingUp,
   Users,
@@ -21,30 +22,76 @@ import { useSettings } from '../lib/settings-context';
 import { apiRequest } from '../lib/api-client';
 import type { AppNotification } from '../lib/models';
 import { AmbientBackdrop, BrandMark, useToast } from './SanzarUI';
+import { FirstVisitOnboarding, PostLoginOnboarding, postOnboardedKey } from './OnboardingFlow';
+
+type NotifData = { notifications: AppNotification[]; unread: number };
 
 export const Layout: React.FC = () => {
-  const { user, profile, isStaff, guestMode, signOut } = useAuth();
+  const { user, profile, profileLoaded, loading, isStaff, guestMode, signOut } = useAuth();
   const { lang, setLang, themeMode, setThemeMode, t } = useSettings();
   const navigate = useNavigate();
+  const location = useLocation();
   const toast = useToast();
   const qc = useQueryClient();
   const [notifOpen, setNotifOpen] = useState(false);
+  const notifWrapRef = useRef<HTMLDivElement>(null);
+
+  const [firstOnbDismissed, setFirstOnbDismissed] = useState(
+    () => localStorage.getItem('sanzar.onboarded') === '1'
+  );
+  const [postOnbDone, setPostOnbDone] = useState(false);
 
   const notifQuery = useQuery({
     queryKey: ['notifications'],
-    queryFn: () => apiRequest<{ notifications: AppNotification[]; unread: number }>('/v1/notifications'),
+    queryFn: () => apiRequest<NotifData>('/v1/notifications'),
     enabled: !!user,
     staleTime: 60_000,
   });
+
+  useEffect(() => {
+    if (!notifOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (notifWrapRef.current && !notifWrapRef.current.contains(e.target as Node)) {
+        setNotifOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setNotifOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [notifOpen]);
 
   const unread = notifQuery.data?.unread ?? 0;
   const notifications = notifQuery.data?.notifications ?? [];
 
   const handleMarkRead = async () => {
+    qc.setQueryData<NotifData>(['notifications'], (prev) =>
+      prev ? { notifications: prev.notifications.map((n) => ({ ...n, read: true })), unread: 0 } : prev
+    );
     try {
       await apiRequest('/v1/notifications/read', { method: 'POST', bodyJson: {} });
-      await qc.invalidateQueries({ queryKey: ['notifications'] });
     } catch {
+      await qc.invalidateQueries({ queryKey: ['notifications'] });
+      toast(t('err.generic'));
+    }
+  };
+
+  const handleMarkOneRead = async (n: AppNotification) => {
+    if (n.read) return;
+    qc.setQueryData<NotifData>(['notifications'], (prev) => {
+      if (!prev) return prev;
+      const next = prev.notifications.map((x) => (x.id === n.id ? { ...x, read: true } : x));
+      return { notifications: next, unread: next.filter((x) => !x.read).length };
+    });
+    try {
+      await apiRequest('/v1/notifications/read', { method: 'POST', bodyJson: { id: n.id } });
+    } catch {
+      await qc.invalidateQueries({ queryKey: ['notifications'] });
       toast(t('err.generic'));
     }
   };
@@ -56,11 +103,21 @@ export const Layout: React.FC = () => {
   const navItems = [
     { to: '/', label: t('home'), icon: Home, end: true },
     { to: '/library', label: t('library'), icon: BookOpen },
+    { to: '/dictionary', label: t('dictionary'), icon: BookA },
     { to: '/exams', label: t('exams'), icon: ClipboardCheck },
     { to: '/progress', label: t('progress'), icon: TrendingUp },
     { to: '/community', label: t('community'), icon: Users },
-    { to: '/tutor', label: t('tutor'), icon: Sparkles },
   ];
+
+  const hideTutorFab = ['/tutor', '/login', '/register', '/forgot-password'].includes(location.pathname);
+  const showFirstVisitOnboarding = !loading && !user && !firstOnbDismissed;
+  const showPostLoginOnboarding =
+    !!user &&
+    profileLoaded &&
+    !!profile &&
+    !profile.onboarding_completed &&
+    localStorage.getItem(postOnboardedKey(user.uid)) !== '1' &&
+    !postOnbDone;
 
   return (
     <div className="min-h-screen flex flex-col text-sanzar-text pb-24 md:pb-0 relative">
@@ -109,16 +166,12 @@ export const Layout: React.FC = () => {
               aria-label={themeMode === 'dark' ? t('themeDark') : t('themeLight')}
               className="p-2 rounded-xl border border-sanzar-border bg-sanzar-surface2 text-sanzar-text2 hover:text-sanzar-primary transition"
             >
-              {themeMode === 'dark' ? (
-                <Moon className="w-4 h-4" />
-              ) : (
-                <Sun className="w-4 h-4" />
-              )}
+              {themeMode === 'dark' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
             </button>
 
             {/* Notifications */}
             {user && (
-              <div className="relative">
+              <div ref={notifWrapRef} className="relative">
                 <button
                   onClick={() => setNotifOpen((v) => !v)}
                   aria-label={t('notifications')}
@@ -137,6 +190,7 @@ export const Layout: React.FC = () => {
                       <span className="font-bold text-sm">{t('notifications')}</span>
                       {unread > 0 && (
                         <button
+                          type="button"
                           onClick={handleMarkRead}
                           className="text-xs font-semibold text-sanzar-primary hover:underline"
                         >
@@ -148,18 +202,25 @@ export const Layout: React.FC = () => {
                       <p className="text-xs text-sanzar-muted py-4 text-center">{t('noNotifications')}</p>
                     ) : (
                       <div className="max-h-72 overflow-y-auto space-y-2">
-                        {notifications.slice(0, 10).map((n) => (
-                          <div
+                        {notifications.slice(0, 15).map((n) => (
+                          <button
                             key={n.id}
-                            className={`p-2.5 rounded-xl text-xs ${
-                              n.read ? 'bg-sanzar-surface2/60' : 'bg-sanzar-primarySoft/60 border border-sanzar-border'
+                            type="button"
+                            onClick={() => void handleMarkOneRead(n)}
+                            className={`w-full text-left p-2.5 rounded-xl text-xs transition flex items-start gap-2 ${
+                              n.read
+                                ? 'bg-sanzar-surface2/60 hover:bg-sanzar-surface2'
+                                : 'bg-sanzar-primarySoft/70 border border-sanzar-primary/25 hover:bg-sanzar-primarySoft'
                             }`}
                           >
-                            <p className={`font-semibold ${n.read ? 'text-sanzar-text2' : 'text-sanzar-text'}`}>
-                              {n.title}
-                            </p>
-                            {n.body && <p className="text-sanzar-muted mt-0.5">{n.body}</p>}
-                          </div>
+                            {!n.read && <span className="w-2 h-2 rounded-full bg-sanzar-primary shrink-0 mt-1" />}
+                            <div className="min-w-0 flex-1">
+                              <p className={`font-semibold ${n.read ? 'text-sanzar-text2' : 'text-sanzar-text'}`}>
+                                {n.title}
+                              </p>
+                              {n.body && <p className="text-sanzar-muted mt-0.5">{n.body}</p>}
+                            </div>
+                          </button>
                         ))}
                       </div>
                     )}
@@ -307,35 +368,49 @@ export const Layout: React.FC = () => {
         </div>
       </footer>
 
-      {/* Mobile Floating Glass Bottom Dock */}
-      <nav className="md:hidden fixed bottom-3 inset-x-3 z-40 rounded-[24px] sanzar-glass-bar flex items-center justify-around h-16 px-1.5">
-        {navItems.slice(0, 5).map((item) => (
+      {/* Mobile Floating Glass Bottom Dock (Tutor moved to floating bottom-right corner) */}
+      <nav className="md:hidden fixed bottom-3 inset-x-3 z-40 rounded-[24px] sanzar-glass-bar flex items-center justify-around h-16 px-1">
+        {navItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             end={item.end}
             className={({ isActive }) =>
-              `flex flex-col items-center justify-center gap-0.5 px-2 py-1 rounded-xl text-[11px] font-semibold ${
+              `flex flex-col items-center justify-center gap-0.5 px-1.5 py-1 rounded-xl text-[10px] font-semibold ${
                 isActive ? 'text-sanzar-primary' : 'text-sanzar-muted'
               }`
             }
           >
-            <item.icon className="w-5 h-5" />
-            <span className="truncate max-w-[64px]">{item.label}</span>
+            <item.icon className="w-4 h-4" />
+            <span className="truncate max-w-[52px]">{item.label}</span>
           </NavLink>
         ))}
-        <NavLink
+      </nav>
+
+      {/* Bottom-right Floating AI Tutor Button */}
+      {!hideTutorFab && (
+        <Link
           to="/tutor"
-          className={({ isActive }) =>
-            `flex flex-col items-center justify-center gap-0.5 px-2 py-1 rounded-xl text-[11px] font-semibold ${
-              isActive ? 'text-sanzar-primary' : 'text-sanzar-muted'
-            }`
-          }
+          aria-label={t('tutor')}
+          className="fixed right-5 bottom-24 md:bottom-6 z-40 px-4 py-3 rounded-2xl bg-brand-grad text-white font-bold text-sm shadow-xl hover:scale-[1.03] active:scale-[0.98] transition flex items-center gap-2 ring-1 ring-white/30"
         >
           <Sparkles className="w-5 h-5" />
-          <span className="truncate max-w-[64px]">{t('tutor')}</span>
-        </NavLink>
-      </nav>
+          <span className="hidden sm:inline">{t('tutor')}</span>
+        </Link>
+      )}
+
+      {/* First-visit & Post-login Onboarding Flows */}
+      {showFirstVisitOnboarding && (
+        <FirstVisitOnboarding
+          onDone={(goTo) => {
+            setFirstOnbDismissed(true);
+            if (goTo) navigate(goTo);
+          }}
+        />
+      )}
+      {showPostLoginOnboarding && (
+        <PostLoginOnboarding onCompleted={() => setPostOnbDone(true)} />
+      )}
     </div>
   );
 };

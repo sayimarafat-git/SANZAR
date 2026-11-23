@@ -456,10 +456,16 @@ async function feed(env, ctx, url) {
   const before = Number(url.searchParams.get('before')) || 9e15;
   const category = url.searchParams.get('category');
   const author = url.searchParams.get('author');
+  const q = (url.searchParams.get('q') || '').trim().toLowerCase().slice(0, 100);
   const where = ["p.status = 'visible'", 'p.created_at < ?'];
   const args = [before];
   if (category === 'research' || category === 'general') { where.push('p.category = ?'); args.push(category); }
   if (author) { where.push('p.author_uid = ?'); args.push(idOf(author, 'Author')); }
+  if (q) {
+    where.push("(lower(p.text) LIKE ? OR lower(p.author_name) LIKE ? OR lower(COALESCE(p.poll_json, '')) LIKE ?)");
+    const like = `%${q}%`;
+    args.push(like, like, like);
+  }
   const rows = (await env.DB.prepare(`SELECT p.* FROM posts p WHERE ${where.join(' AND ')} ORDER BY p.created_at DESC LIMIT 40`).bind(...args).all()).results;
   const blocked = await blockedSet(env, uid);
   const posts = rows.filter((p) => !blocked.has(p.author_uid)).slice(0, 20);
@@ -741,6 +747,33 @@ async function publicProfile(env, ctx, uid) {
   };
 }
 
+/* ============================== dictionary ============================== */
+async function dictionary(env, url) {
+  const q = (url.searchParams.get('q') || '').trim().toLowerCase().slice(0, 100);
+  const lang = url.searchParams.get('lang');
+  const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || 60));
+  const where = ["status = 'published'"];
+  const args = [];
+  if (lang === 'zh' || lang === 'en') {
+    where.push('language = ?');
+    args.push(lang);
+  }
+  if (q) {
+    where.push('(lower(word) LIKE ? OR lower(phonetic) LIKE ? OR lower(meaning_en) LIKE ? OR lower(meaning_bn) LIKE ? OR lower(meaning_zh) LIKE ?)');
+    const like = `%${q}%`;
+    args.push(like, like, like, like, like);
+  }
+  const orderSql = q
+    ? 'ORDER BY CASE WHEN lower(word) = ? THEN 0 WHEN lower(word) LIKE ? THEN 1 ELSE 2 END, word ASC LIMIT ?'
+    : 'ORDER BY word ASC LIMIT ?';
+  const orderArgs = q ? [q, `${q}%`, limit] : [limit];
+  const rows = (await env.DB.prepare(
+    `SELECT id, language, word, phonetic, part_of_speech, meaning_en, meaning_bn, meaning_zh, example, example_translation, hsk_level, updated_at
+     FROM dictionary_entries WHERE ${where.join(' AND ')} ${orderSql}`
+  ).bind(...args, ...orderArgs).all()).results;
+  return { entries: rows };
+}
+
 /* ============================== notifications ============================== */
 async function notifications(env, ctx) {
   const rows = (await env.DB.prepare('SELECT id, title, body, read, created_at FROM notifications WHERE uid = ? ORDER BY created_at DESC LIMIT 50').bind(ctx.user.uid).all()).results;
@@ -799,11 +832,17 @@ async function syncOperations(env, ctx, input) {
         await studyEvents(env, ctx, { events: [{ id: opId, type: p.type || 'notes', resourceId: p.resourceId ?? null, chapterId: p.chapterId ?? null, sec: p.sec ?? 60, startedAt: p.startedAt ?? t }] });
       } else if (opType === 'completion') {
         await complete(env, ctx, { itemId: p.itemId });
-      } else if (opType === 'profile') {
+      } else if (opType === 'profile' || opType === 'update_profile') {
         const sets = [];
         const vals = [];
         if (typeof p.level_id === 'string' && ['zh', 'en'].includes(p.level_id)) { sets.push('level_id = ?'); vals.push(p.level_id); }
         if (typeof p.locale === 'string' && ['bn', 'en', 'zh'].includes(p.locale)) { sets.push('locale = ?'); vals.push(p.locale); }
+        if (p.onboarding_completed === true) {
+          let curSettings = {};
+          try { curSettings = JSON.parse(ctx.user.settings_json || '{}') || {}; } catch { curSettings = {}; }
+          curSettings.onboarding_completed = true;
+          sets.push('settings_json = ?'); vals.push(JSON.stringify(curSettings));
+        }
         if (sets.length) {
           sets.push('updated_at = ?'); vals.push(t);
           await env.DB.prepare(`UPDATE users SET ${sets.join(', ')} WHERE uid = ?`).bind(...vals, uid).run();
@@ -861,8 +900,19 @@ export async function routeFeatures(req, env, ctx, url) {
   if ((mm = path.match(/^\/v1\/users\/([\w-]{1,128})$/)) && m === 'GET') return json(await publicProfile(env, ctx, mm[1]));
   if ((mm = path.match(/^\/v1\/users\/([\w-]{1,128})\/follow$/)) && (m === 'POST' || m === 'DELETE')) return json(await follow(env, ctx, mm[1], m === 'POST'));
   if ((mm = path.match(/^\/v1\/users\/([\w-]{1,128})\/block$/)) && (m === 'POST' || m === 'DELETE')) return json(await block(env, ctx, mm[1], m === 'POST'));
+  if (path === '/v1/dictionary' && m === 'GET') return json(await dictionary(env, url));
   if (path === '/v1/notifications' && m === 'GET') return json(await notifications(env, ctx));
-  if (path === '/v1/notifications/read' && m === 'POST') { await env.DB.prepare('UPDATE notifications SET read = 1 WHERE uid = ?').bind(ctx.user.uid).run(); return json({ ok: true }); }
+  if (path === '/v1/notifications/read' && m === 'POST') {
+    const input = await body(req, 1000).catch(() => ({}));
+    const id = typeof input?.id === 'string' ? input.id.trim() : '';
+    if (id) {
+      if (!/^[\w-]{1,128}$/.test(id)) throw new HttpError(400, 'invalid-argument', 'Invalid notification id');
+      await env.DB.prepare('UPDATE notifications SET read = 1 WHERE uid = ? AND id = ?').bind(ctx.user.uid, id).run();
+      return json({ ok: true, id });
+    }
+    await env.DB.prepare('UPDATE notifications SET read = 1 WHERE uid = ?').bind(ctx.user.uid).run();
+    return json({ ok: true });
+  }
   if (path === '/v1/admin/reports' && m === 'GET') return json(await adminReports(env, ctx, url));
   if ((mm = path.match(/^\/v1\/admin\/reports\/([\w-]{1,64})$/)) && m === 'PUT') return json(await resolveReport(env, ctx, mm[1], await body(req, 1000)));
   return null;

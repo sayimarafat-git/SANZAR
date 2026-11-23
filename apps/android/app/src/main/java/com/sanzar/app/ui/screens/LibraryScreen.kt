@@ -142,7 +142,13 @@ fun LibraryScreen(
                             modifier = Modifier.padding(SanzarSpace.S3.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            BookCover(colors = book.cover, title = book.title, width = 60.dp)
+                            BookCover(
+                                colors = book.cover,
+                                title = book.title,
+                                width = 60.dp,
+                                imageUrl = book.coverImage,
+                                aspectRatio = book.coverRatio
+                            )
                             Spacer(Modifier.width(SanzarSpace.S3.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(

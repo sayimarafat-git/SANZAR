@@ -11,6 +11,8 @@ import {
   Link as LinkIcon,
   BarChart3,
   ExternalLink,
+  Search,
+  X,
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth-context';
 import { useSettings } from '../../lib/settings-context';
@@ -72,6 +74,8 @@ export const CommunityPage: React.FC = () => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [nextCursor, setNextCursor] = useState<number | null>(null);
   const [category, setCategory] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -79,6 +83,11 @@ export const CommunityPage: React.FC = () => {
   const [activePost, setActivePost] = useState<Post | null>(null);
   const [profileUid, setProfileUid] = useState<string | null>(null);
   const [reportTarget, setReportTarget] = useState<{ type: 'post' | 'comment'; id: string } | null>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQuery(searchQuery.trim()), 280);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
 
   const loadFeed = async (reset = true) => {
     if (!user) return;
@@ -88,6 +97,7 @@ export const CommunityPage: React.FC = () => {
       const qs = new URLSearchParams();
       if (!reset && nextCursor) qs.set('before', String(nextCursor));
       if (category) qs.set('category', category);
+      if (debouncedQuery) qs.set('q', debouncedQuery);
       const q = qs.toString();
       const res = await apiRequest<{ posts: Post[]; next: number | null }>(`/v1/feed${q ? `?${q}` : ''}`);
       setPosts((prev) => (reset ? res.posts : [...prev, ...res.posts]));
@@ -101,7 +111,7 @@ export const CommunityPage: React.FC = () => {
 
   useEffect(() => {
     if (user) void loadFeed(true);
-  }, [user, category]);
+  }, [user, category, debouncedQuery]);
 
   if (!user) {
     return (
@@ -172,25 +182,49 @@ export const CommunityPage: React.FC = () => {
         </button>
       </div>
 
-      {/* Category Filter */}
-      <div className="flex items-center gap-2">
-        {[
-          { k: '', label: t('feed') },
-          { k: 'general', label: t('general') },
-          { k: 'research', label: t('research') },
-        ].map((c) => (
-          <button
-            key={c.k}
-            onClick={() => setCategory(c.k)}
-            className={`px-3.5 py-1.5 rounded-full text-xs font-semibold border transition ${
-              category === c.k
-                ? 'bg-sanzar-primary text-sanzar-onPrimary border-sanzar-primary'
-                : 'bg-sanzar-surface border-sanzar-border text-sanzar-text2'
-            }`}
-          >
-            {c.label}
-          </button>
-        ))}
+      {/* Search + Category Filter */}
+      <div className="sanzar-card p-3 space-y-2.5">
+        <div className="relative">
+          <Search className="w-4 h-4 text-sanzar-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none z-10" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={t('searchCommunity')}
+            aria-label={t('searchCommunity')}
+            className="sanzar-input pl-10 pr-9 text-sm"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              aria-label={t('clearSearch')}
+              onClick={() => setSearchQuery('')}
+              className="p-1 rounded-lg text-sanzar-muted hover:text-sanzar-text absolute right-2.5 top-1/2 -translate-y-1/2 z-10"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          {[
+            { k: '', label: t('feed') },
+            { k: 'general', label: t('general') },
+            { k: 'research', label: t('research') },
+          ].map((c) => (
+            <button
+              key={c.k}
+              onClick={() => setCategory(c.k)}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold border transition ${
+                category === c.k
+                  ? 'bg-sanzar-primary text-sanzar-onPrimary border-sanzar-primary'
+                  : 'bg-sanzar-surface border-sanzar-border text-sanzar-text2'
+              }`}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {loading && posts.length === 0 ? (
@@ -206,7 +240,17 @@ export const CommunityPage: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-4">
-          {posts.map((p) => {
+          {posts
+            .filter((p) => {
+              const q = searchQuery.trim().toLowerCase();
+              if (!q) return true;
+              return (
+                p.text.toLowerCase().includes(q) ||
+                p.authorName.toLowerCase().includes(q) ||
+                (p.poll?.question.toLowerCase().includes(q) ?? false)
+              );
+            })
+            .map((p) => {
             const pollTotal = p.poll ? p.poll.options.reduce((a, o) => a + o.votes, 0) : 0;
             return (
               <article key={p.id} className="sanzar-card p-5 space-y-3">

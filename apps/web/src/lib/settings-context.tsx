@@ -24,18 +24,19 @@ const SettingsContext = createContext<SettingsContextType>({
 const K_LANG = 'sanzar.lang';
 const K_THEME = 'sanzar.theme';
 
+const normalizeTheme = (raw: string | null): ThemeMode => (raw === 'dark' ? 'dark' : 'light');
+const normalizeLang = (raw: string | null): Lang => (raw === 'bn' || raw === 'en' || raw === 'zh' ? raw : 'en');
+
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [lang, setLangState] = useState<Lang>(() => {
-    const saved = localStorage.getItem(K_LANG);
-    return saved === 'bn' || saved === 'en' || saved === 'zh' ? saved : 'en';
-  });
+  const [lang, setLangState] = useState<Lang>(() => normalizeLang(localStorage.getItem(K_LANG)));
 
   const [themeMode, setThemeModeState] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem(K_THEME);
-    if (saved === 'light' || saved === 'dark') return saved;
-    return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
-      ? 'dark'
-      : 'light';
+    const normalized = normalizeTheme(saved);
+    if (saved !== normalized) {
+      localStorage.setItem(K_THEME, normalized);
+    }
+    return normalized;
   });
 
   const isDark = themeMode === 'dark';
@@ -50,14 +51,39 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     document.documentElement.lang = lang;
   }, [lang]);
 
+  useEffect(() => {
+    const syncFromStorage = () => {
+      const nextTheme = normalizeTheme(localStorage.getItem(K_THEME));
+      const nextLang = normalizeLang(localStorage.getItem(K_LANG));
+      setThemeModeState((prev) => (prev === nextTheme ? prev : nextTheme));
+      setLangState((prev) => (prev === nextLang ? prev : nextLang));
+    };
+    const onStorage = (e: StorageEvent) => {
+      if (!e.key || e.key === K_THEME || e.key === K_LANG) syncFromStorage();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') syncFromStorage();
+    };
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('focus', syncFromStorage);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('focus', syncFromStorage);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
+
   const setLang = (next: Lang) => {
-    setLangState(next);
-    localStorage.setItem(K_LANG, next);
+    const valid = normalizeLang(next);
+    setLangState(valid);
+    localStorage.setItem(K_LANG, valid);
   };
 
   const setThemeMode = (next: ThemeMode) => {
-    setThemeModeState(next);
-    localStorage.setItem(K_THEME, next);
+    const valid = normalizeTheme(next);
+    setThemeModeState(valid);
+    localStorage.setItem(K_THEME, valid);
   };
 
   const t = (key: string, args?: Record<string, string | number>) => translate(lang, key, args);

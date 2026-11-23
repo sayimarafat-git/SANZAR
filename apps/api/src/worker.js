@@ -168,6 +168,43 @@ const pick = (o, keys) => Object.fromEntries(keys.filter((k) => k in o).map((k) 
 const LEVELS = new Set(['zh', 'en']);
 const LOCALES = new Set(['bn', 'en', 'zh']);
 
+function parseSettings(raw) {
+  if (typeof raw !== 'string' || !raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function shapeProfile(u) {
+  if (!u) return u;
+  const settings = parseSettings(u.settings_json);
+  return {
+    ...pick(u, PROFILE_FIELDS),
+    onboarding_completed: settings.onboarding_completed === true,
+  };
+}
+
+export function driveThumbFromUrl(rawUrl) {
+  if (typeof rawUrl !== 'string' || !rawUrl.trim()) return null;
+  try {
+    const u = new URL(rawUrl.trim());
+    const host = u.hostname.toLowerCase();
+    if (host === 'drive.google.com') {
+      const m = u.pathname.match(/\/file\/d\/([^/]+)/);
+      const id = m?.[1] || u.searchParams.get('id');
+      if (id && /^[\w-]{10,120}$/.test(id)) return `https://drive.google.com/thumbnail?id=${id}&sz=w800`;
+    }
+    if (host === 'docs.google.com' && u.pathname.startsWith('/presentation/d/')) {
+      const id = u.pathname.split('/').filter(Boolean)[2];
+      if (id && /^[\w-]{10,120}$/.test(id)) return `https://drive.google.com/thumbnail?id=${id}&sz=w800`;
+    }
+  } catch { /* ignore invalid URL */ }
+  return null;
+}
+
 export async function getConfig(env) {
   const rows = (await env.DB.prepare('SELECT key, value_json FROM config').all()).results;
   return Object.fromEntries(rows.map((r) => [r.key, JSON.parse(r.value_json)]));
@@ -198,11 +235,29 @@ async function catalog(env, req) {
   for (const r of resources.results) (resBy[r.chapter_id] ||= []).push({ id: r.id, type: r.type, title: r.title, pages: r.pages, url: r.video_asset_id ? vids[r.video_asset_id]?.url : url[r.id] || null, version: r.current_version });
   const chBy = {};
   for (const c of chapters.results) (chBy[c.book_id] ||= []).push({ id: c.id, number: c.number, title: c.title, resources: resBy[c.id] || [], hasNotes: !!notesBy[c.id], questionCount: qCount[c.id] || 0 });
+  const docByBook = {};
+  for (const b of books.results) {
+    const orderedChs = [...(chBy[b.id] || [])].sort((a, x) => (a.number === 0 && x.number !== 0 ? -1 : x.number === 0 && a.number !== 0 ? 1 : a.number - x.number));
+    for (const c of orderedChs) {
+      const doc = (c.resources || []).find((r) => (r.type === 'pdf' || r.type === 'ppt') && r.url);
+      if (doc) { docByBook[b.id] = { url: doc.url, type: doc.type }; break; }
+    }
+  }
   const lvBy = {};
   for (const bl of bookLevels.results) (lvBy[bl.book_id] ||= []).push(bl.level_id);
   const data = {
     levels: levels.results, subjects: subjects.results,
-    books: books.results.map((b) => ({ id: b.id, title: b.title, subjectId: b.subject_id, edition: b.edition, author: b.author, cover: [b.cover_c1, b.cover_c2], featuredRank: b.featured_rank, levels: lvBy[b.id] || [], chapters: chBy[b.id] || [] })),
+    books: books.results.map((b) => {
+      const firstDoc = docByBook[b.id] || null;
+      return {
+        id: b.id, title: b.title, subjectId: b.subject_id, edition: b.edition, author: b.author,
+        cover: [b.cover_c1, b.cover_c2],
+        coverImage: b.cover_image || driveThumbFromUrl(firstDoc?.url) || null,
+        coverRatio: b.cover_ratio ?? null,
+        previewDoc: firstDoc,
+        featuredRank: b.featured_rank, levels: lvBy[b.id] || [], chapters: chBy[b.id] || [],
+      };
+    }),
     notes: notesBy, exams: exams.results, announcements: ann.results,
     config: Object.fromEntries(cfg.results.map((r) => [r.key, JSON.parse(r.value_json)])),
   };
@@ -222,6 +277,12 @@ async function updateMe(env, ctx, input) {
   if ('level_id' in input) { if (!LEVELS.has(input.level_id)) throw new HttpError(400, 'invalid-argument', 'Unknown learning language'); sets.push('level_id = ?'); vals.push(input.level_id); }
   if ('locale' in input) { if (!LOCALES.has(input.locale)) throw new HttpError(400, 'invalid-argument', 'Unknown language'); sets.push('locale = ?'); vals.push(input.locale); }
   if ('profile_visibility' in input) { if (!['public', 'followers', 'private'].includes(input.profile_visibility)) throw new HttpError(400, 'invalid-argument', 'Unknown visibility'); sets.push('profile_visibility = ?'); vals.push(input.profile_visibility); }
+  if ('onboarding_completed' in input) {
+    if (typeof input.onboarding_completed !== 'boolean') throw new HttpError(400, 'invalid-argument', 'onboarding_completed must be boolean');
+    const settings = parseSettings(ctx.user.settings_json);
+    settings.onboarding_completed = input.onboarding_completed;
+    sets.push('settings_json = ?'); vals.push(JSON.stringify(settings));
+  }
   if ('photo_url' in input) {
     const p = input.photo_url;
     if (p !== null && !(typeof p === 'string' && /^https:\/\//.test(p) && p.length < 500)) throw new HttpError(400, 'invalid-argument', 'Photo must be an https link');
@@ -230,7 +291,7 @@ async function updateMe(env, ctx, input) {
   if (!sets.length) throw new HttpError(400, 'invalid-argument', 'Nothing to update');
   sets.push('updated_at = ?'); vals.push(now());
   await env.DB.prepare(`UPDATE users SET ${sets.join(', ')} WHERE uid = ?`).bind(...vals, ctx.user.uid).run();
-  return pick(await env.DB.prepare('SELECT * FROM users WHERE uid = ?').bind(ctx.user.uid).first(), PROFILE_FIELDS);
+  return shapeProfile(await env.DB.prepare('SELECT * FROM users WHERE uid = ?').bind(ctx.user.uid).first());
 }
 
 /** Deletes personal data and removes attempts; authored posts remain anonymous. */
@@ -373,7 +434,7 @@ export async function handle(req, env, opts = {}) {
   if (ctx.user.blocked && isWrite) throw new HttpError(403, 'permission-denied', 'Your account has been restricted by the admin');
 
   let mm;
-  if ((path === '/v1/me' || path === '/v1/profile') && m === 'GET') return json({ user: pick(ctx.user, PROFILE_FIELDS) });
+  if ((path === '/v1/me' || path === '/v1/profile') && m === 'GET') return json({ user: shapeProfile(ctx.user) });
   if ((path === '/v1/me' || path === '/v1/profile') && m === 'PATCH') return json({ user: await updateMe(env, ctx, await body(req, 10_000)) });
   if (path === '/v1/me' && m === 'DELETE') return json(await deleteMe(env, ctx));
   if (path === '/v1/catalog' && m === 'GET') return catalog(env, req);

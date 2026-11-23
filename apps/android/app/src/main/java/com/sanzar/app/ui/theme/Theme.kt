@@ -24,14 +24,10 @@ private val SanzarShapes = Shapes(
 
 @Composable
 fun SanzarTheme(
-    themeMode: String = "system",
+    themeMode: String = "light",
     content: @Composable () -> Unit
 ) {
-    val useDark = when (themeMode) {
-        "dark" -> true
-        "light" -> false
-        else -> isSystemInDarkTheme()
-    }
+    val useDark = themeMode == "dark"
     val palette = if (useDark) SanzarDarkPalette else SanzarLightPalette
     val colorScheme = if (useDark) {
         darkColorScheme(
