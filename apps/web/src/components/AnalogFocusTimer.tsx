@@ -19,9 +19,9 @@ export const AnalogFocusTimer: React.FC = () => {
   const dialDashOffset = DIAL_CIRCUMFERENCE * (1 - clampedForDial / 3600);
 
   return (
-    <div className="sanzar-card p-5 flex items-center gap-5 justify-between">
-      {/* Analog Clock Dial */}
-      <div className="relative w-28 h-28 sm:w-32 sm:h-32 shrink-0 flex items-center justify-center">
+    <div className="sanzar-card p-5 flex items-center gap-4">
+      {/* Compact Analog Clock Dial matching Today Goal Ring */}
+      <div className="relative w-20 h-20 shrink-0 flex items-center justify-center">
         <svg className="w-full h-full" viewBox="0 0 140 140" aria-hidden="true">
           {/* Outer frosted bezel */}
           <circle
@@ -124,58 +124,61 @@ export const AnalogFocusTimer: React.FC = () => {
         </svg>
       </div>
 
-      {/* Controls & Digital Readout */}
-      <div className="flex-1 min-w-0 space-y-2.5">
+      {/* Compact Controls & Digital Readout */}
+      <div className="flex-1 min-w-0 space-y-2">
         <div className="flex items-center justify-between gap-2">
-          <span className="font-bold text-base truncate">{t('focus')}</span>
-          {running && (
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-sanzar-primary shrink-0">
-              <span className="w-2 h-2 rounded-full bg-sanzar-primary animate-pulse" />
-              LIVE
-            </span>
-          )}
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-bold text-base truncate">{t('focus')}</span>
+            {running && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-sanzar-primary shrink-0">
+                <span className="w-1.5 h-1.5 rounded-full bg-sanzar-primary animate-pulse" />
+                LIVE
+              </span>
+            )}
+          </div>
+          <span className="text-xl font-extrabold tracking-tight text-sanzar-primary tabular-nums shrink-0">
+            {mmss(remainingSec)}
+          </span>
         </div>
 
-        <p className="text-2xl sm:text-3xl font-black tracking-tight text-sanzar-primary tabular-nums">
-          {mmss(remainingSec)}
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {!running ? (
+            <div className="flex items-center gap-1">
+              {PRESETS.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setDurationMins(m)}
+                  className={`px-2 py-0.5 rounded-lg text-xs font-semibold border transition ${
+                    durationMins === m
+                      ? 'bg-sanzar-primarySoft text-sanzar-primary border-sanzar-primary/40'
+                      : 'border-sanzar-border text-sanzar-muted hover:text-sanzar-text'
+                  }`}
+                >
+                  {m}m
+                </button>
+              ))}
+            </div>
+          ) : (
+            <span className="text-xs text-sanzar-text2">{t('focus')}</span>
+          )}
 
-        {!running && (
-          <div className="flex flex-wrap gap-1.5">
-            {PRESETS.map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setDurationMins(m)}
-                className={`px-2.5 py-0.5 rounded-lg text-xs font-semibold border transition ${
-                  durationMins === m
-                    ? 'bg-sanzar-primarySoft text-sanzar-primary border-sanzar-primary/40'
-                    : 'border-sanzar-border text-sanzar-muted hover:text-sanzar-text'
-                }`}
-              >
-                {m}m
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div>
           {running ? (
             <button
               type="button"
               onClick={stop}
-              className="px-4 py-2 rounded-xl border border-sanzar-border bg-sanzar-surface2 hover:bg-sanzar-surface text-xs font-bold inline-flex items-center gap-1.5 transition"
+              className="px-3 py-1.5 rounded-xl border border-sanzar-border bg-sanzar-surface2 hover:bg-sanzar-surface text-xs font-bold inline-flex items-center gap-1.5 transition shrink-0"
             >
-              <Square className="w-3.5 h-3.5 fill-current" />
+              <Square className="w-3 h-3 fill-current" />
               {t('focusStop')}
             </button>
           ) : (
             <button
               type="button"
               onClick={() => start()}
-              className="px-4 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-bold inline-flex items-center gap-1.5 shadow-sm hover:opacity-95 transition"
+              className="px-3 py-1.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-bold inline-flex items-center gap-1.5 shadow-sm hover:opacity-95 transition shrink-0"
             >
-              <Play className="w-3.5 h-3.5 fill-current" />
+              <Play className="w-3 h-3 fill-current" />
               {t('focusStart', { n: durationMins })}
             </button>
           )}
