@@ -79,41 +79,6 @@ export const Layout: React.FC = () => {
                 </span>
               </div>
             </Link>
-
-            <nav className="hidden md:flex items-center gap-1">
-              {navItems.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.end}
-                  className={({ isActive }) =>
-                    `px-3 py-1.5 rounded-xl text-sm font-semibold transition flex items-center gap-1.5 ${
-                      isActive
-                        ? 'bg-sanzar-primarySoft text-sanzar-primary'
-                        : 'text-sanzar-text2 hover:bg-sanzar-surface2 hover:text-sanzar-text'
-                    }`
-                  }
-                >
-                  <item.icon className="w-4 h-4" />
-                  <span>{item.label}</span>
-                </NavLink>
-              ))}
-              {isStaff && (
-                <NavLink
-                  to="/admin"
-                  className={({ isActive }) =>
-                    `px-3 py-1.5 rounded-xl text-sm font-semibold transition flex items-center gap-1.5 ${
-                      isActive
-                        ? 'bg-sanzar-primary text-sanzar-onPrimary'
-                        : 'text-sanzar-primary hover:bg-sanzar-primarySoft'
-                    }`
-                  }
-                >
-                  <Shield className="w-4 h-4" />
-                  <span>{t('adminDashboard')}</span>
-                </NavLink>
-              )}
-            </nav>
           </div>
 
           <div className="flex items-center gap-2">
@@ -260,10 +225,72 @@ export const Layout: React.FC = () => {
         </div>
       )}
 
-      {/* Main Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <Outlet />
-      </main>
+      {/* Main Content + Right Navigation Panel */}
+      <div className="flex-1 flex w-full max-w-7xl mx-auto">
+        <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-6">
+          <Outlet />
+        </main>
+
+        {/* Desktop Right Navigation Panel */}
+        <aside className="hidden md:flex flex-col w-60 shrink-0 border-l border-sanzar-border bg-sanzar-surface sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 justify-between">
+          <nav className="flex flex-col gap-1">
+            {navItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                className={({ isActive }) =>
+                  `px-3 py-2.5 rounded-xl text-sm font-semibold transition flex items-center gap-2.5 ${
+                    isActive
+                      ? 'bg-sanzar-primarySoft text-sanzar-primary'
+                      : 'text-sanzar-text2 hover:bg-sanzar-surface2 hover:text-sanzar-text'
+                  }`
+                }
+              >
+                <item.icon className="w-4 h-4 shrink-0" />
+                <span>{item.label}</span>
+              </NavLink>
+            ))}
+
+            <NavLink
+              to="/profile"
+              className={({ isActive }) =>
+                `px-3 py-2.5 rounded-xl text-sm font-semibold transition flex items-center gap-2.5 ${
+                  isActive
+                    ? 'bg-sanzar-primarySoft text-sanzar-primary'
+                    : 'text-sanzar-text2 hover:bg-sanzar-surface2 hover:text-sanzar-text'
+                }`
+              }
+            >
+              <UserIcon className="w-4 h-4 shrink-0" />
+              <span>{t('profile')}</span>
+            </NavLink>
+
+            {isStaff && (
+              <NavLink
+                to="/admin"
+                className={({ isActive }) =>
+                  `mt-2 px-3 py-2.5 rounded-xl text-sm font-semibold transition flex items-center gap-2.5 ${
+                    isActive
+                      ? 'bg-sanzar-primary text-sanzar-onPrimary'
+                      : 'text-sanzar-primary bg-sanzar-primarySoft/50 hover:bg-sanzar-primarySoft'
+                  }`
+                }
+              >
+                <Shield className="w-4 h-4 shrink-0" />
+                <span>{t('adminDashboard')}</span>
+              </NavLink>
+            )}
+          </nav>
+
+          <div className="pt-4 border-t border-sanzar-border text-xs text-sanzar-muted space-y-1 px-1">
+            <p className="font-semibold text-sanzar-text2 truncate">
+              {profile?.display_name || user?.email?.split('@')[0] || 'SANZAR'}
+            </p>
+            <p className="truncate">{t('tagline')}</p>
+          </div>
+        </aside>
+      </div>
 
       {/* Footer */}
       <footer className="hidden md:block border-t border-sanzar-border bg-sanzar-surface py-5 mt-auto">
