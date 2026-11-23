@@ -18,7 +18,7 @@ import { useSettings } from '../../lib/settings-context';
 import { apiRequest, fetchCatalogWithCache } from '../../lib/api-client';
 import { colorForSubject, localizedName } from '../../lib/i18n';
 import { LEVELS, type ProgressData } from '../../lib/models';
-import { BookCover, BrandMark, ErrorRetry, LoadingState, SubjectIcon } from '../../components/SanzarUI';
+import { BookCover, BrandMark, LoadingState, SubjectIcon } from '../../components/SanzarUI';
 
 export const HomePage: React.FC = () => {
   const { user, profile } = useAuth();
@@ -29,6 +29,7 @@ export const HomePage: React.FC = () => {
     queryFn: fetchCatalogWithCache,
     enabled: !!user,
     staleTime: 60_000,
+    retry: false,
   });
 
   const progQuery = useQuery({
@@ -36,6 +37,7 @@ export const HomePage: React.FC = () => {
     queryFn: () => apiRequest<ProgressData>('/v1/progress'),
     enabled: !!user,
     staleTime: 30_000,
+    retry: false,
   });
 
   const cat = catQuery.data?.catalog;
@@ -238,7 +240,15 @@ export const HomePage: React.FC = () => {
       {catQuery.isLoading ? (
         <LoadingState />
       ) : catQuery.isError && !cat ? (
-        <ErrorRetry message={t('err.network')} onRetry={() => catQuery.refetch()} />
+        <div className="sanzar-card p-6 text-center text-sm text-sanzar-muted space-y-2">
+          <p>{t('noBooks')}</p>
+          <button
+            onClick={() => catQuery.refetch()}
+            className="sanzar-pill text-sanzar-primary hover:opacity-90"
+          >
+            {t('retry')}
+          </button>
+        </div>
       ) : cat ? (
         <>
           {/* Announcements */}

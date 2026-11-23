@@ -4,22 +4,27 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Bell,
   LogOut,
-  Trash2,
   Shield,
-  TrendingUp,
-  ClipboardCheck,
-  Trophy,
   CloudOff,
+  KeyRound,
+  Mail,
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth-context';
 import { useSettings, type ThemeMode } from '../../lib/settings-context';
 import { apiRequest, fetchCatalogWithCache } from '../../lib/api-client';
+import {
+  auth,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  sendPasswordResetEmail,
+  updatePassword,
+} from '../../lib/firebase';
 import { localizedName, type Lang } from '../../lib/i18n';
 import { LEVELS, type AppNotification } from '../../lib/models';
-import { Modal, useToast } from '../../components/SanzarUI';
+import { useToast } from '../../components/SanzarUI';
 
 export const ProfilePage: React.FC = () => {
-  const { user, profile, isStaff, guestMode, updateProfile, deleteAccount, signOut } = useAuth();
+  const { user, profile, isStaff, guestMode, updateProfile, signOut } = useAuth();
   const { lang, setLang, themeMode, setThemeMode, t } = useSettings();
   const navigate = useNavigate();
   const toast = useToast();
@@ -29,31 +34,34 @@ export const ProfilePage: React.FC = () => {
     queryFn: fetchCatalogWithCache,
     enabled: !!user,
     staleTime: 60_000,
+    retry: false,
   });
 
   const notifQuery = useQuery({
     queryKey: ['notifications'],
     queryFn: () => apiRequest<{ notifications: AppNotification[]; unread: number }>('/v1/notifications'),
     enabled: !!user,
+    retry: false,
   });
 
   const [name, setName] = useState(profile?.display_name || '');
   const [levelId, setLevelId] = useState(profile?.level_id || '');
   const [institution, setInstitution] = useState(profile?.institution || '');
-  const [group, setGroup] = useState(profile?.grp || '');
   const [visibility, setVisibility] = useState<'public' | 'followers' | 'private'>(
     profile?.profile_visibility || 'private'
   );
   const [saving, setSaving] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteText, setDeleteText] = useState('');
+
+  const [currentPwd, setCurrentPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [confirmPwd, setConfirmPwd] = useState('');
+  const [pwdBusy, setPwdBusy] = useState(false);
 
   useEffect(() => {
     if (!profile) return;
     setName(profile.display_name || '');
     setLevelId(profile.level_id || '');
     setInstitution(profile.institution || '');
-    setGroup(profile.grp || '');
     setVisibility(profile.profile_visibility || 'private');
   }, [profile]);
 
@@ -74,6 +82,8 @@ export const ProfilePage: React.FC = () => {
     );
   }
 
+  const hasPasswordProvider = user.providerData.some((p) => p.providerId === 'password');
+
   const levels = catQuery.data?.catalog.levels?.length
     ? catQuery.data.catalog.levels
     : LEVELS.map((l) => ({ id: l.id, name_en: l.name, name_bn: l.name_bn, name_zh: l.name_zh }));
@@ -89,7 +99,6 @@ export const ProfilePage: React.FC = () => {
       await updateProfile({
         display_name: name.trim(),
         institution: institution.trim(),
-        ...(group.trim().length >= 2 ? { grp: group.trim() } : {}),
         ...(levelId ? { level_id: levelId } : {}),
         profile_visibility: visibility,
       });
@@ -98,6 +107,51 @@ export const ProfilePage: React.FC = () => {
       toast(t('err.generic'));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPwd.length < 8) {
+      toast(t('err.password'));
+      return;
+    }
+    if (newPwd !== confirmPwd) {
+      toast(t('passwordMismatch'));
+      return;
+    }
+    if (!user.email) return;
+    setPwdBusy(true);
+    try {
+      const cred = EmailAuthProvider.credential(user.email, currentPwd);
+      await reauthenticateWithCredential(user, cred);
+      await updatePassword(user, newPwd);
+      setCurrentPwd('');
+      setNewPwd('');
+      setConfirmPwd('');
+      toast(t('passwordUpdated'));
+    } catch (err: any) {
+      const code = err?.code || '';
+      if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+        toast(t('err.wrongCredentials'));
+      } else {
+        toast(err?.message || t('err.generic'));
+      }
+    } finally {
+      setPwdBusy(false);
+    }
+  };
+
+  const handleSendReset = async () => {
+    if (!user.email) return;
+    setPwdBusy(true);
+    try {
+      await sendPasswordResetEmail(auth, user.email);
+      toast(t('resetSent', { email: user.email }));
+    } catch (err: any) {
+      toast(err?.message || t('err.generic'));
+    } finally {
+      setPwdBusy(false);
     }
   };
 
@@ -129,22 +183,12 @@ export const ProfilePage: React.FC = () => {
             {isStaff && <span className="sanzar-pill published">{profile?.role}</span>}
           </div>
         </div>
-      </div>
-
-      {/* Quick Links */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Link to="/progress" className="sanzar-card p-3.5 flex items-center gap-2.5 text-sm font-semibold hover:border-sanzar-primary/50">
-          <TrendingUp className="w-4 h-4 text-sanzar-primary" /> {t('progress')}
-        </Link>
-        <Link to="/exams" className="sanzar-card p-3.5 flex items-center gap-2.5 text-sm font-semibold hover:border-sanzar-primary/50">
-          <ClipboardCheck className="w-4 h-4 text-sanzar-primary" /> {t('exams')}
-        </Link>
-        <Link to="/progress?tab=leaderboard" className="sanzar-card p-3.5 flex items-center gap-2.5 text-sm font-semibold hover:border-sanzar-primary/50">
-          <Trophy className="w-4 h-4 text-sanzar-primary" /> {t('leaderboard')}
-        </Link>
         {isStaff && (
-          <Link to="/admin" className="sanzar-card p-3.5 flex items-center gap-2.5 text-sm font-semibold text-sanzar-primary hover:border-sanzar-primary">
-            <Shield className="w-4 h-4" /> {t('adminDashboard')}
+          <Link
+            to="/admin"
+            className="sanzar-pill gap-1.5 text-sanzar-primary hover:opacity-90 shrink-0"
+          >
+            <Shield className="w-3.5 h-3.5" /> {t('adminDashboard')}
           </Link>
         )}
       </div>
@@ -187,15 +231,6 @@ export const ProfilePage: React.FC = () => {
             />
           </label>
           <label className="block space-y-1 text-xs font-semibold text-sanzar-text2">
-            <span>{t('group')}</span>
-            <input
-              value={group}
-              onChange={(e) => setGroup(e.target.value)}
-              maxLength={40}
-              className="sanzar-input text-sm"
-            />
-          </label>
-          <label className="block space-y-1 text-xs font-semibold text-sanzar-text2 sm:col-span-2">
             <span>{t('visibility')}</span>
             <select
               value={visibility}
@@ -244,12 +279,81 @@ export const ProfilePage: React.FC = () => {
               onChange={(e) => setThemeMode(e.target.value as ThemeMode)}
               className="sanzar-input text-sm"
             >
-              <option value="system">{t('themeSystem')}</option>
               <option value="light">{t('themeLight')}</option>
               <option value="dark">{t('themeDark')}</option>
             </select>
           </label>
         </div>
+      </div>
+
+      {/* Password & Security */}
+      <div className="sanzar-card p-6 space-y-4">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <h2 className="font-bold text-base flex items-center gap-2">
+            <KeyRound className="w-4 h-4 text-sanzar-primary" /> {t('changePassword')}
+          </h2>
+          {user.email && (
+            <button
+              type="button"
+              disabled={pwdBusy}
+              onClick={handleSendReset}
+              className="text-xs font-semibold text-sanzar-primary hover:underline flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <Mail className="w-3.5 h-3.5" /> {t('sendResetEmail')}
+            </button>
+          )}
+        </div>
+
+        {hasPasswordProvider ? (
+          <form onSubmit={handlePasswordChange} className="space-y-4">
+            <div className="grid sm:grid-cols-3 gap-4">
+              <label className="block space-y-1 text-xs font-semibold text-sanzar-text2">
+                <span>{t('currentPassword')}</span>
+                <input
+                  type="password"
+                  required
+                  value={currentPwd}
+                  onChange={(e) => setCurrentPwd(e.target.value)}
+                  placeholder="••••••••"
+                  className="sanzar-input text-sm"
+                />
+              </label>
+              <label className="block space-y-1 text-xs font-semibold text-sanzar-text2">
+                <span>{t('newPassword')}</span>
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  value={newPwd}
+                  onChange={(e) => setNewPwd(e.target.value)}
+                  placeholder="••••••••"
+                  className="sanzar-input text-sm"
+                />
+              </label>
+              <label className="block space-y-1 text-xs font-semibold text-sanzar-text2">
+                <span>{t('confirmPassword')}</span>
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  value={confirmPwd}
+                  onChange={(e) => setConfirmPwd(e.target.value)}
+                  placeholder="••••••••"
+                  className="sanzar-input text-sm"
+                />
+              </label>
+            </div>
+            <button
+              type="submit"
+              disabled={pwdBusy}
+              className="px-5 py-2.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary font-semibold text-sm disabled:opacity-50"
+            >
+              {pwdBusy ? '…' : t('changePassword')}
+            </button>
+          </form>
+        ) : (
+          <p className="text-xs text-sanzar-muted">{t('googleUserPasswordNote')}</p>
+        )}
       </div>
 
       {/* Notifications Summary */}
@@ -284,60 +388,18 @@ export const ProfilePage: React.FC = () => {
         )}
       </div>
 
-      {/* Account Actions */}
-      <div className="sanzar-card p-4 flex flex-wrap items-center justify-between gap-3">
+      {/* Sign Out */}
+      <div className="sanzar-card p-4 flex items-center justify-start">
         <button
           onClick={async () => {
             await signOut();
             navigate('/');
           }}
-          className="px-4 py-2 rounded-xl border border-sanzar-border font-semibold text-sm flex items-center gap-2 hover:bg-sanzar-surface2"
+          className="px-5 py-2.5 rounded-xl border border-sanzar-border font-semibold text-sm flex items-center gap-2 hover:bg-sanzar-surface2 transition"
         >
           <LogOut className="w-4 h-4" /> {t('signOut')}
         </button>
-        <button
-          onClick={() => setDeleteOpen(true)}
-          className="px-4 py-2 rounded-xl border border-sanzar-danger text-sanzar-danger font-semibold text-sm flex items-center gap-2 hover:bg-sanzar-danger/10"
-        >
-          <Trash2 className="w-4 h-4" /> {t('deleteAccount')}
-        </button>
       </div>
-
-      {deleteOpen && (
-        <Modal title={t('deleteAccount')} onClose={() => setDeleteOpen(false)}>
-          <div className="space-y-4">
-            <p className="text-sm text-sanzar-text2">{t('deleteConfirm')}</p>
-            <input
-              value={deleteText}
-              onChange={(e) => setDeleteText(e.target.value)}
-              placeholder="DELETE"
-              className="sanzar-input text-sm"
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setDeleteOpen(false)}
-                className="px-4 py-2 rounded-xl border border-sanzar-border text-sm font-semibold"
-              >
-                {t('cancel')}
-              </button>
-              <button
-                disabled={deleteText.trim() !== 'DELETE'}
-                onClick={async () => {
-                  try {
-                    await deleteAccount();
-                    navigate('/');
-                  } catch {
-                    toast(t('recentLogin'));
-                  }
-                }}
-                className="px-4 py-2 rounded-xl bg-sanzar-danger text-white text-sm font-semibold disabled:opacity-40"
-              >
-                {t('delete')}
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
     </div>
   );
 };

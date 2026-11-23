@@ -135,60 +135,61 @@ export const AuthPage: React.FC<AuthPageProps> = ({ mode }) => {
             <form onSubmit={handleEmailAuth} className="space-y-4">
               {mode === 'register' && (
                 <div>
-                  <label className="block text-xs font-semibold text-sanzar-text2 uppercase tracking-wider mb-1">
+                  <label className="block text-xs font-semibold text-sanzar-text2 uppercase tracking-wider mb-1.5">
                     {t('name')}
                   </label>
                   <div className="relative">
-                    <UserIcon className="w-4 h-4 text-sanzar-muted absolute left-3 top-3" />
+                    <UserIcon className="w-4 h-4 text-sanzar-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none z-10" />
                     <input
                       type="text"
                       required
                       value={name}
                       onChange={(e) => setName(e.target.value)}
-                      className="sanzar-input pl-9 text-sm"
+                      placeholder="Full name"
+                      className="sanzar-input pl-10 text-sm"
                     />
                   </div>
                 </div>
               )}
 
               <div>
-                <label className="block text-xs font-semibold text-sanzar-text2 uppercase tracking-wider mb-1">
+                <label className="block text-xs font-semibold text-sanzar-text2 uppercase tracking-wider mb-1.5">
                   {t('email')}
                 </label>
                 <div className="relative">
-                  <Mail className="w-4 h-4 text-sanzar-muted absolute left-3 top-3" />
+                  <Mail className="w-4 h-4 text-sanzar-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none z-10" />
                   <input
                     type="email"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="name@example.com"
-                    className="sanzar-input pl-9 text-sm"
+                    className="sanzar-input pl-10 text-sm"
                   />
                 </div>
               </div>
 
               {mode !== 'forgot' && (
                 <div>
-                  <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
                     <label className="block text-xs font-semibold text-sanzar-text2 uppercase tracking-wider">
                       {t('password')}
                     </label>
                     {mode === 'login' && (
-                      <Link to="/forgot-password" className="text-xs text-sanzar-primary font-semibold hover:underline">
+                      <Link to="/forgot-password" className="text-xs text-sanzar-primary font-semibold hover:underline shrink-0">
                         {t('forgot')}
                       </Link>
                     )}
                   </div>
                   <div className="relative">
-                    <Lock className="w-4 h-4 text-sanzar-muted absolute left-3 top-3" />
+                    <Lock className="w-4 h-4 text-sanzar-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none z-10" />
                     <input
                       type="password"
                       required
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="sanzar-input pl-9 text-sm"
+                      className="sanzar-input pl-10 text-sm"
                     />
                   </div>
                 </div>
@@ -211,12 +212,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({ mode }) => {
 
             {mode !== 'forgot' && (
               <div className="space-y-3">
-                <div className="relative flex items-center justify-center">
-                  <div className="border-t border-sanzar-border w-full" />
-                  <span className="bg-sanzar-surface px-3 text-xs text-sanzar-muted uppercase font-semibold">
+                <div className="flex items-center gap-3">
+                  <div className="border-t border-sanzar-border flex-1" />
+                  <span className="text-xs text-sanzar-muted uppercase font-semibold shrink-0">
                     {t('or')}
                   </span>
-                  <div className="border-t border-sanzar-border w-full" />
+                  <div className="border-t border-sanzar-border flex-1" />
                 </div>
 
                 <button

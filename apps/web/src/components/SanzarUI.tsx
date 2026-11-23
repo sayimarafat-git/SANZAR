@@ -13,6 +13,27 @@ import {
 } from 'lucide-react';
 import { useSettings } from '../lib/settings-context';
 
+export const AmbientBackdrop: React.FC = () => (
+  <div aria-hidden="true" className="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
+    <div
+      className="absolute -top-32 -left-24 w-[36rem] h-[36rem] rounded-full blur-3xl opacity-55 dark:opacity-35"
+      style={{ background: 'radial-gradient(circle, rgba(25,180,107,0.42) 0%, rgba(23,107,75,0.12) 60%, transparent 75%)' }}
+    />
+    <div
+      className="absolute -top-20 right-[-6rem] w-[34rem] h-[34rem] rounded-full blur-3xl opacity-50 dark:opacity-30"
+      style={{ background: 'radial-gradient(circle, rgba(26,134,160,0.38) 0%, rgba(61,107,255,0.12) 60%, transparent 75%)' }}
+    />
+    <div
+      className="absolute bottom-[-10rem] left-1/4 w-[38rem] h-[38rem] rounded-full blur-3xl opacity-45 dark:opacity-25"
+      style={{ background: 'radial-gradient(circle, rgba(198,164,106,0.34) 0%, rgba(36,119,84,0.14) 60%, transparent 75%)' }}
+    />
+    <div
+      className="absolute bottom-10 -right-24 w-[28rem] h-[28rem] rounded-full blur-3xl opacity-45 dark:opacity-30"
+      style={{ background: 'radial-gradient(circle, rgba(37,138,92,0.36) 0%, rgba(18,57,42,0.1) 60%, transparent 75%)' }}
+    />
+  </div>
+);
+
 export const BrandMark: React.FC<{ size?: number; className?: string }> = ({ size = 36, className = '' }) => (
   <div
     style={{ width: size, height: size, borderRadius: Math.round(size * 0.3), fontSize: Math.round(size * 0.54) }}

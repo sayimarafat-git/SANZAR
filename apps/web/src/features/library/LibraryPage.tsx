@@ -7,7 +7,7 @@ import { useSettings } from '../../lib/settings-context';
 import { fetchCatalogWithCache } from '../../lib/api-client';
 import { colorForSubject, localizedName } from '../../lib/i18n';
 import { LEVELS } from '../../lib/models';
-import { BookCover, ErrorRetry, LoadingState } from '../../components/SanzarUI';
+import { BookCover, LoadingState } from '../../components/SanzarUI';
 
 export const LibraryPage: React.FC = () => {
   const { user, profile } = useAuth();
@@ -22,6 +22,7 @@ export const LibraryPage: React.FC = () => {
     queryFn: fetchCatalogWithCache,
     enabled: !!user,
     staleTime: 60_000,
+    retry: false,
   });
 
   const cat = catQuery.data?.catalog;
@@ -62,9 +63,6 @@ export const LibraryPage: React.FC = () => {
   }
 
   if (catQuery.isLoading) return <LoadingState />;
-  if (catQuery.isError && !cat) {
-    return <ErrorRetry message={t('err.network')} onRetry={() => catQuery.refetch()} />;
-  }
 
   const levelOptions = cat?.levels?.length
     ? cat.levels
@@ -73,9 +71,19 @@ export const LibraryPage: React.FC = () => {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-extrabold">{t('library')}</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-extrabold">{t('library')}</h1>
+          {catQuery.isError && !cat && (
+            <button
+              onClick={() => catQuery.refetch()}
+              className="sanzar-pill text-sanzar-primary hover:opacity-90"
+            >
+              {t('offline')} · {t('retry')}
+            </button>
+          )}
+        </div>
         <div className="relative w-full sm:w-80">
-          <Search className="w-4 h-4 text-sanzar-muted absolute left-3.5 top-3" />
+          <Search className="w-4 h-4 text-sanzar-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none z-10" />
           <input
             type="search"
             value={query}

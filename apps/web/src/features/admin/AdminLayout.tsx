@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { useAuth } from '../../lib/auth-context';
 import { atLeast, type Role } from '../../lib/models';
-import { BrandMark, LoadingState } from '../../components/SanzarUI';
+import { AmbientBackdrop, BrandMark, LoadingState } from '../../components/SanzarUI';
 
 const NAV: { to: string; label: string; min: Role; end?: boolean }[] = [
   { to: '/admin', label: 'Overview', min: 'moderator', end: true },
@@ -61,7 +61,8 @@ export const AdminLayout: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen grid grid-cols-1 md:grid-cols-[248px_1fr] text-sanzar-text">
+    <div className="min-h-screen grid grid-cols-1 md:grid-cols-[248px_1fr] text-sanzar-text relative">
+      <AmbientBackdrop />
       <aside className="sanzar-glass md:m-4 md:mr-0 md:rounded-[22px] p-4 md:sticky md:top-4 md:h-[calc(100vh-2rem)] overflow-y-auto flex flex-col justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5 font-extrabold px-1.5 mb-5">

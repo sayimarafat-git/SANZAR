@@ -83,7 +83,7 @@ before(async () => {
     APP_ENV: 'test',
   };
   const migration = await migrate(env);
-  assert.deepEqual(migration.applied, ['0001_init', '0002_existing_profiles', '0003_sync_and_resources']);
+  assert.deepEqual(migration.applied, ['0001_init', '0002_existing_profiles', '0003_sync_and_resources', '0004_levels_6_to_uni']);
   const preserved = await DB.prepare('SELECT uid, email, display_name, created_at FROM users WHERE uid = ?').bind('preserved-profile').first();
   assert.equal(preserved.uid, 'preserved-profile');
   assert.equal(preserved.email, 'preserved@example.test');
@@ -95,13 +95,13 @@ before(async () => {
 test('health reports completed schema migrations', async () => {
   const { response, data } = await call('GET', '/v1/health');
   assert.equal(response.status, 200);
-  assert.equal(data.schema, '3/3');
+  assert.equal(data.schema, '4/4');
 });
 
 test('catalog starts with platform levels and no imported course data', async () => {
   const { response, data } = await call('GET', '/v1/catalog', { auth: ownerToken });
   assert.equal(response.status, 200);
-  assert.deepEqual(data.levels.map((level) => level.id), ['c9', 'c10', 'hsc', 'uni']);
+  assert.deepEqual(data.levels.map((level) => level.id), ['c6', 'c7', 'c8', 'c9', 'c10', 'hsc', 'uni']);
   assert.deepEqual(data.books, []);
   assert.deepEqual(data.notes, {});
 });

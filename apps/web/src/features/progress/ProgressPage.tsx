@@ -1,14 +1,34 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Flame, Star, Timer, Trophy, Lock, Award } from 'lucide-react';
+import { Flame, Star, Timer, Trophy, Lock, Award, TrendingUp, CloudOff, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../lib/auth-context';
 import { useSettings } from '../../lib/settings-context';
 import { apiRequest, fetchCatalogWithCache } from '../../lib/api-client';
 import { colorForSubject, localizedName } from '../../lib/i18n';
 import { useStudyTracker } from '../../lib/study-tracker';
 import type { LeaderEntry, ProgressData } from '../../lib/models';
-import { ErrorRetry, LoadingState, mmss, useToast } from '../../components/SanzarUI';
+import { LoadingState, mmss, useToast } from '../../components/SanzarUI';
+
+const FALLBACK_PROGRESS: ProgressData = {
+  xp: 0,
+  level: 1,
+  levelXp: 2000,
+  intoLevel: 0,
+  weekXp: 0,
+  todaySec: 0,
+  goalSec: 3600,
+  totalSec: 0,
+  streak: 0,
+  series: Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(Date.now() - (6 - i) * 86_400_000);
+    return { day: d.toISOString().slice(0, 10), sec: 0 };
+  }),
+  bySubject: [],
+  completions: [],
+  achievements: [],
+  attempts: [],
+};
 
 export const ProgressPage: React.FC = () => {
   const { user, profile } = useAuth();
@@ -51,6 +71,7 @@ export const ProgressPage: React.FC = () => {
     queryKey: ['progress'],
     queryFn: () => apiRequest<ProgressData>('/v1/progress'),
     enabled: !!user,
+    retry: false,
   });
 
   const catQuery = useQuery({
@@ -58,6 +79,7 @@ export const ProgressPage: React.FC = () => {
     queryFn: fetchCatalogWithCache,
     enabled: !!user,
     staleTime: 60_000,
+    retry: false,
   });
 
   const lbQuery = useQuery({
@@ -67,6 +89,7 @@ export const ProgressPage: React.FC = () => {
         `/v1/leaderboard?period=${period}${myClassOnly && profile?.level_id ? `&level=${profile.level_id}` : ''}`
       ),
     enabled: !!user && tab === 'leaderboard',
+    retry: false,
   });
 
   if (!user) {
@@ -81,35 +104,54 @@ export const ProgressPage: React.FC = () => {
     );
   }
 
-  const p = progQuery.data;
+  const p = progQuery.data ?? FALLBACK_PROGRESS;
   const cat = catQuery.data?.catalog;
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-extrabold">{t('progress')}</h1>
-        <div className="flex rounded-xl border border-sanzar-border bg-sanzar-surface p-1 gap-1">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-extrabold">{t('progress')}</h1>
+          {progQuery.isError && (
+            <button
+              onClick={() => progQuery.refetch()}
+              className="sanzar-pill gap-1.5 text-sanzar-muted hover:text-sanzar-primary transition"
+              title={t('retry')}
+            >
+              <CloudOff className="w-3.5 h-3.5" /> {t('offline')} <RefreshCw className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+
+        {/* Large Segmented Progress / Leaderboard Toggle */}
+        <div className="grid grid-cols-2 w-full sm:w-[340px] rounded-2xl sanzar-glass p-1.5 gap-1.5">
           <button
             onClick={() => {
               setTab('overview');
               setParams({});
             }}
-            className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition ${
-              tab === 'overview' ? 'bg-sanzar-primary text-sanzar-onPrimary' : 'text-sanzar-text2'
+            className={`px-5 py-3 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 ${
+              tab === 'overview'
+                ? 'bg-sanzar-primary text-sanzar-onPrimary shadow-md'
+                : 'text-sanzar-text2 hover:bg-white/40 dark:hover:bg-white/5'
             }`}
           >
-            {t('progress')}
+            <TrendingUp className="w-4 h-4" />
+            <span>{t('progress')}</span>
           </button>
           <button
             onClick={() => {
               setTab('leaderboard');
               setParams({ tab: 'leaderboard' });
             }}
-            className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
-              tab === 'leaderboard' ? 'bg-sanzar-primary text-sanzar-onPrimary' : 'text-sanzar-text2'
+            className={`px-5 py-3 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 ${
+              tab === 'leaderboard'
+                ? 'bg-sanzar-primary text-sanzar-onPrimary shadow-md'
+                : 'text-sanzar-text2 hover:bg-white/40 dark:hover:bg-white/5'
             }`}
           >
-            <Trophy className="w-3.5 h-3.5" /> {t('leaderboard')}
+            <Trophy className="w-4 h-4" />
+            <span>{t('leaderboard')}</span>
           </button>
         </div>
       </div>
@@ -117,8 +159,6 @@ export const ProgressPage: React.FC = () => {
       {tab === 'overview' ? (
         progQuery.isLoading ? (
           <LoadingState />
-        ) : progQuery.isError || !p ? (
-          <ErrorRetry message={t('err.generic')} onRetry={() => progQuery.refetch()} />
         ) : (
           <div className="space-y-6">
             {/* XP Level + Streak + Daily Goal */}
@@ -328,10 +368,18 @@ export const ProgressPage: React.FC = () => {
 
           {lbQuery.isLoading ? (
             <LoadingState />
-          ) : lbQuery.isError ? (
-            <ErrorRetry message={t('err.generic')} onRetry={() => lbQuery.refetch()} />
-          ) : (lbQuery.data?.entries.length ?? 0) === 0 ? (
-            <div className="sanzar-card p-8 text-center text-sm text-sanzar-muted">{t('noRanking')}</div>
+          ) : lbQuery.isError || (lbQuery.data?.entries.length ?? 0) === 0 ? (
+            <div className="sanzar-card p-8 text-center text-sm text-sanzar-muted space-y-2">
+              <p>{t('noRanking')}</p>
+              {lbQuery.isError && (
+                <button
+                  onClick={() => lbQuery.refetch()}
+                  className="sanzar-pill gap-1 text-sanzar-primary hover:opacity-90"
+                >
+                  <RefreshCw className="w-3 h-3" /> {t('retry')}
+                </button>
+              )}
+            </div>
           ) : (
             <div className="space-y-2.5">
               {lbQuery.data?.me && (

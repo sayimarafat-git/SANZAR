@@ -1,7 +1,13 @@
 import { auth } from './firebase';
 import type { Catalog } from './models';
 
-export const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8787';
+const isLocalHost =
+  typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname);
+
+export const API_BASE = (
+  import.meta.env.VITE_API_BASE ||
+  (isLocalHost ? 'http://localhost:8787' : 'https://sanzar-api.workers.dev')
+).replace(/\/+$/, '');
 
 export class ApiError extends Error {
   constructor(

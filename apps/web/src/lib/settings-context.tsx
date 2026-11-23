@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { type Lang, translate } from './i18n';
 
-export type ThemeMode = 'system' | 'light' | 'dark';
+export type ThemeMode = 'light' | 'dark';
 
 interface SettingsContextType {
   lang: Lang;
@@ -14,7 +14,7 @@ interface SettingsContextType {
 
 const SettingsContext = createContext<SettingsContextType>({
   lang: 'en',
-  themeMode: 'system',
+  themeMode: 'light',
   isDark: false,
   setLang: () => {},
   setThemeMode: () => {},
@@ -32,21 +32,13 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const [themeMode, setThemeModeState] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem(K_THEME);
-    return saved === 'light' || saved === 'dark' || saved === 'system' ? saved : 'system';
+    if (saved === 'light' || saved === 'dark') return saved;
+    return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
+      ? 'dark'
+      : 'light';
   });
 
-  const [systemDark, setSystemDark] = useState(() =>
-    typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
-  );
-
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const onChange = (e: MediaQueryListEvent) => setSystemDark(e.matches);
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, []);
-
-  const isDark = themeMode === 'dark' || (themeMode === 'system' && systemDark);
+  const isDark = themeMode === 'dark';
 
   useEffect(() => {
     const root = document.documentElement;

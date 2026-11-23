@@ -268,9 +268,18 @@ CREATE TABLE IF NOT EXISTS resource_manifest (
   sha256 TEXT NOT NULL,
   required INTEGER NOT NULL DEFAULT 0,
   platform_min_version TEXT NOT NULL DEFAULT '1.0.0',
-  metadata_json TEXT NOT NULL DEFAULT '{}',
-  updated_at INTEGER NOT NULL
-);
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      updated_at INTEGER NOT NULL
+    );
+`,
+  },
+  {
+    id: '0004_levels_6_to_uni',
+    sql: `
+INSERT OR IGNORE INTO levels (id, name_en, name_bn, name_zh, sort) VALUES
+  ('c6', 'Class 6', 'ষষ্ঠ শ্রেণি', '六年级', -2),
+  ('c7', 'Class 7', 'সপ্তম শ্রেণি', '七年级', -1),
+  ('c8', 'Class 8', 'অষ্টম শ্রেণি', '八年级', 0);
 `,
   },
 ];

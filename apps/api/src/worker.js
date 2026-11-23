@@ -165,7 +165,7 @@ export async function migrate(env) {
 /* ============================== handlers ============================== */
 const PROFILE_FIELDS = ['uid', 'email', 'email_verified', 'display_name', 'photo_url', 'level_id', 'grp', 'institution', 'locale', 'role', 'blocked', 'profile_visibility', 'created_at'];
 const pick = (o, keys) => Object.fromEntries(keys.filter((k) => k in o).map((k) => [k, o[k]]));
-const LEVELS = new Set(['c9', 'c10', 'hsc', 'uni']);
+const LEVELS = new Set(['c6', 'c7', 'c8', 'c9', 'c10', 'hsc', 'uni']);
 const LOCALES = new Set(['bn', 'en', 'zh']);
 
 export async function getConfig(env) {

@@ -35,12 +35,14 @@ const ExamsList: React.FC = () => {
     queryFn: fetchCatalogWithCache,
     enabled: !!user,
     staleTime: 60_000,
+    retry: false,
   });
 
   const histQuery = useQuery({
     queryKey: ['attempts'],
     queryFn: () => apiRequest<{ attempts: AttemptSummary[] }>('/v1/attempts'),
     enabled: !!user && tab === 'history',
+    retry: false,
   });
 
   if (!user) {
@@ -132,10 +134,15 @@ const ExamsList: React.FC = () => {
         )
       ) : histQuery.isLoading ? (
         <LoadingState />
-      ) : histQuery.isError ? (
-        <ErrorRetry message={t('err.generic')} onRetry={() => histQuery.refetch()} />
-      ) : (histQuery.data?.attempts.length ?? 0) === 0 ? (
-        <div className="sanzar-card p-8 text-center text-sm text-sanzar-muted">{t('noAttempts')}</div>
+      ) : histQuery.isError || (histQuery.data?.attempts.length ?? 0) === 0 ? (
+        <div className="sanzar-card p-8 text-center text-sm text-sanzar-muted space-y-2">
+          <p>{t('noAttempts')}</p>
+          {histQuery.isError && (
+            <button onClick={() => histQuery.refetch()} className="sanzar-pill text-sanzar-primary hover:opacity-90">
+              {t('retry')}
+            </button>
+          )}
+        </div>
       ) : (
         <div className="space-y-2.5">
           {histQuery.data!.attempts.map((a) => (

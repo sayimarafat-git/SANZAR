@@ -8,6 +8,9 @@ import {
   sendPasswordResetEmail,
   signOut as fbSignOut,
   onAuthStateChanged,
+  updatePassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
   User
 } from 'firebase/auth';
 
@@ -30,6 +33,9 @@ export {
   signInWithPopup,
   sendPasswordResetEmail,
   fbSignOut,
-  onAuthStateChanged
+  onAuthStateChanged,
+  updatePassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential
 };
 export type { User };

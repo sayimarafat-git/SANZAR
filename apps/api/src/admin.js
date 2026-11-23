@@ -11,7 +11,7 @@
 import { HttpError, now, json, str, body, audit, requireRole } from './worker.js';
 
 const STATUS = new Set(['draft', 'published', 'archived']);
-const LEVEL_IDS = new Set(['c9', 'c10', 'hsc', 'uni']);
+const LEVEL_IDS = new Set(['c6', 'c7', 'c8', 'c9', 'c10', 'hsc', 'uni']);
 const RES_TYPES = new Set(['video', 'pdf', 'ppt', 'link']);
 const slug = (v, field) => {
   if (typeof v !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/i.test(v)) throw new HttpError(400, 'invalid-argument', `${field} id may use letters, digits, dot, dash and underscore (max 64)`);

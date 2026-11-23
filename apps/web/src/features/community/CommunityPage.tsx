@@ -18,6 +18,52 @@ import { apiRequest, errorText } from '../../lib/api-client';
 import type { Comment, Post, PostAttachment, PublicProfile } from '../../lib/models';
 import { ErrorRetry, LoadingState, Modal, timeAgo, useToast } from '../../components/SanzarUI';
 
+const HTTPS_URL_RE = /https:\/\/[^\s<>()]+/gi;
+
+function extractHttpsLinks(text: string): PostAttachment[] {
+  const matches = text.match(HTTPS_URL_RE) || [];
+  const seen = new Set<string>();
+  const out: PostAttachment[] = [];
+  for (const raw of matches) {
+    const cleaned = raw.replace(/[.,!?;:'")\]}]+$/, '');
+    try {
+      const u = new URL(cleaned);
+      if (u.protocol === 'https:' && !seen.has(u.href)) {
+        seen.add(u.href);
+        out.push({ url: u.href, name: u.hostname, mime: 'text/uri-list' });
+        if (out.length >= 5) break;
+      }
+    } catch {
+      /* ignore invalid URL */
+    }
+  }
+  return out;
+}
+
+function renderLinkedText(text: string): React.ReactNode {
+  const parts = text.split(/(https:\/\/[^\s<>()]+)/gi);
+  return parts.map((part, idx) => {
+    if (/^https:\/\//i.test(part)) {
+      const cleaned = part.replace(/[.,!?;:'")\]}]+$/, '');
+      const trail = part.slice(cleaned.length);
+      return (
+        <React.Fragment key={idx}>
+          <a
+            href={cleaned}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="text-sanzar-primary underline break-all hover:opacity-80"
+          >
+            {cleaned}
+          </a>
+          {trail}
+        </React.Fragment>
+      );
+    }
+    return <React.Fragment key={idx}>{part}</React.Fragment>;
+  });
+}
+
 export const CommunityPage: React.FC = () => {
   const { user } = useAuth();
   const { t } = useSettings();
@@ -149,10 +195,15 @@ export const CommunityPage: React.FC = () => {
 
       {loading && posts.length === 0 ? (
         <LoadingState />
-      ) : error && posts.length === 0 ? (
-        <ErrorRetry message={error} onRetry={() => loadFeed(true)} />
       ) : posts.length === 0 ? (
-        <div className="sanzar-card p-10 text-center text-sm text-sanzar-muted">{t('noPosts')}</div>
+        <div className="sanzar-card p-10 text-center text-sm text-sanzar-muted space-y-2">
+          <p>{t('noPosts')}</p>
+          {error && (
+            <button onClick={() => loadFeed(true)} className="sanzar-pill text-sanzar-primary hover:opacity-90">
+              {t('retry')}
+            </button>
+          )}
+        </div>
       ) : (
         <div className="space-y-4">
           {posts.map((p) => {
@@ -208,7 +259,7 @@ export const CommunityPage: React.FC = () => {
                   </div>
                 </div>
 
-                {p.text && <p className="text-sm leading-relaxed whitespace-pre-wrap">{p.text}</p>}
+                {p.text && <p className="text-sm leading-relaxed whitespace-pre-wrap">{renderLinkedText(p.text)}</p>}
 
                 {/* Attachments */}
                 {(p.attachments ?? []).length > 0 && (
@@ -358,24 +409,14 @@ const ComposeModal: React.FC<{ onClose: () => void; onCreated: () => void }> = (
   const [withPoll, setWithPoll] = useState(false);
   const [pollQ, setPollQ] = useState('');
   const [pollOpts, setPollOpts] = useState(['', '']);
-  const [linkInput, setLinkInput] = useState('');
-  const [attachments, setAttachments] = useState<PostAttachment[]>([]);
   const [busy, setBusy] = useState(false);
 
-  const addLink = () => {
-    const val = linkInput.trim();
-    if (!/^https:\/\/\S+/.test(val)) return;
-    setAttachments((prev) => [
-      ...prev,
-      { url: val, name: new URL(val).hostname, mime: 'text/uri-list' },
-    ]);
-    setLinkInput('');
-  };
+  const detectedLinks = extractHttpsLinks(text);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const opts = pollOpts.map((o) => o.trim()).filter(Boolean);
-    if (!text.trim() && !withPoll && !attachments.length) return;
+    if (!text.trim() && !withPoll) return;
     if (withPoll && (!pollQ.trim() || opts.length < 2)) return;
     setBusy(true);
     try {
@@ -384,7 +425,7 @@ const ComposeModal: React.FC<{ onClose: () => void; onCreated: () => void }> = (
         bodyJson: {
           text: text.trim(),
           category: research ? 'research' : 'general',
-          attachments,
+          attachments: detectedLinks,
           ...(withPoll ? { poll: { question: pollQ.trim(), options: opts } } : {}),
         },
       });
@@ -409,6 +450,22 @@ const ComposeModal: React.FC<{ onClose: () => void; onCreated: () => void }> = (
           className="sanzar-input text-sm"
         />
 
+        <p className="text-[11px] text-sanzar-muted flex items-center gap-1.5">
+          <LinkIcon className="w-3.5 h-3.5 text-sanzar-primary shrink-0" />
+          <span>{t('linksAutoDetected')}</span>
+        </p>
+
+        {detectedLinks.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {detectedLinks.map((a, idx) => (
+              <span key={idx} className="sanzar-pill gap-1.5">
+                <LinkIcon className="w-3 h-3 text-sanzar-primary" />
+                {a.name}
+              </span>
+            ))}
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -429,40 +486,6 @@ const ComposeModal: React.FC<{ onClose: () => void; onCreated: () => void }> = (
             {t('research')}
           </button>
         </div>
-
-        <div className="flex gap-2">
-          <input
-            type="url"
-            value={linkInput}
-            onChange={(e) => setLinkInput(e.target.value)}
-            placeholder={t('attachmentLink')}
-            className="sanzar-input text-xs flex-1"
-          />
-          <button
-            type="button"
-            onClick={addLink}
-            className="px-3 py-1.5 rounded-xl border border-sanzar-border text-xs font-semibold shrink-0"
-          >
-            {t('attachLink')}
-          </button>
-        </div>
-
-        {attachments.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {attachments.map((a, idx) => (
-              <span key={idx} className="sanzar-pill gap-1.5">
-                {a.name}
-                <button
-                  type="button"
-                  onClick={() => setAttachments((p) => p.filter((_, i) => i !== idx))}
-                  className="text-sanzar-danger font-bold"
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
 
         {withPoll && (
           <div className="p-3.5 rounded-xl border border-sanzar-border bg-sanzar-surface2 space-y-2.5">

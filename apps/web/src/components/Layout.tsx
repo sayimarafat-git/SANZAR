@@ -12,16 +12,15 @@ import {
   Bell,
   Sun,
   Moon,
-  Monitor,
   Globe,
   LogOut,
   User as UserIcon,
 } from 'lucide-react';
 import { useAuth } from '../lib/auth-context';
-import { useSettings, type ThemeMode } from '../lib/settings-context';
+import { useSettings } from '../lib/settings-context';
 import { apiRequest } from '../lib/api-client';
 import type { AppNotification } from '../lib/models';
-import { BrandMark, useToast } from './SanzarUI';
+import { AmbientBackdrop, BrandMark, useToast } from './SanzarUI';
 
 export const Layout: React.FC = () => {
   const { user, profile, isStaff, guestMode, signOut } = useAuth();
@@ -50,9 +49,8 @@ export const Layout: React.FC = () => {
     }
   };
 
-  const cycleTheme = () => {
-    const order: ThemeMode[] = ['system', 'light', 'dark'];
-    setThemeMode(order[(order.indexOf(themeMode) + 1) % order.length]);
+  const toggleTheme = () => {
+    setThemeMode(themeMode === 'dark' ? 'light' : 'dark');
   };
 
   const navItems = [
@@ -65,7 +63,8 @@ export const Layout: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen flex flex-col text-sanzar-text pb-24 md:pb-0">
+    <div className="min-h-screen flex flex-col text-sanzar-text pb-24 md:pb-0 relative">
+      <AmbientBackdrop />
       {/* Top Navbar (iOS Frosted Glass) */}
       <header className="sticky top-0 z-40 sanzar-glass-bar border-x-0 border-t-0 rounded-none">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
@@ -103,18 +102,17 @@ export const Layout: React.FC = () => {
               </select>
             </div>
 
-            {/* Theme switcher */}
+            {/* Theme switcher (Light / Dark) */}
             <button
-              onClick={cycleTheme}
-              title={`${t('theme')}: ${themeMode}`}
+              onClick={toggleTheme}
+              title={themeMode === 'dark' ? t('themeDark') : t('themeLight')}
+              aria-label={themeMode === 'dark' ? t('themeDark') : t('themeLight')}
               className="p-2 rounded-xl border border-sanzar-border bg-sanzar-surface2 text-sanzar-text2 hover:text-sanzar-primary transition"
             >
               {themeMode === 'dark' ? (
                 <Moon className="w-4 h-4" />
-              ) : themeMode === 'light' ? (
-                <Sun className="w-4 h-4" />
               ) : (
-                <Monitor className="w-4 h-4" />
+                <Sun className="w-4 h-4" />
               )}
             </button>
 
