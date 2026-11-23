@@ -5,7 +5,7 @@ compatibility_date = "2024-09-01"
 [vars]
 FIREBASE_PROJECT_ID = "sanzar-1e625"
 SUPER_ADMIN_EMAILS = "sayimarafat676@gmail.com"
-ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:3000,https://sanzar.pages.dev"
+ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:3000,https://sanzar.pages.dev,https://sanzar.sanzar.workers.dev"
 APP_ENV = "production"
 
 [[d1_databases]]
