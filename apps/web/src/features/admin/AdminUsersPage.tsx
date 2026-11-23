@@ -69,7 +69,7 @@ export const AdminUsersPage: React.FC = () => {
             <thead>
               <tr className="bg-sanzar-surface2 text-sanzar-text2 text-left border-b border-sanzar-border">
                 <th className="p-3 font-semibold">User</th>
-                <th className="p-3 font-semibold">Class</th>
+                <th className="p-3 font-semibold">Learning language</th>
                 <th className="p-3 font-semibold">Joined</th>
                 <th className="p-3 font-semibold">Last seen</th>
                 <th className="p-3 font-semibold">Role</th>

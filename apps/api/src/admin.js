@@ -11,7 +11,7 @@
 import { HttpError, now, json, str, body, audit, requireRole } from './worker.js';
 
 const STATUS = new Set(['draft', 'published', 'archived']);
-const LEVEL_IDS = new Set(['c6', 'c7', 'c8', 'c9', 'c10', 'hsc', 'uni']);
+const LEVEL_IDS = new Set(['zh', 'en']);
 const RES_TYPES = new Set(['video', 'pdf', 'ppt', 'link']);
 const slug = (v, field) => {
   if (typeof v !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/i.test(v)) throw new HttpError(400, 'invalid-argument', `${field} id may use letters, digits, dot, dash and underscore (max 64)`);
@@ -83,7 +83,7 @@ async function putBook(env, ctx, id, i) {
   const subject = slug(i.subject_id, 'Subject');
   if (!(await env.DB.prepare('SELECT 1 FROM subjects WHERE id = ?').bind(subject).first())) throw new HttpError(400, 'invalid-argument', 'Unknown subject');
   const levels = Array.isArray(i.levels) ? [...new Set(i.levels)] : [];
-  if (!levels.length || levels.some((l) => !LEVEL_IDS.has(l))) throw new HttpError(400, 'invalid-argument', 'Choose at least one valid class');
+  if (!levels.length || levels.some((l) => !LEVEL_IDS.has(l))) throw new HttpError(400, 'invalid-argument', 'Choose at least one valid learning language');
   const t = now();
   const cover = Array.isArray(i.cover) ? i.cover : [];
   await env.DB.batch([

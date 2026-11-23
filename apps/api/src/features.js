@@ -788,7 +788,7 @@ async function syncOperations(env, ctx, input) {
       } else if (opType === 'profile') {
         const sets = [];
         const vals = [];
-        if (typeof p.level_id === 'string' && ['c6', 'c7', 'c8', 'c9', 'c10', 'hsc', 'uni'].includes(p.level_id)) { sets.push('level_id = ?'); vals.push(p.level_id); }
+        if (typeof p.level_id === 'string' && ['zh', 'en'].includes(p.level_id)) { sets.push('level_id = ?'); vals.push(p.level_id); }
         if (typeof p.locale === 'string' && ['bn', 'en', 'zh'].includes(p.locale)) { sets.push('locale = ?'); vals.push(p.locale); }
         if (sets.length) {
           sets.push('updated_at = ?'); vals.push(t);

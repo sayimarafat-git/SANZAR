@@ -282,4 +282,18 @@ INSERT OR IGNORE INTO levels (id, name_en, name_bn, name_zh, sort) VALUES
   ('c8', 'Class 8', 'অষ্টম শ্রেণি', '八年级', 0);
 `,
   },
+  {
+    id: '0005_learning_languages',
+    sql: `
+DELETE FROM levels WHERE id NOT IN ('zh', 'en');
+INSERT INTO levels (id, name_en, name_bn, name_zh, sort) VALUES
+  ('zh', 'Chinese', 'চীনা ভাষা', '中文', 1),
+  ('en', 'English', 'ইংরেজি', '英语', 2)
+ON CONFLICT(id) DO UPDATE SET
+  name_en = excluded.name_en,
+  name_bn = excluded.name_bn,
+  name_zh = excluded.name_zh,
+  sort = excluded.sort;
+`,
+  },
 ];

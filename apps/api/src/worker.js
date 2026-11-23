@@ -165,7 +165,7 @@ export async function migrate(env) {
 /* ============================== handlers ============================== */
 const PROFILE_FIELDS = ['uid', 'email', 'email_verified', 'display_name', 'photo_url', 'level_id', 'grp', 'institution', 'locale', 'role', 'blocked', 'profile_visibility', 'created_at'];
 const pick = (o, keys) => Object.fromEntries(keys.filter((k) => k in o).map((k) => [k, o[k]]));
-const LEVELS = new Set(['c6', 'c7', 'c8', 'c9', 'c10', 'hsc', 'uni']);
+const LEVELS = new Set(['zh', 'en']);
 const LOCALES = new Set(['bn', 'en', 'zh']);
 
 export async function getConfig(env) {
@@ -219,7 +219,7 @@ async function updateMe(env, ctx, input) {
   if ('display_name' in input) { sets.push('display_name = ?'); vals.push(str(input.display_name, { min: 2, max: 60, field: 'Name' })); }
   if ('institution' in input) { sets.push('institution = ?'); vals.push(str(input.institution, { max: 100, field: 'Institution' })); }
   if ('grp' in input) { sets.push('grp = ?'); vals.push(str(input.grp, { min: 2, max: 40, field: 'Group' })); }
-  if ('level_id' in input) { if (!LEVELS.has(input.level_id)) throw new HttpError(400, 'invalid-argument', 'Unknown class'); sets.push('level_id = ?'); vals.push(input.level_id); }
+  if ('level_id' in input) { if (!LEVELS.has(input.level_id)) throw new HttpError(400, 'invalid-argument', 'Unknown learning language'); sets.push('level_id = ?'); vals.push(input.level_id); }
   if ('locale' in input) { if (!LOCALES.has(input.locale)) throw new HttpError(400, 'invalid-argument', 'Unknown language'); sets.push('locale = ?'); vals.push(input.locale); }
   if ('profile_visibility' in input) { if (!['public', 'followers', 'private'].includes(input.profile_visibility)) throw new HttpError(400, 'invalid-argument', 'Unknown visibility'); sets.push('profile_visibility = ?'); vals.push(input.profile_visibility); }
   if ('photo_url' in input) {

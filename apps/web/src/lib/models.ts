@@ -13,13 +13,8 @@ export const atLeast = (role: string | undefined | null, min: Role): boolean =>
   role !== undefined && role !== null && role in ROLE_RANK && ROLE_RANK[role as Role] >= ROLE_RANK[min];
 
 export const LEVELS = [
-  { id: 'c6', name: 'Class 6', name_bn: 'ষষ্ঠ শ্রেণি', name_zh: '六年级' },
-  { id: 'c7', name: 'Class 7', name_bn: 'সপ্তম শ্রেণি', name_zh: '七年级' },
-  { id: 'c8', name: 'Class 8', name_bn: 'অষ্টম শ্রেণি', name_zh: '八年级' },
-  { id: 'c9', name: 'Class 9', name_bn: 'নবম শ্রেণি', name_zh: '九年级' },
-  { id: 'c10', name: 'Class 10', name_bn: 'দশম শ্রেণি', name_zh: '十年级' },
-  { id: 'hsc', name: 'HSC', name_bn: 'এইচএসসি', name_zh: '高中' },
-  { id: 'uni', name: 'University', name_bn: 'বিশ্ববিদ্যালয়', name_zh: '大学' },
+  { id: 'zh', name: 'Chinese', name_bn: 'চীনা ভাষা', name_zh: '中文' },
+  { id: 'en', name: 'English', name_bn: 'ইংরেজি', name_zh: '英语' },
 ];
 
 export interface UserProfile {

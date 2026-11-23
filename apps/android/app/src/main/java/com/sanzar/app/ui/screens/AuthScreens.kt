@@ -337,6 +337,14 @@ fun ChooseClassScreen(
 ) {
     val s = LocalStrings.current
     val palette = LocalSanzarPalette.current
+    val displayLevels = remember(levels) {
+        levels.ifEmpty {
+            listOf(
+                Level("zh", "Chinese", "চীনা ভাষা", "中文"),
+                Level("en", "English", "ইংরেজি", "英语")
+            )
+        }
+    }
     var selected by remember(initialLevelId) { mutableStateOf(initialLevelId) }
 
     Scaffold(
@@ -354,15 +362,15 @@ fun ChooseClassScreen(
                 .padding(padding)
         ) {
             when {
-                levels.isEmpty() && error != null -> ErrorRetryView(message = s("err.generic"), onRetry = onRetry)
-                levels.isEmpty() && loading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-                levels.isEmpty() -> Text(s("noClasses"), modifier = Modifier.align(Alignment.Center))
+                displayLevels.isEmpty() && error != null -> ErrorRetryView(message = s("err.generic"), onRetry = onRetry)
+                displayLevels.isEmpty() && loading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                displayLevels.isEmpty() -> Text(s("noClasses"), modifier = Modifier.align(Alignment.Center))
                 else -> Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(SanzarSpace.S4.dp)
                 ) {
-                    levels.forEach { level ->
+                    displayLevels.forEach { level ->
                         SanzarCard(
                             onClick = { selected = level.id },
                             modifier = Modifier

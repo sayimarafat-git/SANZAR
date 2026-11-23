@@ -165,7 +165,7 @@ const BooksAndSubjectsView: React.FC = () => {
             <tr className="bg-sanzar-surface2 text-sanzar-text2 text-left border-b border-sanzar-border">
               <th className="p-3 font-semibold">Book</th>
               <th className="p-3 font-semibold">Subject</th>
-              <th className="p-3 font-semibold">Classes</th>
+              <th className="p-3 font-semibold">Learning languages</th>
               <th className="p-3 font-semibold">Chapters</th>
               <th className="p-3 font-semibold">Status</th>
               <th className="p-3" />
@@ -312,7 +312,7 @@ const BookForm: React.FC<{ book: Partial<AdminBook> | null; content: AdminConten
       !isId(id) && 'ID may use letters, digits, dot, dash and underscore.',
       f.title.trim().length < 2 && 'Title is too short.',
       !f.subject_id && 'Create a subject before adding books.',
-      !f.levels.length && 'Choose at least one class.',
+      !f.levels.length && 'Choose at least one learning language.',
     ].filter(Boolean) as string[];
     if (errs.length) return setErrors(errs);
     if (isNew && content.books.some((b) => b.id === id)) {
@@ -403,7 +403,7 @@ const BookForm: React.FC<{ book: Partial<AdminBook> | null; content: AdminConten
       </div>
 
       <fieldset className="space-y-2">
-        <legend className="text-xs font-semibold text-sanzar-text2">Classes</legend>
+        <legend className="text-xs font-semibold text-sanzar-text2">Learning languages</legend>
         <div className="flex flex-wrap gap-3">
           {LEVELS.map((l) => (
             <label key={l.id} className="flex items-center gap-1.5 text-sm font-medium cursor-pointer">
