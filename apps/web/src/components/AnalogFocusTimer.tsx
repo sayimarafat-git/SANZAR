@@ -19,9 +19,9 @@ export const AnalogFocusTimer: React.FC = () => {
   const dialDashOffset = DIAL_CIRCUMFERENCE * (1 - clampedForDial / 3600);
 
   return (
-    <div className="sanzar-card p-5 flex items-center gap-4">
+    <div className="sanzar-card p-4 flex items-center gap-3.5">
       {/* Compact Analog Clock Dial matching Today Goal Ring */}
-      <div className="relative w-20 h-20 shrink-0 flex items-center justify-center">
+      <div className="relative w-16 h-16 shrink-0 flex items-center justify-center">
         <svg className="w-full h-full" viewBox="0 0 140 140" aria-hidden="true">
           {/* Outer frosted bezel */}
           <circle
@@ -125,10 +125,10 @@ export const AnalogFocusTimer: React.FC = () => {
       </div>
 
       {/* Compact Controls & Digital Readout */}
-      <div className="flex-1 min-w-0 space-y-2">
+      <div className="flex-1 min-w-0 space-y-1.5">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="font-bold text-base truncate">{t('focus')}</span>
+            <span className="font-bold text-sm truncate">{t('focus')}</span>
             {running && (
               <span className="inline-flex items-center gap-1 text-[10px] font-bold text-sanzar-primary shrink-0">
                 <span className="w-1.5 h-1.5 rounded-full bg-sanzar-primary animate-pulse" />
@@ -136,7 +136,7 @@ export const AnalogFocusTimer: React.FC = () => {
               </span>
             )}
           </div>
-          <span className="text-xl font-extrabold tracking-tight text-sanzar-primary tabular-nums shrink-0">
+          <span className="text-lg font-extrabold tracking-tight text-sanzar-primary tabular-nums shrink-0">
             {mmss(remainingSec)}
           </span>
         </div>

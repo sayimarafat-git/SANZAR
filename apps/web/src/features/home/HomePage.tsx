@@ -144,9 +144,9 @@ export const HomePage: React.FC = () => {
       )}
 
       {/* Hero Gradient Banner */}
-      <section className="bg-hero-grad text-white rounded-3xl p-6 sm:p-8 shadow-md">
+      <section className="bg-hero-grad text-white rounded-3xl p-7 sm:p-10 shadow-md">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <div className="flex items-center gap-2 flex-wrap">
               {levelLabel && (
                 <span className="px-3 py-0.5 rounded-full bg-white/15 text-xs font-semibold backdrop-blur">
@@ -159,19 +159,19 @@ export const HomePage: React.FC = () => {
                 </span>
               )}
             </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold">
+            <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
               {t('hello', { name: firstName })}
             </h1>
-            <p className="text-white/75 text-sm">{t('tagline')}</p>
+            <p className="text-white/80 text-sm sm:text-base">{t('tagline')}</p>
           </div>
 
           {prog && (
             <div className="flex items-center gap-2.5 flex-wrap">
-              <div className="px-3.5 py-2 rounded-2xl bg-white/10 backdrop-blur flex items-center gap-2 text-sm font-semibold">
+              <div className="px-4 py-2.5 rounded-2xl bg-white/10 backdrop-blur flex items-center gap-2 text-sm font-semibold">
                 <Flame className="w-4 h-4 text-sanzar-warning" />
                 <span>{t('streak', { n: prog.streak })}</span>
               </div>
-              <div className="px-3.5 py-2 rounded-2xl bg-white/10 backdrop-blur flex items-center gap-2 text-sm font-semibold">
+              <div className="px-4 py-2.5 rounded-2xl bg-white/10 backdrop-blur flex items-center gap-2 text-sm font-semibold">
                 <Star className="w-4 h-4 text-sanzar-gold" />
                 <span>
                   {t('levelN', { n: prog.level })} · {t('xpTotal', { n: prog.xp })}
@@ -185,10 +185,10 @@ export const HomePage: React.FC = () => {
       {/* Daily Study Goal & Analog Focus Timer (under Streak & XP) */}
       <div className={`grid gap-4 ${prog ? 'md:grid-cols-2 items-stretch' : ''}`}>
         {prog && (
-          <Link to="/progress" className="sanzar-card p-5 hover:border-sanzar-primary/50 transition flex items-center">
-            <div className="flex items-center gap-5 w-full">
-              <div className="relative w-20 h-20 shrink-0 flex items-center justify-center">
-                <svg className="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
+          <Link to="/progress" className="sanzar-card p-4 hover:border-sanzar-primary/50 transition flex items-center">
+            <div className="flex items-center gap-3.5 w-full">
+              <div className="relative w-16 h-16 shrink-0 flex items-center justify-center">
+                <svg className="w-16 h-16 -rotate-90" viewBox="0 0 80 80">
                   <circle
                     cx="40"
                     cy="40"
@@ -209,19 +209,19 @@ export const HomePage: React.FC = () => {
                     strokeDashoffset={2 * Math.PI * 33 * (1 - goalPct / 100)}
                   />
                 </svg>
-                <span className="absolute font-extrabold text-base">{todayMin}′</span>
+                <span className="absolute font-extrabold text-sm">{todayMin}′</span>
               </div>
-              <div className="flex-1 min-w-0 space-y-2">
+              <div className="flex-1 min-w-0 space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-base">{t('today')}</span>
+                  <span className="font-bold text-sm">{t('today')}</span>
                   <span className="text-xs font-semibold text-sanzar-primary">{goalPct}%</span>
                 </div>
-                <p className="text-sm text-sanzar-text2">{t('goalOf', { m: todayMin, g: goalMin })}</p>
-                <div className="h-2 rounded-full bg-sanzar-primarySoft overflow-hidden">
+                <p className="text-xs text-sanzar-text2">{t('goalOf', { m: todayMin, g: goalMin })}</p>
+                <div className="h-1.5 rounded-full bg-sanzar-primarySoft overflow-hidden">
                   <div className="h-full bg-brand-grad rounded-full transition-all" style={{ width: `${goalPct}%` }} />
                 </div>
               </div>
-              <ChevronRight className="w-5 h-5 text-sanzar-muted shrink-0" />
+              <ChevronRight className="w-4 h-4 text-sanzar-muted shrink-0" />
             </div>
           </Link>
         )}
