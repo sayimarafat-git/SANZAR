@@ -9,6 +9,18 @@ export const API_BASE = (
   (isLocalHost ? 'http://localhost:8787' : 'https://sanzar-api.workers.dev')
 ).replace(/\/+$/, '');
 
+const DEFAULT_TIMEOUT_MS = 8000;
+
+async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: init.signal ?? controller.signal });
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -50,7 +62,7 @@ export async function apiRequest<T = any>(
 
   let response: Response;
   try {
-    response = await fetch(`${API_BASE}${endpoint}`, {
+    response = await fetchWithTimeout(`${API_BASE}${endpoint}`, {
       ...options,
       body,
       headers,
@@ -122,7 +134,7 @@ export async function fetchCatalogWithCache(): Promise<{ catalog: Catalog; offli
     const token = await user.getIdToken();
     const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
     if (etag) headers['If-None-Match'] = etag;
-    const res = await fetch(`${API_BASE}/v1/catalog`, { headers });
+    const res = await fetchWithTimeout(`${API_BASE}/v1/catalog`, { headers });
     if (res.status === 304 && cached) {
       return { catalog: cached, offline: false };
     }

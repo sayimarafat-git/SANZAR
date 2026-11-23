@@ -50,34 +50,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     else localStorage.removeItem('sanzar.guest');
   };
 
+  const fallbackProfile = (currentUser: User): UserProfile => ({
+    uid: currentUser.uid,
+    email: currentUser.email,
+    display_name: currentUser.displayName || currentUser.email?.split('@')[0] || 'Student',
+    role: currentUser.email === 'sayimarafat676@gmail.com' ? 'super_admin' : 'student',
+    email_verified: currentUser.emailVerified,
+    level_id: null,
+    profile_visibility: 'private',
+  });
+
   const fetchProfile = async (currentUser: User) => {
     try {
       const data = await apiRequest<{ user: UserProfile }>('/v1/me');
       setProfile(data.user);
-    } catch (e) {
-      console.error('Failed to load profile', e);
-      setProfile({
-        uid: currentUser.uid,
-        email: currentUser.email,
-        display_name: currentUser.displayName || currentUser.email?.split('@')[0] || 'Student',
-        role: currentUser.email === 'sayimarafat676@gmail.com' ? 'super_admin' : 'student',
-        email_verified: currentUser.emailVerified,
-        level_id: null,
-        profile_visibility: 'private',
-      });
+    } catch {
+      setProfile((prev) => prev ?? fallbackProfile(currentUser));
     }
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
         setGuestMode(false);
-        await fetchProfile(currentUser);
+        setProfile((prev) => (prev?.uid === currentUser.uid ? prev : fallbackProfile(currentUser)));
+        setLoading(false);
+        void fetchProfile(currentUser);
       } else {
         setProfile(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
     return () => unsubscribe();
   }, []);
