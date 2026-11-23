@@ -1,14 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Flame, Star, Timer, Trophy, Lock, Award, TrendingUp, CloudOff, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../lib/auth-context';
+import { useFocusTimer } from '../../lib/focus-timer-context';
 import { useSettings } from '../../lib/settings-context';
 import { apiRequest, fetchCatalogWithCache } from '../../lib/api-client';
 import { colorForSubject, localizedName } from '../../lib/i18n';
-import { useStudyTracker } from '../../lib/study-tracker';
 import type { LeaderEntry, ProgressData } from '../../lib/models';
-import { LoadingState, mmss, useToast } from '../../components/SanzarUI';
+import { LoadingState, mmss } from '../../components/SanzarUI';
 
 const FALLBACK_PROGRESS: ProgressData = {
   xp: 0,
@@ -34,38 +34,19 @@ export const ProgressPage: React.FC = () => {
   const { user, profile } = useAuth();
   const { lang, t } = useSettings();
   const [params, setParams] = useSearchParams();
-  const toast = useToast();
-  const qc = useQueryClient();
   const initialTab = params.get('tab') === 'leaderboard' ? 'leaderboard' : 'overview';
   const [tab, setTab] = useState<'overview' | 'leaderboard'>(initialTab);
   const [period, setPeriod] = useState<'weekly' | 'monthly' | 'all'>('weekly');
   const [myClassOnly, setMyClassOnly] = useState(false);
 
-  // Focus Timer state
-  const [focusMins, setFocusMins] = useState(25);
-  const [focusLeft, setFocusLeft] = useState(0);
-  const [focusRunning, setFocusRunning] = useState(false);
-
-  useStudyTracker('focus', {
-    active: focusRunning,
-    playing: focusRunning,
-    onFlushed: () => qc.invalidateQueries({ queryKey: ['progress'] }),
-  });
-
-  useEffect(() => {
-    if (!focusRunning) return;
-    const timer = window.setInterval(() => {
-      setFocusLeft((prev) => {
-        if (prev <= 1) {
-          setFocusRunning(false);
-          toast(t('focusDone'));
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [focusRunning]);
+  const {
+    durationMins: focusMins,
+    setDurationMins: setFocusMins,
+    remainingSec: focusLeft,
+    running: focusRunning,
+    start: startFocus,
+    stop: stopFocus,
+  } = useFocusTimer();
 
   const progQuery = useQuery({
     queryKey: ['progress'],
@@ -222,17 +203,14 @@ export const ProgressPage: React.FC = () => {
                 </div>
                 {focusRunning ? (
                   <button
-                    onClick={() => setFocusRunning(false)}
+                    onClick={stopFocus}
                     className="px-4 py-2 rounded-xl border border-sanzar-border text-xs font-bold"
                   >
                     {t('focusStop')}
                   </button>
                 ) : (
                   <button
-                    onClick={() => {
-                      setFocusLeft(focusMins * 60);
-                      setFocusRunning(true);
-                    }}
+                    onClick={() => startFocus()}
                     className="px-4 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-bold"
                   >
                     {t('focusStart', { n: focusMins })}

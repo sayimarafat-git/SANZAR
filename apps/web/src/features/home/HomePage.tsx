@@ -20,6 +20,7 @@ import { apiRequest, fetchCatalogWithCache } from '../../lib/api-client';
 import { colorForSubject, localizedName } from '../../lib/i18n';
 import { LEVELS, type ProgressData } from '../../lib/models';
 import { BookCover, BrandMark, LoadingState, SubjectIcon } from '../../components/SanzarUI';
+import { AnalogFocusTimer } from '../../components/AnalogFocusTimer';
 
 export const HomePage: React.FC = () => {
   const { user, profile } = useAuth();
@@ -181,48 +182,51 @@ export const HomePage: React.FC = () => {
         </div>
       </section>
 
-      {/* Daily Study Goal Ring/Bar */}
-      {prog && (
-        <Link to="/progress" className="block sanzar-card p-5 hover:border-sanzar-primary/50 transition">
-          <div className="flex items-center gap-5">
-            <div className="relative w-20 h-20 shrink-0 flex items-center justify-center">
-              <svg className="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
-                <circle
-                  cx="40"
-                  cy="40"
-                  r="33"
-                  fill="none"
-                  stroke="var(--primary-soft)"
-                  strokeWidth="8"
-                />
-                <circle
-                  cx="40"
-                  cy="40"
-                  r="33"
-                  fill="none"
-                  stroke="var(--primary)"
-                  strokeWidth="8"
-                  strokeLinecap="round"
-                  strokeDasharray={2 * Math.PI * 33}
-                  strokeDashoffset={2 * Math.PI * 33 * (1 - goalPct / 100)}
-                />
-              </svg>
-              <span className="absolute font-extrabold text-base">{todayMin}′</span>
-            </div>
-            <div className="flex-1 min-w-0 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-base">{t('today')}</span>
-                <span className="text-xs font-semibold text-sanzar-primary">{goalPct}%</span>
+      {/* Daily Study Goal & Analog Focus Timer (under Streak & XP) */}
+      <div className={`grid gap-4 ${prog ? 'md:grid-cols-2 items-stretch' : ''}`}>
+        {prog && (
+          <Link to="/progress" className="sanzar-card p-5 hover:border-sanzar-primary/50 transition flex items-center">
+            <div className="flex items-center gap-5 w-full">
+              <div className="relative w-20 h-20 shrink-0 flex items-center justify-center">
+                <svg className="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
+                  <circle
+                    cx="40"
+                    cy="40"
+                    r="33"
+                    fill="none"
+                    stroke="var(--primary-soft)"
+                    strokeWidth="8"
+                  />
+                  <circle
+                    cx="40"
+                    cy="40"
+                    r="33"
+                    fill="none"
+                    stroke="var(--primary)"
+                    strokeWidth="8"
+                    strokeLinecap="round"
+                    strokeDasharray={2 * Math.PI * 33}
+                    strokeDashoffset={2 * Math.PI * 33 * (1 - goalPct / 100)}
+                  />
+                </svg>
+                <span className="absolute font-extrabold text-base">{todayMin}′</span>
               </div>
-              <p className="text-sm text-sanzar-text2">{t('goalOf', { m: todayMin, g: goalMin })}</p>
-              <div className="h-2 rounded-full bg-sanzar-primarySoft overflow-hidden">
-                <div className="h-full bg-brand-grad rounded-full transition-all" style={{ width: `${goalPct}%` }} />
+              <div className="flex-1 min-w-0 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-base">{t('today')}</span>
+                  <span className="text-xs font-semibold text-sanzar-primary">{goalPct}%</span>
+                </div>
+                <p className="text-sm text-sanzar-text2">{t('goalOf', { m: todayMin, g: goalMin })}</p>
+                <div className="h-2 rounded-full bg-sanzar-primarySoft overflow-hidden">
+                  <div className="h-full bg-brand-grad rounded-full transition-all" style={{ width: `${goalPct}%` }} />
+                </div>
               </div>
+              <ChevronRight className="w-5 h-5 text-sanzar-muted shrink-0" />
             </div>
-            <ChevronRight className="w-5 h-5 text-sanzar-muted shrink-0" />
-          </div>
-        </Link>
-      )}
+          </Link>
+        )}
+        <AnalogFocusTimer />
+      </div>
 
       {/* Quick Actions */}
       <section className="space-y-3">

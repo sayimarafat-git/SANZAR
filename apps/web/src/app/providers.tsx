@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '../lib/auth-context';
+import { FocusTimerProvider } from '../lib/focus-timer-context';
 import { SettingsProvider } from '../lib/settings-context';
 import { ToastProvider } from '../components/SanzarUI';
 import { AppRouter } from './router';
@@ -22,7 +23,9 @@ export const Providers: React.FC = () => {
         <SettingsProvider>
           <AuthProvider>
             <ToastProvider>
-              <AppRouter />
+              <FocusTimerProvider>
+                <AppRouter />
+              </FocusTimerProvider>
             </ToastProvider>
           </AuthProvider>
         </SettingsProvider>
