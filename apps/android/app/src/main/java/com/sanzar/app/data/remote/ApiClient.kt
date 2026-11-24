@@ -325,14 +325,66 @@ class ApiClient(
         send("POST", "/v1/notifications/read", body)
     }
 
-    suspend fun fetchDictionary(query: String = "", lang: String = "all"): List<DictionaryEntry> {
+    suspend fun fetchDictionary(
+        query: String = "",
+        lang: String = "all",
+        hskLevel: String = "",
+        partOfSpeech: String = "",
+        cursor: String? = null
+    ): Triple<List<DictionaryEntry>, String?, Boolean> {
         val params = buildList {
-            if (lang == "zh" || lang == "en") add("lang=$lang")
+            if (lang == "zh" || lang == "zh-Hans" || lang == "en" || lang == "bn") add("lang=$lang")
             if (query.isNotBlank()) add("q=${java.net.URLEncoder.encode(query.trim(), "UTF-8")}")
+            if (hskLevel.isNotBlank()) add("hsk_level=${java.net.URLEncoder.encode(hskLevel, "UTF-8")}")
+            if (partOfSpeech.isNotBlank()) add("part_of_speech=${java.net.URLEncoder.encode(partOfSpeech, "UTF-8")}")
+            if (!cursor.isNullOrBlank()) add("cursor=${java.net.URLEncoder.encode(cursor, "UTF-8")}")
+            add("limit=40")
         }.joinToString("&")
-        val resp = send("GET", "/v1/dictionary${if (params.isEmpty()) "" else "?$params"}")
-        val arr = resp.optJson()?.optJSONArray("entries") ?: return emptyList()
-        return List(arr.length()) { DictionaryEntry.fromJson(arr.getJSONObject(it)) }
+        val resp = send("GET", "/v1/dictionary${if (params.isEmpty()) "" else "?$params"}", requireAuth = false)
+        val j = resp.optJson() ?: return Triple(emptyList(), null, false)
+        val arr = j.optJSONArray("entries") ?: return Triple(emptyList(), null, false)
+        val entries = List(arr.length()) { DictionaryEntry.fromJson(arr.getJSONObject(it)) }
+        val nextCursor = j.optString("nextCursor", "").ifBlank { null }
+        val hasMore = j.optBoolean("hasMore", false)
+        return Triple(entries, nextCursor, hasMore)
+    }
+
+    suspend fun translateText(text: String, sourceLanguage: String, targetLanguage: String): JSONObject {
+        val body = JSONObject().apply {
+            put("text", text)
+            put("sourceLanguage", sourceLanguage)
+            put("targetLanguage", targetLanguage)
+        }
+        val resp = send("POST", "/v1/translation", body)
+        return resp.optJson() ?: JSONObject()
+    }
+
+    suspend fun fetchSavedVocabulary(): JSONArray {
+        val resp = send("GET", "/v1/dictionary/saved")
+        return resp.optJson()?.optJSONArray("items") ?: JSONArray()
+    }
+
+    suspend fun upsertSavedVocabulary(item: JSONObject): JSONObject {
+        val resp = send("POST", "/v1/dictionary/saved", JSONObject().put("items", JSONArray().put(item)))
+        return resp.optJson() ?: JSONObject()
+    }
+
+    suspend fun deleteSavedVocabulary(id: String) {
+        send("DELETE", "/v1/dictionary/saved/${java.net.URLEncoder.encode(id, "UTF-8")}")
+    }
+
+    suspend fun fetchTranslationHistory(): JSONArray {
+        val resp = send("GET", "/v1/translation/history")
+        return resp.optJson()?.optJSONArray("items") ?: JSONArray()
+    }
+
+    suspend fun syncTranslationHistoryItem(item: JSONObject): JSONObject {
+        val resp = send("POST", "/v1/translation/history/batch", JSONObject().put("items", JSONArray().put(item)))
+        return resp.optJson() ?: JSONObject()
+    }
+
+    suspend fun deleteTranslationHistory(id: String) {
+        send("DELETE", "/v1/translation/history/${java.net.URLEncoder.encode(id, "UTF-8")}")
     }
 
     suspend fun fetchResourceManifest(): List<ResourceManifestItem> {

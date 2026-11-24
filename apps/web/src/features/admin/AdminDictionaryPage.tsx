@@ -12,6 +12,7 @@ export const AdminDictionaryPage: React.FC = () => {
     queryFn: () => apiRequest<{ entries: DictionaryEntry[] }>('/v1/admin/dictionary'),
   });
   const [editing, setEditing] = useState<DictionaryEntry | null | undefined>(undefined);
+  const [showImport, setShowImport] = useState(false);
   const [search, setSearch] = useState('');
 
   if (q.isLoading) return <LoadingState />;
@@ -36,12 +37,20 @@ export const AdminDictionaryPage: React.FC = () => {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-extrabold">Dictionary</h1>
-        <button
-          onClick={() => setEditing(null)}
-          className="px-4 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold"
-        >
-          Add word
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowImport(true)}
+            className="px-4 py-2 rounded-xl border border-sanzar-border bg-sanzar-surface hover:bg-sanzar-surface2 text-sm font-semibold"
+          >
+            Import CSV / JSON
+          </button>
+          <button
+            onClick={() => setEditing(null)}
+            className="px-4 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold"
+          >
+            Add word
+          </button>
+        </div>
       </div>
 
       <input
@@ -116,6 +125,17 @@ export const AdminDictionaryPage: React.FC = () => {
           />
         </Modal>
       )}
+      {showImport && (
+        <Modal title="Bulk import dictionary (CSV / JSON)" onClose={() => setShowImport(false)}>
+          <BulkImportForm
+            existingWords={new Set(q.data.entries.map((e) => `${e.language}:${e.word.toLowerCase()}`))}
+            onDone={() => {
+              setShowImport(false);
+              void qc.invalidateQueries({ queryKey: ['admin', 'dictionary'] });
+            }}
+          />
+        </Modal>
+      )}
     </div>
   );
 };
@@ -125,7 +145,7 @@ const DictionaryForm: React.FC<{ entry: DictionaryEntry | null; onDone: () => vo
   const isNew = !entry;
   const [f, setF] = useState({
     id: entry?.id ?? '',
-    language: (entry?.language ?? 'zh') as 'zh' | 'en',
+    language: (entry?.language ?? 'zh') as 'zh' | 'en' | 'bn',
     word: entry?.word ?? '',
     phonetic: entry?.phonetic ?? '',
     part_of_speech: entry?.part_of_speech ?? '',
@@ -178,9 +198,10 @@ const DictionaryForm: React.FC<{ entry: DictionaryEntry | null; onDone: () => vo
       <div className="grid sm:grid-cols-2 gap-3">
         <label className="space-y-1">
           <span>Language</span>
-          <select value={f.language} onChange={(e) => setF({ ...f, language: e.target.value as 'zh' | 'en' })} className="sanzar-input text-sm">
-            <option value="zh">Chinese (中文)</option>
+          <select value={f.language} onChange={(e) => setF({ ...f, language: e.target.value as 'zh' | 'en' | 'bn' })} className="sanzar-input text-sm">
+            <option value="zh">Chinese (简体中文)</option>
             <option value="en">English</option>
+            <option value="bn">Bangla (বাংলা)</option>
           </select>
         </label>
         <label className="space-y-1">
@@ -231,6 +252,139 @@ const DictionaryForm: React.FC<{ entry: DictionaryEntry | null; onDone: () => vo
       {err && <p className="text-sanzar-danger text-xs">{err}</p>}
       <button onClick={submit} disabled={busy} className="px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold disabled:opacity-50">
         Save word
+      </button>
+    </div>
+  );
+};
+
+interface ImportRow {
+  language: string;
+  word: string;
+  phonetic?: string;
+  part_of_speech?: string;
+  meaning_en?: string;
+  meaning_bn?: string;
+  meaning_zh?: string;
+  example?: string;
+  example_translation?: string;
+  hsk_level?: string;
+}
+
+function parseCsvOrJson(raw: string): ImportRow[] {
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith('[')) {
+    const parsed = JSON.parse(trimmed);
+    return Array.isArray(parsed) ? parsed : [];
+  }
+  const lines = trimmed.split(/\r?\n/).filter((l) => l.trim());
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map((h) => h.trim().toLowerCase());
+  return lines.slice(1).map((line) => {
+    const cols = line.split(',').map((c) => c.trim().replace(/^"|"$/g, ''));
+    const obj: Record<string, string> = {};
+    headers.forEach((h, i) => {
+      obj[h] = cols[i] || '';
+    });
+    return {
+      language: obj.language || 'zh',
+      word: obj.word || '',
+      phonetic: obj.phonetic || '',
+      part_of_speech: obj.part_of_speech || '',
+      meaning_en: obj.meaning_en || '',
+      meaning_bn: obj.meaning_bn || '',
+      meaning_zh: obj.meaning_zh || '',
+      example: obj.example || '',
+      example_translation: obj.example_translation || '',
+      hsk_level: obj.hsk_level || '',
+    };
+  });
+}
+
+const BulkImportForm: React.FC<{ existingWords: Set<string>; onDone: () => void }> = ({ existingWords, onDone }) => {
+  const toast = useToast();
+  const [raw, setRaw] = useState('');
+  const [defaultStatus, setDefaultStatus] = useState<'draft' | 'published'>('draft');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  let parsed: ImportRow[] = [];
+  let parseErr: string | null = null;
+  try {
+    parsed = parseCsvOrJson(raw);
+  } catch (e) {
+    parseErr = errorText(e);
+  }
+
+  const validLangs = new Set(['en', 'bn', 'zh', 'zh-hans', 'zh-Hans']);
+  const preview = parsed.map((row, idx) => {
+    const langOk = validLangs.has(String(row.language || '').trim());
+    const wordOk = Boolean(String(row.word || '').trim());
+    const normLang = String(row.language || '').toLowerCase().startsWith('zh') ? 'zh' : String(row.language || '').toLowerCase();
+    const isDuplicate = wordOk && existingWords.has(`${normLang}:${String(row.word).trim().toLowerCase()}`);
+    return { row, idx: idx + 1, valid: langOk && wordOk, isDuplicate };
+  });
+
+  const validCount = preview.filter((p) => p.valid).length;
+  const dupCount = preview.filter((p) => p.isDuplicate).length;
+
+  const submit = async () => {
+    if (validCount === 0) return setErr('No valid rows to import.');
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await apiRequest<{ imported: number; skipped: number }>('/v1/admin/dictionary/import', {
+        method: 'POST',
+        bodyJson: { entries: parsed, defaultStatus },
+      });
+      toast(`Imported ${res.imported} words (${res.skipped} skipped)`);
+      onDone();
+    } catch (e) {
+      setErr(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3 text-xs">
+      <p className="text-sanzar-muted">
+        Paste JSON array or CSV with headers: <code>language,word,phonetic,part_of_speech,meaning_en,meaning_bn,meaning_zh,hsk_level</code>
+      </p>
+      <textarea
+        rows={6}
+        value={raw}
+        onChange={(e) => setRaw(e.target.value)}
+        placeholder={'language,word,phonetic,part_of_speech,meaning_en,meaning_bn,hsk_level\nzh,你好,nǐ hǎo,phrase,hello,হ্যালো,HSK 1'}
+        className="sanzar-input font-mono text-xs"
+      />
+      <div className="flex items-center justify-between gap-2">
+        <label className="flex items-center gap-2 font-semibold text-sanzar-text2">
+          <span>Import as:</span>
+          <select
+            value={defaultStatus}
+            onChange={(e) => setDefaultStatus(e.target.value as 'draft' | 'published')}
+            className="sanzar-input py-1 w-auto text-xs"
+          >
+            <option value="draft">Draft (review first)</option>
+            <option value="published">Published immediately</option>
+          </select>
+        </label>
+        {parsed.length > 0 && (
+          <span className="text-sanzar-muted">
+            {validCount}/{parsed.length} valid {dupCount > 0 ? `· ${dupCount} duplicates` : ''}
+          </span>
+        )}
+      </div>
+      {parseErr && <p className="text-sanzar-danger">{parseErr}</p>}
+      {err && <p className="text-sanzar-danger">{err}</p>}
+      <button
+        type="button"
+        disabled={busy || validCount === 0}
+        onClick={() => void submit()}
+        className="px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold disabled:opacity-50"
+      >
+        {busy ? 'Importing…' : `Import ${validCount} valid rows`}
       </button>
     </div>
   );

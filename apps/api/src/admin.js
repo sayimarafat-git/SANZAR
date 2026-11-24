@@ -9,6 +9,7 @@
  * rollback just points current_version back.
  */
 import { HttpError, now, json, str, body, audit, requireRole, driveThumbFromUrl } from './worker.js';
+import { stripPinyinTones, toDbLang } from './dictionary.js';
 
 const STATUS = new Set(['draft', 'published', 'archived']);
 const LEVEL_IDS = new Set(['zh', 'en']);
@@ -349,21 +350,22 @@ async function listDictionary(env, ctx) {
 async function putDictionary(env, ctx, id, i) {
   requireRole(ctx.user, 'content_admin');
   slug(id, 'Dictionary entry');
-  const language = DICT_LANGS.has(i.language) ? i.language : null;
-  if (!language) throw new HttpError(400, 'invalid-argument', 'Language must be zh or en');
+  const language = toDbLang(i.language);
+  if (!language) throw new HttpError(400, 'invalid-argument', 'Language must be zh, en, or bn');
   const word = str(i.word, { min: 1, max: 120, field: 'Word' });
+  const phonetic = str(i.phonetic ?? '', { max: 120, field: 'Phonetic' });
+  const phoneticPlain = stripPinyinTones(phonetic);
   const t = now();
   await env.DB.prepare(`INSERT INTO dictionary_entries
-    (id, language, word, phonetic, part_of_speech, meaning_en, meaning_bn, meaning_zh, example, example_translation, hsk_level, status, created_by, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, language, word, phonetic, phonetic_plain, part_of_speech, meaning_en, meaning_bn, meaning_zh, example, example_translation, hsk_level, status, created_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
-      language = excluded.language, word = excluded.word, phonetic = excluded.phonetic, part_of_speech = excluded.part_of_speech,
-      meaning_en = excluded.meaning_en, meaning_bn = excluded.meaning_bn, meaning_zh = excluded.meaning_zh,
+      language = excluded.language, word = excluded.word, phonetic = excluded.phonetic, phonetic_plain = excluded.phonetic_plain,
+      part_of_speech = excluded.part_of_speech, meaning_en = excluded.meaning_en, meaning_bn = excluded.meaning_bn, meaning_zh = excluded.meaning_zh,
       example = excluded.example, example_translation = excluded.example_translation, hsk_level = excluded.hsk_level,
       status = excluded.status, updated_at = excluded.updated_at`)
     .bind(
-      id, language, word,
-      str(i.phonetic ?? '', { max: 120, field: 'Phonetic' }),
+      id, language, word, phonetic, phoneticPlain,
       str(i.part_of_speech ?? '', { max: 40, field: 'Part of speech' }),
       str(i.meaning_en ?? '', { max: 400, field: 'English meaning' }),
       str(i.meaning_bn ?? '', { max: 400, field: 'Bengali meaning' }),

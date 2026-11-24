@@ -83,9 +83,12 @@ export interface Book {
   chapters: Chapter[];
 }
 
+export type DictLangCode = 'en' | 'bn' | 'zh-Hans';
+
 export interface DictionaryEntry {
   id: string;
-  language: 'zh' | 'en';
+  language: 'zh' | 'en' | 'bn';
+  language_code?: DictLangCode;
   word: string;
   phonetic: string;
   part_of_speech: string;
@@ -97,6 +100,49 @@ export interface DictionaryEntry {
   hsk_level: string;
   status?: string;
   updated_at?: number;
+}
+
+export interface SavedVocabularyItem {
+  id: string;
+  user_id?: string;
+  dictionary_entry_id?: string | null;
+  source_language: DictLangCode;
+  target_language: DictLangCode;
+  word: string;
+  phonetic?: string;
+  meaning: string;
+  example?: string;
+  hsk_level?: string;
+  part_of_speech?: string;
+  created_at: number;
+  updated_at: number;
+  deleted_at?: number | null;
+  sync_status?: 'synced' | 'pending';
+}
+
+export interface TranslationHistoryItem {
+  id: string;
+  user_id?: string;
+  source_language: DictLangCode;
+  target_language: DictLangCode;
+  source_text: string;
+  translated_text: string;
+  provider?: string;
+  created_at: number;
+  updated_at: number;
+  deleted_at?: number | null;
+  sync_status?: 'synced' | 'pending';
+}
+
+export interface TranslationResult {
+  translatedText: string;
+  sourceLanguage: DictLangCode;
+  targetLanguage: DictLangCode;
+  detectedSourceLanguage: DictLangCode;
+  confidence: number;
+  provider: string;
+  matchedEntries?: DictionaryEntry[];
+  fromCache?: boolean;
 }
 
 export interface NoteSection {

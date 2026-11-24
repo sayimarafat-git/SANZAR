@@ -62,6 +62,15 @@ data class SanzarUiState(
     val feedQuery: String = "",
     val dictionaryEntries: List<DictionaryEntry> = emptyList(),
     val dictionaryLoading: Boolean = false,
+    val dictionaryNextCursor: String? = null,
+    val dictionaryHasMore: Boolean = false,
+    val savedVocabulary: List<Map<String, String>> = emptyList(),
+    val translationHistory: List<Map<String, String>> = emptyList(),
+    val translationOutput: String = "",
+    val translationDetectedLang: String = "",
+    val translationProvider: String = "",
+    val translating: Boolean = false,
+    val translationError: String? = null,
     val attemptHistory: List<AttemptSummary> = emptyList(),
     val historyLoading: Boolean = false,
     val activeStudySeconds: Int = 0
@@ -940,17 +949,185 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
         return null
     }
 
-    // --- Dictionary ---
+    // --- Dictionary & Translator ---
 
-    fun searchDictionary(query: String = "", lang: String = "all") {
+    fun searchDictionary(
+        query: String = "",
+        lang: String = "all",
+        hskLevel: String = "",
+        partOfSpeech: String = "",
+        loadMore: Boolean = false
+    ) {
         viewModelScope.launch {
-            _uiState.update { it.copy(dictionaryLoading = true) }
+            val cursor = if (loadMore) _uiState.value.dictionaryNextCursor else null
+            _uiState.update { it.copy(dictionaryLoading = !loadMore) }
             try {
-                val entries = api.fetchDictionary(query = query, lang = lang)
-                _uiState.update { it.copy(dictionaryEntries = entries, dictionaryLoading = false) }
+                val (entries, nextCursor, hasMore) = api.fetchDictionary(
+                    query = query,
+                    lang = lang,
+                    hskLevel = hskLevel,
+                    partOfSpeech = partOfSpeech,
+                    cursor = cursor
+                )
+                _uiState.update {
+                    it.copy(
+                        dictionaryEntries = if (loadMore) it.dictionaryEntries + entries else entries,
+                        dictionaryNextCursor = nextCursor,
+                        dictionaryHasMore = hasMore,
+                        dictionaryLoading = false
+                    )
+                }
             } catch (_: Exception) {
                 _uiState.update { it.copy(dictionaryLoading = false) }
             }
+        }
+    }
+
+    fun loadDictionaryPersonalData() {
+        if (_uiState.value.firebaseUser == null) return
+        viewModelScope.launch {
+            try {
+                val savedArr = api.fetchSavedVocabulary()
+                val saved = List(savedArr.length()) { i ->
+                    val o = savedArr.getJSONObject(i)
+                    mapOf(
+                        "id" to o.optString("id"),
+                        "dictionary_entry_id" to o.optString("dictionary_entry_id"),
+                        "source_language" to o.optString("source_language", "en"),
+                        "target_language" to o.optString("target_language", "bn"),
+                        "word" to o.optString("word"),
+                        "phonetic" to o.optString("phonetic"),
+                        "meaning" to o.optString("meaning"),
+                        "hsk_level" to o.optString("hsk_level")
+                    )
+                }
+                val histArr = api.fetchTranslationHistory()
+                val hist = List(histArr.length()) { i ->
+                    val o = histArr.getJSONObject(i)
+                    mapOf(
+                        "id" to o.optString("id"),
+                        "source_language" to o.optString("source_language", "en"),
+                        "target_language" to o.optString("target_language", "bn"),
+                        "source_text" to o.optString("source_text"),
+                        "translated_text" to o.optString("translated_text"),
+                        "provider" to o.optString("provider")
+                    )
+                }
+                _uiState.update { it.copy(savedVocabulary = saved, translationHistory = hist) }
+            } catch (_: Exception) { }
+        }
+    }
+
+    fun translateText(text: String, sourceLang: String, targetLang: String) {
+        val clean = text.trim()
+        if (clean.isEmpty()) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(translating = true, translationError = null) }
+            try {
+                val res = api.translateText(clean, sourceLang, targetLang)
+                val out = res.optString("translatedText", "")
+                val resolvedSrc = res.optString("sourceLanguage", sourceLang)
+                val resolvedTgt = res.optString("targetLanguage", targetLang)
+                val detected = res.optString("detectedSourceLanguage", resolvedSrc)
+                val provider = res.optString("provider", "online")
+                _uiState.update {
+                    it.copy(
+                        translationOutput = out,
+                        translationDetectedLang = detected,
+                        translationProvider = provider,
+                        translating = false
+                    )
+                }
+                if (_uiState.value.firebaseUser != null && out.isNotBlank()) {
+                    val nowMs = System.currentTimeMillis()
+                    val histId = "th_${nowMs}_${(1000..9999).random()}"
+                    val histObj = org.json.JSONObject().apply {
+                        put("id", histId)
+                        put("source_language", resolvedSrc)
+                        put("target_language", resolvedTgt)
+                        put("source_text", clean)
+                        put("translated_text", out)
+                        put("provider", provider)
+                        put("created_at", nowMs)
+                        put("updated_at", nowMs)
+                    }
+                    runCatching { api.syncTranslationHistoryItem(histObj) }
+                    loadDictionaryPersonalData()
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        translating = false,
+                        translationError = e.message ?: "Translation failed"
+                    )
+                }
+            }
+        }
+    }
+
+    fun toggleSaveDictionaryEntry(entry: DictionaryEntry) {
+        if (_uiState.value.firebaseUser == null) return
+        viewModelScope.launch {
+            val existing = _uiState.value.savedVocabulary.find {
+                it["dictionary_entry_id"] == entry.id || it["id"] == entry.id || it["id"] == "sv_${entry.id}"
+            }
+            if (existing != null) {
+                val id = existing["id"] ?: return@launch
+                runCatching { api.deleteSavedVocabulary(id) }
+            } else {
+                val nowMs = System.currentTimeMillis()
+                val meaning = listOf(entry.meaningEn, entry.meaningBn, entry.meaningZh)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" · ")
+                val obj = org.json.JSONObject().apply {
+                    put("id", "sv_${entry.id}")
+                    put("dictionary_entry_id", entry.id)
+                    put("source_language", if (entry.language == "zh") "zh-Hans" else entry.language)
+                    put("target_language", if (entry.language == "en") "bn" else "en")
+                    put("word", entry.word)
+                    put("phonetic", entry.phonetic)
+                    put("meaning", meaning)
+                    put("example", entry.example)
+                    put("hsk_level", entry.hskLevel)
+                    put("part_of_speech", entry.partOfSpeech)
+                    put("created_at", nowMs)
+                    put("updated_at", nowMs)
+                }
+                runCatching { api.upsertSavedVocabulary(obj) }
+            }
+            loadDictionaryPersonalData()
+        }
+    }
+
+    fun saveTranslationAsVocabulary(word: String, meaning: String, sourceLang: String, targetLang: String) {
+        if (_uiState.value.firebaseUser == null || word.isBlank() || meaning.isBlank()) return
+        viewModelScope.launch {
+            val nowMs = System.currentTimeMillis()
+            val obj = org.json.JSONObject().apply {
+                put("id", "sv_tr_${nowMs}_${(1000..9999).random()}")
+                put("source_language", sourceLang)
+                put("target_language", targetLang)
+                put("word", word.take(200))
+                put("meaning", meaning.take(1000))
+                put("created_at", nowMs)
+                put("updated_at", nowMs)
+            }
+            runCatching { api.upsertSavedVocabulary(obj) }
+            loadDictionaryPersonalData()
+        }
+    }
+
+    fun deleteSavedVocabularyItem(id: String) {
+        viewModelScope.launch {
+            runCatching { api.deleteSavedVocabulary(id) }
+            loadDictionaryPersonalData()
+        }
+    }
+
+    fun deleteTranslationHistoryItem(id: String) {
+        viewModelScope.launch {
+            runCatching { api.deleteTranslationHistory(id) }
+            loadDictionaryPersonalData()
         }
     }
 

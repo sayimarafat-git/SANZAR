@@ -15,6 +15,7 @@
 import { MIGRATIONS } from './schema.js';
 import { routeFeatures, serveCommunityMedia } from './features.js';
 import { routeAdmin } from './admin.js';
+import { searchDictionary, routeDictionaryAuth } from './dictionary.js';
 
 const ROLE_RANK = { student: 0, moderator: 1, content_admin: 2, admin: 3, super_admin: 4 };
 const JWK_URL = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
@@ -405,6 +406,10 @@ export async function handle(req, env, opts = {}) {
     return json({ resources: items, serverTime: now() });
   }
 
+  if (m === 'GET' && path === '/v1/dictionary') {
+    return json(await searchDictionary(env, normUrl));
+  }
+
   if (m === 'GET' && path.startsWith('/v1/media/')) {
     let key;
     try { key = decodeURIComponent(path.slice('/v1/media/'.length)); }
@@ -446,7 +451,7 @@ export async function handle(req, env, opts = {}) {
   if ((mm = path.match(/^\/v1\/admin\/users\/([\w-]{1,128})\/block$/)) && m === 'PUT') return json(await setBlocked(env, ctx, mm[1], (await body(req, 1000)).blocked));
   if ((mm = path.match(/^\/v1\/admin\/config\/([\w.-]{1,40})$/)) && m === 'PUT') return json(await putConfig(env, ctx, mm[1], (await body(req, 60_000)).value));
   if (path === '/v1/admin/audit' && m === 'GET') return json(await auditList(env, ctx, normUrl));
-  const featured = (await routeFeatures(req, env, ctx, normUrl)) || (await routeAdmin(req, env, ctx, normUrl));
+  const featured = (await routeDictionaryAuth(req, env, ctx, normUrl)) || (await routeFeatures(req, env, ctx, normUrl)) || (await routeAdmin(req, env, ctx, normUrl));
   if (featured) return featured;
 
   throw new HttpError(404, 'not-found', 'No such endpoint');

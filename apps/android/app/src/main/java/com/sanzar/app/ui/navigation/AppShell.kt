@@ -205,7 +205,15 @@ fun AppShell(
 
                     MainTab.Dictionary -> DictionaryScreen(
                         state = state,
-                        onSearch = viewModel::searchDictionary
+                        onSearch = { q, lang, hsk, pos, more ->
+                            viewModel.searchDictionary(q, lang, hsk, pos, more)
+                        },
+                        onTranslate = viewModel::translateText,
+                        onLoadPersonal = viewModel::loadDictionaryPersonalData,
+                        onToggleSave = viewModel::toggleSaveDictionaryEntry,
+                        onSaveTranslation = viewModel::saveTranslationAsVocabulary,
+                        onDeleteSaved = viewModel::deleteSavedVocabularyItem,
+                        onDeleteHistory = viewModel::deleteTranslationHistoryItem
                     )
 
                     MainTab.Exams -> ExamsScreen(
