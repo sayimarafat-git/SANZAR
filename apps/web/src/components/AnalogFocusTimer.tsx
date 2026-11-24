@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Play, Square } from 'lucide-react';
 import { useFocusTimer } from '../lib/focus-timer-context';
 import { useSettings } from '../lib/settings-context';
@@ -11,6 +11,16 @@ const PRESETS = [15, 25, 45];
 export const AnalogFocusTimer: React.FC = () => {
   const { t } = useSettings();
   const { durationMins, setDurationMins, remainingSec, running, start, stop } = useFocusTimer();
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customVal, setCustomVal] = useState(String(durationMins));
+
+  const applyCustom = () => {
+    const parsed = Number(customVal);
+    if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 180) {
+      setDurationMins(Math.round(parsed));
+      setCustomOpen(false);
+    }
+  };
 
   // 60-minute analog dial geometry: 0m at 12 o'clock, clockwise
   const clampedForDial = Math.min(3600, Math.max(0, remainingSec));
@@ -141,14 +151,17 @@ export const AnalogFocusTimer: React.FC = () => {
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2">
           {!running ? (
-            <div className="flex items-center justify-between sm:justify-start gap-1">
+            <div className="flex items-center flex-wrap gap-1">
               {PRESETS.map((m) => (
                 <button
                   key={m}
                   type="button"
-                  onClick={() => setDurationMins(m)}
+                  onClick={() => {
+                    setDurationMins(m);
+                    setCustomOpen(false);
+                  }}
                   className={`px-1.5 sm:px-2 py-0.5 rounded-md text-[10px] sm:text-[11px] font-semibold border transition leading-tight ${
-                    durationMins === m
+                    durationMins === m && !customOpen
                       ? 'bg-sanzar-primarySoft text-sanzar-primary border-sanzar-primary/40'
                       : 'border-sanzar-border text-sanzar-muted hover:text-sanzar-text'
                   }`}
@@ -156,6 +169,43 @@ export const AnalogFocusTimer: React.FC = () => {
                   {m}m
                 </button>
               ))}
+              {customOpen ? (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    applyCustom();
+                  }}
+                  className="inline-flex items-center gap-1"
+                >
+                  <input
+                    type="number"
+                    min={1}
+                    max={180}
+                    value={customVal}
+                    onChange={(e) => setCustomVal(e.target.value)}
+                    onBlur={applyCustom}
+                    aria-label="Custom minutes"
+                    autoFocus
+                    className="w-12 px-1.5 py-0.5 rounded-md text-[10px] sm:text-[11px] font-semibold bg-sanzar-surface2 border border-sanzar-primary text-sanzar-text outline-none"
+                  />
+                  <span className="text-[10px] text-sanzar-muted">m</span>
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomVal(String(durationMins));
+                    setCustomOpen(true);
+                  }}
+                  className={`px-1.5 sm:px-2 py-0.5 rounded-md text-[10px] sm:text-[11px] font-semibold border transition leading-tight ${
+                    !PRESETS.includes(durationMins)
+                      ? 'bg-sanzar-primarySoft text-sanzar-primary border-sanzar-primary/40'
+                      : 'border-sanzar-border text-sanzar-muted hover:text-sanzar-text'
+                  }`}
+                >
+                  {!PRESETS.includes(durationMins) ? `${durationMins}m` : 'Custom'}
+                </button>
+              )}
             </div>
           ) : (
             <span className="hidden sm:inline text-xs text-sanzar-text2 truncate">{t('focus')}</span>

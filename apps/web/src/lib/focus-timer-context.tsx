@@ -8,6 +8,57 @@ import { useToast } from '../components/SanzarUI';
 const STORAGE_KEY = 'sanzar.focusTimer.v1';
 const DEFAULT_MINS = 25;
 
+let sharedAudioCtx: AudioContext | null = null;
+
+function getAudioContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+  const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Ctx) return null;
+  if (!sharedAudioCtx) {
+    sharedAudioCtx = new Ctx();
+  }
+  return sharedAudioCtx;
+}
+
+function unlockFocusAudio() {
+  try {
+    const ctx = getAudioContext();
+    if (ctx && ctx.state === 'suspended') {
+      void ctx.resume();
+    }
+  } catch {
+    // ignore audio unlock errors
+  }
+}
+
+function playFocusRing() {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
+      void ctx.resume();
+    }
+    const base = ctx.currentTime + 0.02;
+    // Play a clear, pleasant 2-round bell chime (C5 -> E5 -> G5 -> C6)
+    const notes = [523.25, 659.25, 783.99, 1046.5, 523.25, 659.25, 783.99, 1046.5];
+    notes.forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, base + idx * 0.22);
+      gain.gain.setValueAtTime(0.001, base + idx * 0.22);
+      gain.gain.exponentialRampToValueAtTime(0.28, base + idx * 0.22 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, base + idx * 0.22 + 0.38);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(base + idx * 0.22);
+      osc.stop(base + idx * 0.22 + 0.4);
+    });
+  } catch {
+    // ignore Web Audio errors on restricted devices
+  }
+}
+
 interface StoredFocusState {
   durationMins: number;
   totalSec: number;
@@ -117,6 +168,7 @@ export const FocusTimerProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         writeStored(doneState);
         setState(doneState);
         void qc.invalidateQueries({ queryKey: ['progress'] });
+        playFocusRing();
         toast(t('focusDone'));
       }
     };
@@ -140,6 +192,7 @@ export const FocusTimerProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, []);
 
   const start = useCallback((minsOverride?: number) => {
+    unlockFocusAudio();
     const now = Date.now();
     setNowMs(now);
     setState((prev) => {

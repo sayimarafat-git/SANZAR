@@ -47,10 +47,103 @@ export function shapeDictionaryRow(row) {
   };
 }
 
-/* ============================== language detection ============================== */
+/* ============================== language & pinyin detection ============================== */
+const PINYIN_SYLLABLES = new Set([
+  'a','ai','an','ang','ao','ba','bai','ban','bang','bao','bei','ben','beng','bi','bian','biao','bie','bin','bing','bo','bu',
+  'ca','cai','can','cang','cao','ce','cen','ceng','cha','chai','chan','chang','chao','che','chen','cheng','chi','chong','chou','chu','chua','chuai','chuan','chuang','chui','chun','chuo','ci','cong','cou','cu','cuan','cui','cun','cuo',
+  'da','dai','dan','dang','dao','de','dei','den','deng','di','dia','dian','diao','die','ding','diu','dong','dou','du','duan','dui','dun','duo',
+  'e','ei','en','eng','er',
+  'fa','fan','fang','fei','fen','feng','fo','fou','fu',
+  'ga','gai','gan','gang','gao','ge','gei','gen','geng','gong','gou','gu','gua','guai','guan','guang','gui','gun','guo',
+  'ha','hai','han','hang','hao','he','hei','hen','heng','hong','hou','hu','hua','huai','huan','huang','hui','hun','huo',
+  'ji','jia','jian','jiang','jiao','jie','jin','jing','jiong','jiu','ju','juan','jue','jun',
+  'ka','kai','kan','kang','kao','ke','kei','ken','keng','kong','kou','ku','kua','kuai','kuan','kuang','kui','kun','kuo',
+  'la','lai','lan','lang','lao','le','lei','leng','li','lia','lian','liang','liao','lie','lin','ling','liu','lo','long','lou','lu','luan','lue','lun','luo','lv','lve',
+  'ma','mai','man','mang','mao','me','mei','men','meng','mi','mian','miao','mie','min','ming','miu','mo','mou','mu',
+  'na','nai','nan','nang','nao','ne','nei','nen','neng','ni','nian','niang','niao','nie','nin','ning','niu','nong','nou','nu','nuan','nue','nuo','nv','nve',
+  'o','ou',
+  'pa','pai','pan','pang','pao','pei','pen','peng','pi','pian','piao','pie','pin','ping','po','pou','pu',
+  'qi','qia','qian','qiang','qiao','qie','qin','qing','qiong','qiu','qu','quan','que','qun',
+  'ran','rang','rao','re','ren','reng','ri','rong','rou','ru','rua','ruan','rui','run','ruo',
+  'sa','sai','san','sang','sao','se','sen','seng','sha','shai','shan','shang','shao','she','shei','shen','sheng','shi','shou','shu','shua','shuai','shuan','shuang','shui','shun','shuo','si','song','sou','su','suan','sui','sun','suo',
+  'ta','tai','tan','tang','tao','te','tei','teng','ti','tian','tiao','tie','ting','tong','tou','tu','tuan','tui','tun','tuo',
+  'wa','wai','wan','wang','wei','wen','weng','wo','wu',
+  'xi','xia','xian','xiang','xiao','xie','xin','xing','xiong','xiu','xu','xuan','xue','xun',
+  'ya','yan','yang','yao','ye','yi','yin','ying','yo','yong','you','yu','yuan','yue','yun',
+  'za','zai','zan','zang','zao','ze','zei','zen','zeng','zha','zhai','zhan','zhang','zhao','zhe','zhei','zhen','zheng','zhi','zhong','zhou','zhu','zhua','zhuai','zhuan','zhuang','zhui','zhun','zhuo','zi','zong','zou','zu','zuan','zui','zun','zuo',
+]);
+
+const COMMON_ENGLISH_AMBIGUOUS = new Set([
+  'a','an','am','as','at','be','by','do','go','he','hi','in','is','it','me','my','no','of','on','or','so','to','up','us','we',
+  'ban','can','dan','fan','man','pan','ran','tan','van','bin','din','fin','pin','sin','tin','win','bun','fun','gun','nun','run','sun',
+  'die','lie','pie','tie','due','hue','sue','age','are','bad','bag','bar','bat','bed','big','bit','box','boy','bus','but','buy',
+  'car','cat','cup','cut','day','did','dog','ear','eat','end','eye','far','fat','few','fit','fly','for','get','god','got','had',
+  'has','hat','her','him','his','hot','how','ice','its','job','joy','key','kid','law','lay','leg','let','lot','low','mad','map',
+  'may','men','met','mix','mom','mud','new','not','now','nut','odd','off','oil','old','one','our','out','own','pay','pen','pet',
+  'pig','pot','put','raw','red','rid','row','rub','sad','sat','saw','say','sea','see','set','she','shy','sit','six','sky','son',
+  'tea','ten','the','too','top','toy','try','two','use','war','was','way','wet','who','why','yes','yet','you','zoo',
+  'hello','world','good','morning','night','thank','thanks','please','sorry','water','food','book','time','love','home','work',
+  'name','make','made','take','come','came','give','gave','find','know','knew','look','want','need','help','like','live','life',
+  'here','there','where','when','what','which','this','that','these','those','with','from','have','been','were','will','would',
+  'could','should','about','after','before','under','over','again','never','always','every','other','their','about','people',
+  'china','chinese','english','bangla','bengali','study','learn','learning','school','teacher','student','friend','family','happy',
+  'banana','mango','camera','piano','radio','video','music','paper','table','chair','house','phone','money','today','tomorrow',
+]);
+
+function canSegmentPinyinToken(token) {
+  const clean = stripPinyinTones(token).replace(/[1-5]/g, '');
+  if (!clean || !/^[a-z]+$/.test(clean)) return 0;
+  const n = clean.length;
+  const dp = new Array(n + 1).fill(0);
+  dp[0] = 1; // 1 = reachable (actual syllable count = dp[i] - 1)
+  for (let i = 0; i < n; i++) {
+    if (!dp[i]) continue;
+    for (let len = 1; len <= 6 && i + len <= n; len++) {
+      const sub = clean.slice(i, i + len);
+      if (PINYIN_SYLLABLES.has(sub)) {
+        const nextCount = dp[i] + 1;
+        if (!dp[i + len] || nextCount < dp[i + len]) {
+          dp[i + len] = nextCount;
+        }
+      }
+    }
+  }
+  return dp[n] > 0 ? dp[n] - 1 : 0;
+}
+
+export function isLikelyPinyin(text) {
+  const s = String(text || '').trim();
+  if (!s) return false;
+  // Explicit Pinyin tone marks are a strong signal
+  if (/[āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü]/.test(s)) return true;
+  // Must be Latin letters, spaces, apostrophes, or tone digits 1-4
+  if (!/^[a-zA-Z0-9'\s-]+$/.test(s)) return false;
+
+  const tokens = s.toLowerCase().split(/[\s'-]+/).filter(Boolean);
+  if (tokens.length === 0 || tokens.length > 12) return false;
+
+  // Tone-numbered pinyin like "ni3 hao3"
+  if (tokens.some((tok) => /^[a-z]+[1-4]$/.test(tok) && canSegmentPinyinToken(tok) > 0)) {
+    return true;
+  }
+
+  let totalSyllables = 0;
+  let pinyinDistinctive = false;
+  for (const tok of tokens) {
+    if (COMMON_ENGLISH_AMBIGUOUS.has(tok)) return false;
+    const count = canSegmentPinyinToken(tok);
+    if (count === 0) return false;
+    totalSyllables += count;
+    if (/^(zh|ch|sh|q|x)/.test(tok) || /(zh|ch|sh|ao|uo|iu|ui|iang|iong|uang|uan|ue|ng)$/.test(tok) || count >= 2) {
+      pinyinDistinctive = true;
+    }
+  }
+  return totalSyllables >= 2 || (totalSyllables === 1 && pinyinDistinctive);
+}
+
 export function detectLanguageFromText(text) {
   const s = String(text || '').trim();
-  if (!s) return { language: 'en', confidence: 0 };
+  if (!s) return { language: 'en', confidence: 0, isPinyin: false };
   let bn = 0;
   let zh = 0;
   let latin = 0;
@@ -61,10 +154,13 @@ export function detectLanguageFromText(text) {
     else if ((code >= 0x0041 && code <= 0x005a) || (code >= 0x0061 && code <= 0x007a)) latin++;
   }
   const total = bn + zh + latin;
-  if (total === 0) return { language: 'en', confidence: 0.2 };
-  if (bn >= zh && bn >= latin && bn > 0) return { language: 'bn', confidence: Number((bn / total).toFixed(2)) };
-  if (zh >= bn && zh >= latin && zh > 0) return { language: 'zh-Hans', confidence: Number((zh / total).toFixed(2)) };
-  return { language: 'en', confidence: Number((latin / total).toFixed(2)) };
+  if (total === 0) return { language: 'en', confidence: 0.2, isPinyin: false };
+  if (bn >= zh && bn >= latin && bn > 0) return { language: 'bn', confidence: Number((bn / total).toFixed(2)), isPinyin: false };
+  if (zh >= bn && zh >= latin && zh > 0) return { language: 'zh-Hans', confidence: Number((zh / total).toFixed(2)), isPinyin: false };
+  if (isLikelyPinyin(s)) {
+    return { language: 'zh-Hans', confidence: 0.85, isPinyin: true };
+  }
+  return { language: 'en', confidence: Number((latin / total).toFixed(2)), isPinyin: false };
 }
 
 /* ============================== public dictionary search ============================== */
@@ -330,32 +426,39 @@ export async function handleTranslate(env, input) {
     };
   }
 
-  const result = await callTranslationProvider(env, text, sourceLang, targetLang);
-
-  // Optional curated dictionary enrichment for short words/phrases (<= 40 chars)
+  let textToTranslate = text;
   let matchedEntries = [];
-  if (text.length <= 40) {
+  if (text.length <= 60) {
     const q = text.toLowerCase();
     const qPlain = stripPinyinTones(text);
+    const qCompact = qPlain.replace(/\s+/g, '');
     const dbLang = toDbLang(sourceLang);
     const rows = (
       await env.DB.prepare(
         `SELECT id, language, word, phonetic, part_of_speech, meaning_en, meaning_bn, meaning_zh, example, example_translation, hsk_level, updated_at
          FROM dictionary_entries
-         WHERE status = 'published' AND language = ? AND (lower(word) = ? OR phonetic_plain = ?)
+         WHERE status = 'published' AND language = ? AND (lower(word) = ? OR phonetic_plain = ? OR replace(phonetic_plain, ' ', '') = ?)
          LIMIT 5`
       )
-        .bind(dbLang, q, qPlain)
+        .bind(dbLang, q, qPlain, qCompact)
         .all()
     ).results;
     matchedEntries = rows.map(shapeDictionaryRow);
+
+    // If user typed Pinyin (Latin) for Chinese and we found a curated Hanzi entry, translate the exact Hanzi!
+    if (sourceLang === 'zh-Hans' && /^[a-zA-Z0-9'\s-]+$/.test(text) && matchedEntries.length > 0) {
+      textToTranslate = matchedEntries[0].word;
+    }
   }
+
+  const result = await callTranslationProvider(env, textToTranslate, sourceLang, targetLang);
 
   return {
     translatedText: result.translatedText,
     sourceLanguage: sourceLang,
     targetLanguage: targetLang,
     detectedSourceLanguage: detected.language,
+    isPinyin: Boolean(detected.isPinyin),
     confidence: detected.confidence,
     provider: result.provider,
     matchedEntries,

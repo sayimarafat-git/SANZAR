@@ -92,8 +92,90 @@ function langBadgeClass(code: string): string {
   return 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/25';
 }
 
-/** Fast client-side Unicode script detector for instant visual feedback while typing. */
-function detectClientLang(text: string): DictLangCode | null {
+const PINYIN_SYLLABLES = new Set([
+  'a','ai','an','ang','ao','ba','bai','ban','bang','bao','bei','ben','beng','bi','bian','biao','bie','bin','bing','bo','bu',
+  'ca','cai','can','cang','cao','ce','cen','ceng','cha','chai','chan','chang','chao','che','chen','cheng','chi','chong','chou','chu','chua','chuai','chuan','chuang','chui','chun','chuo','ci','cong','cou','cu','cuan','cui','cun','cuo',
+  'da','dai','dan','dang','dao','de','dei','den','deng','di','dia','dian','diao','die','ding','diu','dong','dou','du','duan','dui','dun','duo',
+  'e','ei','en','eng','er','fa','fan','fang','fei','fen','feng','fo','fou','fu',
+  'ga','gai','gan','gang','gao','ge','gei','gen','geng','gong','gou','gu','gua','guai','guan','guang','gui','gun','guo',
+  'ha','hai','han','hang','hao','he','hei','hen','heng','hong','hou','hu','hua','huai','huan','huang','hui','hun','huo',
+  'ji','jia','jian','jiang','jiao','jie','jin','jing','jiong','jiu','ju','juan','jue','jun',
+  'ka','kai','kan','kang','kao','ke','kei','ken','keng','kong','kou','ku','kua','kuai','kuan','kuang','kui','kun','kuo',
+  'la','lai','lan','lang','lao','le','lei','leng','li','lia','lian','liang','liao','lie','lin','ling','liu','lo','long','lou','lu','luan','lue','lun','luo','lv','lve',
+  'ma','mai','man','mang','mao','me','mei','men','meng','mi','mian','miao','mie','min','ming','miu','mo','mou','mu',
+  'na','nai','nan','nang','nao','ne','nei','nen','neng','ni','nian','niang','niao','nie','nin','ning','niu','nong','nou','nu','nuan','nue','nuo','nv','nve',
+  'o','ou','pa','pai','pan','pang','pao','pei','pen','peng','pi','pian','piao','pie','pin','ping','po','pou','pu',
+  'qi','qia','qian','qiang','qiao','qie','qin','qing','qiong','qiu','qu','quan','que','qun',
+  'ran','rang','rao','re','ren','reng','ri','rong','rou','ru','rua','ruan','rui','run','ruo',
+  'sa','sai','san','sang','sao','se','sen','seng','sha','shai','shan','shang','shao','she','shei','shen','sheng','shi','shou','shu','shua','shuai','shuan','shuang','shui','shun','shuo','si','song','sou','su','suan','sui','sun','suo',
+  'ta','tai','tan','tang','tao','te','tei','teng','ti','tian','tiao','tie','ting','tong','tou','tu','tuan','tui','tun','tuo',
+  'wa','wai','wan','wang','wei','wen','weng','wo','wu',
+  'xi','xia','xian','xiang','xiao','xie','xin','xing','xiong','xiu','xu','xuan','xue','xun',
+  'ya','yan','yang','yao','ye','yi','yin','ying','yo','yong','you','yu','yuan','yue','yun',
+  'za','zai','zan','zang','zao','ze','zei','zen','zeng','zha','zhai','zhan','zhang','zhao','zhe','zhei','zhen','zheng','zhi','zhong','zhou','zhu','zhua','zhuai','zhuan','zhuang','zhui','zhun','zhuo','zi','zong','zou','zu','zuan','zui','zun','zuo',
+]);
+
+const COMMON_ENGLISH_WORDS = new Set([
+  'a','an','am','as','at','be','by','do','go','he','hi','in','is','it','me','my','no','of','on','or','so','to','up','us','we',
+  'ban','can','dan','fan','man','pan','ran','tan','van','bin','din','fin','pin','sin','tin','win','bun','fun','gun','nun','run','sun',
+  'die','lie','pie','tie','due','hue','sue','are','bad','bag','bar','bat','bed','big','bit','box','boy','bus','but','buy','car','cat',
+  'cup','cut','day','did','dog','ear','eat','end','eye','far','fat','few','fit','fly','for','get','god','got','had','has','hat','her',
+  'him','his','hot','how','ice','its','job','joy','key','kid','law','lay','leg','let','lot','low','mad','map','may','men','met','mix',
+  'mom','mud','new','not','now','nut','odd','off','oil','old','one','our','out','own','pay','pen','pet','pig','pot','put','raw','red',
+  'rid','row','rub','sad','sat','saw','say','sea','see','set','she','shy','sit','six','sky','son','tea','ten','the','too','top','toy',
+  'try','two','use','war','was','way','wet','who','why','yes','yet','you','zoo','hello','world','good','morning','night','thank',
+  'thanks','please','sorry','water','food','book','time','love','home','work','name','make','take','come','give','find','know','look',
+  'want','need','help','like','live','life','here','there','where','when','what','which','this','that','with','from','have','been',
+  'china','chinese','english','bangla','study','learn','school','teacher','student','friend','family','happy','banana','mango','camera',
+  'piano','radio','video','music','paper','table','chair','house','phone','money','today','tomorrow',
+]);
+
+function segmentPinyinCount(token: string): number {
+  const clean = token
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[1-5]/g, '');
+  if (!clean || !/^[a-z]+$/.test(clean)) return 0;
+  const n = clean.length;
+  const dp = new Array<number>(n + 1).fill(0);
+  dp[0] = 1;
+  for (let i = 0; i < n; i++) {
+    if (!dp[i]) continue;
+    for (let len = 1; len <= 6 && i + len <= n; len++) {
+      if (PINYIN_SYLLABLES.has(clean.slice(i, i + len))) {
+        const next = dp[i] + 1;
+        if (!dp[i + len] || next < dp[i + len]) dp[i + len] = next;
+      }
+    }
+  }
+  return dp[n] > 0 ? dp[n] - 1 : 0;
+}
+
+function isLikelyPinyinClient(text: string): boolean {
+  const s = text.trim();
+  if (!s) return false;
+  if (/[āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü]/.test(s)) return true;
+  if (!/^[a-zA-Z0-9'\s-]+$/.test(s)) return false;
+  const tokens = s.toLowerCase().split(/[\s'-]+/).filter(Boolean);
+  if (tokens.length === 0 || tokens.length > 12) return false;
+  if (tokens.some((tok) => /^[a-z]+[1-4]$/.test(tok) && segmentPinyinCount(tok) > 0)) return true;
+  let total = 0;
+  let distinctive = false;
+  for (const tok of tokens) {
+    if (COMMON_ENGLISH_WORDS.has(tok)) return false;
+    const c = segmentPinyinCount(tok);
+    if (c === 0) return false;
+    total += c;
+    if (/^(zh|ch|sh|q|x)/.test(tok) || /(zh|ch|sh|ao|uo|iu|ui|iang|iong|uang|uan|ue|ng)$/.test(tok) || c >= 2) {
+      distinctive = true;
+    }
+  }
+  return total >= 2 || (total === 1 && distinctive);
+}
+
+/** Fast client-side Unicode script + Pinyin detector for instant visual feedback while typing. */
+function detectClientLang(text: string): { lang: DictLangCode; isPinyin: boolean } | null {
   const s = text.trim();
   if (!s) return null;
   let bn = 0;
@@ -106,9 +188,10 @@ function detectClientLang(text: string): DictLangCode | null {
     else if ((cp >= 0x0041 && cp <= 0x005a) || (cp >= 0x0061 && cp <= 0x007a)) latin++;
   }
   if (bn === 0 && zh === 0 && latin === 0) return null;
-  if (bn >= zh && bn >= latin && bn > 0) return 'bn';
-  if (zh >= bn && zh >= latin && zh > 0) return 'zh-Hans';
-  return 'en';
+  if (bn >= zh && bn >= latin && bn > 0) return { lang: 'bn', isPinyin: false };
+  if (zh >= bn && zh >= latin && zh > 0) return { lang: 'zh-Hans', isPinyin: false };
+  if (isLikelyPinyinClient(s)) return { lang: 'zh-Hans', isPinyin: true };
+  return { lang: 'en', isPinyin: false };
 }
 
 function highlightMatch(text: string, query: string): React.ReactNode {
@@ -253,7 +336,9 @@ export const DictionaryPage: React.FC = () => {
   // History
   const [historyItems, setHistoryItems] = useState<TranslationHistoryItem[]>([]);
 
-  const detectedClientLang = useMemo(() => detectClientLang(query), [query]);
+  const detectedClient = useMemo(() => detectClientLang(query), [query]);
+  const detectedClientLang = detectedClient?.lang ?? null;
+  const detectedIsPinyin = detectedClient?.isPinyin ?? false;
 
   // Automatically pick a sensible non-identical target language when the user switches script
   useEffect(() => {
@@ -484,7 +569,7 @@ export const DictionaryPage: React.FC = () => {
 
     try {
       const sourceParam = langFilter !== 'all' ? langFilter : 'auto';
-      const cacheSource = sourceParam !== 'auto' ? sourceParam : detectClientLang(clean);
+      const cacheSource = sourceParam !== 'auto' ? sourceParam : detectClientLang(clean)?.lang ?? null;
       if (cacheSource) {
         const cached = await getCachedTranslation(cacheSource, tgt, clean);
         if (cached) {
@@ -600,61 +685,63 @@ export const DictionaryPage: React.FC = () => {
 
   return (
     <div className="space-y-5 max-w-5xl mx-auto pb-8">
-      {/* ==================== COMPACT HEADER BAR ==================== */}
-      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <span className="w-10 h-10 rounded-2xl bg-sanzar-primarySoft border border-sanzar-primary/25 flex items-center justify-center text-sanzar-primary shrink-0">
-            <BookA className="w-5 h-5" />
-          </span>
-          <div>
-            <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight leading-none text-sanzar-text">
-              {t('dictionary')}
-            </h1>
-            <p className="text-xs text-sanzar-muted mt-1">
-              English · বাংলা · 简体中文 — Dictionary &amp; Instant Translation
-            </p>
+      {/* ==================== COMPACT EMERALD HERO HEADER ==================== */}
+      <header className="bg-hero-grad text-white rounded-3xl px-5 py-4 sm:px-6 sm:py-5 shadow-md relative overflow-hidden">
+        <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="w-10 h-10 rounded-2xl bg-white/15 border border-white/20 flex items-center justify-center text-emerald-200 backdrop-blur-md shrink-0">
+              <BookA className="w-5 h-5" />
+            </span>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight leading-none text-white">
+                {t('dictionary')}
+              </h1>
+              <p className="text-xs text-emerald-100/80 mt-1">
+                English · বাংলা · 简体中文 — Dictionary &amp; Instant Translation
+              </p>
+            </div>
           </div>
-        </div>
 
-        {/* Clean Segmented Tab Switcher */}
-        <div className="inline-flex p-1 rounded-2xl sanzar-glass self-start sm:self-auto">
-          {(
-            [
-              { k: 'dictionary', label: 'Search', icon: Search, count: null },
-              { k: 'saved', label: 'Saved', icon: BookmarkCheck, count: savedItems.length },
-              { k: 'history', label: 'History', icon: Clock, count: historyItems.length },
-            ] as const
-          ).map((tab) => {
-            const Icon = tab.icon;
-            const active = activeTab === tab.k;
-            return (
-              <button
-                key={tab.k}
-                type="button"
-                onClick={() => {
-                  setActiveTab(tab.k);
-                  setFlashcardMode(false);
-                }}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 ${
-                  active
-                    ? 'bg-sanzar-primary text-sanzar-onPrimary shadow-sm'
-                    : 'text-sanzar-text2 hover:text-sanzar-text hover:bg-sanzar-surface2/80'
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                <span>{tab.label}</span>
-                {tab.count !== null && tab.count > 0 && (
-                  <span
-                    className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold leading-none ${
-                      active ? 'bg-black/15 text-sanzar-onPrimary' : 'bg-sanzar-surface2 text-sanzar-text2'
-                    }`}
-                  >
-                    {tab.count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+          {/* Clean Segmented Tab Switcher */}
+          <div className="inline-flex p-1 rounded-2xl bg-black/25 border border-white/15 backdrop-blur-md self-start sm:self-auto">
+            {(
+              [
+                { k: 'dictionary', label: 'Search', icon: Search, count: null },
+                { k: 'saved', label: 'Saved', icon: BookmarkCheck, count: savedItems.length },
+                { k: 'history', label: 'History', icon: Clock, count: historyItems.length },
+              ] as const
+            ).map((tab) => {
+              const Icon = tab.icon;
+              const active = activeTab === tab.k;
+              return (
+                <button
+                  key={tab.k}
+                  type="button"
+                  onClick={() => {
+                    setActiveTab(tab.k);
+                    setFlashcardMode(false);
+                  }}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 ${
+                    active
+                      ? 'bg-white text-[#102017] shadow-sm'
+                      : 'text-emerald-100/85 hover:text-white hover:bg-white/10'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  <span>{tab.label}</span>
+                  {tab.count !== null && tab.count > 0 && (
+                    <span
+                      className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold leading-none ${
+                        active ? 'bg-emerald-600/15 text-emerald-900' : 'bg-white/15 text-emerald-100'
+                      }`}
+                    >
+                      {tab.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </header>
 
@@ -745,7 +832,7 @@ export const DictionaryPage: React.FC = () => {
                 <div className="flex items-center gap-2 text-sanzar-text2">
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-sanzar-primarySoft text-sanzar-primary text-[11px] font-semibold">
                     <span className="w-1.5 h-1.5 rounded-full bg-sanzar-primary animate-pulse" />
-                    Detected: {langLabel(detectedClientLang)}
+                    Detected: {langLabel(detectedClientLang)}{detectedIsPinyin ? ' (Pinyin)' : ''}
                   </span>
                   <ArrowRight className="w-3 h-3 text-sanzar-muted" />
                   <span className="text-[11px] font-bold text-sanzar-text">{langLabel(targetLang)}</span>

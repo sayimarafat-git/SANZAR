@@ -144,9 +144,9 @@ export const HomePage: React.FC = () => {
       )}
 
       {/* Hero Gradient Banner */}
-      <section className="bg-hero-grad text-white rounded-3xl p-8 sm:p-11 md:px-12 md:py-12 min-h-[210px] sm:min-h-[236px] flex flex-col justify-center shadow-md">
-        <div className="flex flex-wrap items-center justify-between gap-5">
-          <div className="space-y-2.5">
+      <section className="bg-hero-grad text-white rounded-3xl p-6 sm:p-8 shadow-md">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="space-y-1.5">
             <div className="flex items-center gap-2 flex-wrap">
               {levelLabel && (
                 <span className="px-3 py-0.5 rounded-full bg-white/15 text-xs font-semibold backdrop-blur">
@@ -159,10 +159,10 @@ export const HomePage: React.FC = () => {
                 </span>
               )}
             </div>
-            <h1 className="text-3xl sm:text-4xl lg:text-[42px] font-extrabold tracking-tight leading-tight">
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight leading-tight">
               {t('hello', { name: firstName })}
             </h1>
-            <p className="text-white/80 text-sm sm:text-base">{t('tagline')}</p>
+            <p className="text-white/80 text-sm">{t('tagline')}</p>
           </div>
 
           {prog && (
