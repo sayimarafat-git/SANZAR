@@ -582,6 +582,28 @@ export const DictionaryPage: React.FC = () => {
             provider: cached.provider,
             fromCache: true,
           });
+          // Bump existing history entry to the top (deduplicated in-place, never creates a duplicate)
+          const nowMs = Date.now();
+          const bumped = await addLocalTranslationHistory(uid, {
+            id: `th_${nowMs}_${Math.random().toString(36).slice(2, 8)}`,
+            source_language: cached.sourceLanguage,
+            target_language: cached.targetLanguage,
+            source_text: clean,
+            translated_text: cached.translatedText,
+            provider: cached.provider,
+            created_at: nowMs,
+            updated_at: nowMs,
+          });
+          const dedupKey = `${bumped.source_language}::${bumped.target_language}::${bumped.source_text.trim().toLowerCase()}`;
+          setHistoryItems((prev) => [
+            bumped,
+            ...prev.filter(
+              (x) =>
+                x.id !== bumped.id &&
+                `${x.source_language}::${x.target_language}::${x.source_text.trim().toLowerCase()}` !== dedupKey
+            ),
+          ]);
+          void syncTranslationHistory(uid).then(setHistoryItems);
           setTranslating(false);
           return;
         }
@@ -692,14 +714,9 @@ export const DictionaryPage: React.FC = () => {
             <span className="w-10 h-10 rounded-2xl bg-white/15 border border-white/20 flex items-center justify-center text-emerald-200 backdrop-blur-md shrink-0">
               <BookA className="w-5 h-5" />
             </span>
-            <div>
-              <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight leading-none text-white">
-                {t('dictionary')}
-              </h1>
-              <p className="text-xs text-emerald-100/80 mt-1">
-                English · বাংলা · 简体中文 — Dictionary &amp; Instant Translation
-              </p>
-            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight leading-none text-white">
+              {t('dictionary')}
+            </h1>
           </div>
 
           {/* Clean Segmented Tab Switcher */}
@@ -768,7 +785,7 @@ export const DictionaryPage: React.FC = () => {
                   aria-label={t('searchDictionary')}
                   className="w-full bg-transparent text-sanzar-text placeholder:text-sanzar-muted text-sm sm:text-base font-medium px-3 py-2.5 outline-none"
                 />
-                {query ? (
+                {query && (
                   <button
                     type="button"
                     aria-label={t('clearSearch')}
@@ -777,10 +794,6 @@ export const DictionaryPage: React.FC = () => {
                   >
                     <X className="w-4 h-4" />
                   </button>
-                ) : (
-                  <kbd className="hidden sm:inline-flex items-center px-2 py-0.5 mr-2.5 rounded-md text-[10px] font-bold text-sanzar-muted bg-sanzar-surface border border-sanzar-border">
-                    /
-                  </kbd>
                 )}
               </div>
 
@@ -826,44 +839,33 @@ export const DictionaryPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Bottom Strip: Live script detection OR quick-try samples */}
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-              {detectedClientLang ? (
-                <div className="flex items-center gap-2 text-sanzar-text2">
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-sanzar-primarySoft text-sanzar-primary text-[11px] font-semibold">
-                    <span className="w-1.5 h-1.5 rounded-full bg-sanzar-primary animate-pulse" />
-                    Detected: {langLabel(detectedClientLang)}{detectedIsPinyin ? ' (Pinyin)' : ''}
-                  </span>
-                  <ArrowRight className="w-3 h-3 text-sanzar-muted" />
-                  <span className="text-[11px] font-bold text-sanzar-text">{langLabel(targetLang)}</span>
-                  <span className="hidden sm:inline text-[11px] text-sanzar-muted">· Press Enter to translate</span>
-                </div>
-              ) : (
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[11px] text-sanzar-muted mr-0.5">Try:</span>
-                  {QUICK_SAMPLES.map((s) => (
-                    <button
-                      key={s.text}
-                      type="button"
-                      onClick={() => handleQuickSample(s)}
-                      className="px-2.5 py-0.5 rounded-full bg-sanzar-surface2 hover:bg-sanzar-primarySoft hover:text-sanzar-primary border border-sanzar-border text-[11px] font-medium text-sanzar-text2 transition inline-flex items-center gap-1.5"
-                    >
-                      <span>{s.text}</span>
-                      <span className="text-[10px] text-sanzar-muted">{s.hint}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
+            {/* Bottom Strip: Live script detection or guest sign-in prompt */}
+            {(detectedClientLang || !user) && (
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                {detectedClientLang ? (
+                  <div className="flex items-center gap-2 text-sanzar-text2">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-sanzar-primarySoft text-sanzar-primary text-[11px] font-semibold">
+                      <span className="w-1.5 h-1.5 rounded-full bg-sanzar-primary animate-pulse" />
+                      Detected: {langLabel(detectedClientLang)}{detectedIsPinyin ? ' (Pinyin)' : ''}
+                    </span>
+                    <ArrowRight className="w-3 h-3 text-sanzar-muted" />
+                    <span className="text-[11px] font-bold text-sanzar-text">{langLabel(targetLang)}</span>
+                    <span className="hidden sm:inline text-[11px] text-sanzar-muted">· Press Enter to translate</span>
+                  </div>
+                ) : (
+                  <span />
+                )}
 
-              {!user && (
-                <Link
-                  to="/login"
-                  className="text-[11px] font-semibold text-sanzar-primary hover:underline underline-offset-2"
-                >
-                  {t('signIn')} for instant translation &amp; sync
-                </Link>
-              )}
-            </div>
+                {!user && (
+                  <Link
+                    to="/login"
+                    className="text-[11px] font-semibold text-sanzar-primary hover:underline underline-offset-2"
+                  >
+                    {t('signIn')} for instant translation &amp; sync
+                  </Link>
+                )}
+              </div>
+            )}
           </section>
           {/* Translation Error Banner */}
           {translateError && (
