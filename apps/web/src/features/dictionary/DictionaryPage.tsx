@@ -788,8 +788,8 @@ export const DictionaryPage: React.FC = () => {
           <section className="sanzar-card p-3.5 sm:p-4 space-y-3 border-sanzar-primary/25">
             {/* Row 1: Search Input (full-width on mobile; beside Translate button on sm+) */}
             <div className="flex items-center gap-2.5">
-              <div className="relative flex-1 flex items-center rounded-2xl bg-sanzar-surface2 border border-sanzar-border focus-within:border-sanzar-primary focus-within:ring-2 focus-within:ring-sanzar-primary/20 transition">
-                <Search className="w-4 h-4 text-sanzar-muted ml-3.5 shrink-0 pointer-events-none" />
+              <div className="relative flex-1 flex items-center rounded-2xl bg-white/95 dark:bg-black/30 border border-emerald-950/15 dark:border-white/15 shadow-inner focus-within:border-sanzar-primary focus-within:ring-2 focus-within:ring-sanzar-primary/25 transition">
+                <Search className="w-4 h-4 text-sanzar-text2 ml-3.5 shrink-0 pointer-events-none" />
                 <input
                   ref={searchInputRef}
                   type="text"
@@ -835,7 +835,7 @@ export const DictionaryPage: React.FC = () => {
 
             {/* Row 2: Stretched Target Language Switcher (beside Translate button on mobile, full-width on sm+) */}
             <div className="flex items-center gap-2">
-              <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-sanzar-surface2 border border-sanzar-border flex-1">
+              <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-emerald-950/[0.06] dark:bg-black/25 border border-emerald-950/10 dark:border-white/12 flex-1">
                 {LANG_OPTIONS.map((l) => {
                   const selected = targetLang === l.code;
                   return (
@@ -847,10 +847,10 @@ export const DictionaryPage: React.FC = () => {
                         if (query.trim()) void handleTranslate(query, l.code);
                       }}
                       title={`Translate to ${l.label}`}
-                      className={`w-full py-1.5 rounded-lg text-xs font-semibold text-center transition ${
+                      className={`w-full py-1.5 rounded-lg text-xs text-center transition ${
                         selected
-                          ? 'bg-sanzar-primarySoft text-sanzar-primary border border-sanzar-primary/30'
-                          : 'text-sanzar-text2 hover:text-sanzar-text border border-transparent'
+                          ? 'bg-white dark:bg-sanzar-primarySoft text-sanzar-primary border border-sanzar-primary/35 shadow-sm font-bold'
+                          : 'text-sanzar-text2 hover:text-sanzar-text border border-transparent font-semibold'
                       }`}
                     >
                       {l.label}
