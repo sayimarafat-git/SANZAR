@@ -38,6 +38,8 @@ export interface AdminChapter {
   title: string;
   sort: number;
   status: string;
+  is_whole_chapter?: number;
+  thumbnail_url?: string | null;
 }
 
 export interface AdminResourceVersion {
@@ -58,6 +60,7 @@ export interface AdminResource {
   licence: string;
   status: string;
   url: string | null;
+  thumbnail_url?: string | null;
   versions: AdminResourceVersion[];
 }
 
@@ -94,6 +97,16 @@ export interface AdminSubject {
   icon?: string;
   color?: string;
   sort?: number;
+  thumbnail_url?: string | null;
+}
+
+export interface AdminQaItem {
+  id: string;
+  chapter_id: string;
+  question: string;
+  answer: string;
+  sort: number;
+  status: string;
 }
 
 export interface AdminContent {
@@ -129,6 +142,7 @@ export const AdminContentPage: React.FC<{ view?: 'books' | 'book' | 'chapter' }>
 /* ---------------- BOOKS & SUBJECTS ---------------- */
 const BooksAndSubjectsView: React.FC = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   const q = useQuery({
     queryKey: ['admin', 'content'],
     queryFn: () => apiRequest<AdminContent>('/v1/admin/content'),
@@ -136,6 +150,28 @@ const BooksAndSubjectsView: React.FC = () => {
   const [editingBook, setEditingBook] = useState<Partial<AdminBook> | null | undefined>(undefined);
   const [editingSubject, setEditingSubject] = useState<AdminSubject | null | undefined>(undefined);
   const [search, setSearch] = useState('');
+
+  const deleteBook = async (b: AdminBook) => {
+    if (!window.confirm(`Delete book "${b.title}" and all its chapters/materials?`)) return;
+    try {
+      await apiRequest(`/v1/admin/books/${encodeURIComponent(b.id)}`, { method: 'DELETE' });
+      toast('Book deleted');
+      void qc.invalidateQueries({ queryKey: ['admin', 'content'] });
+    } catch (e) {
+      toast(errorText(e));
+    }
+  };
+
+  const deleteSubject = async (s: AdminSubject) => {
+    if (!window.confirm(`Delete subject "${s.name_en}"?`)) return;
+    try {
+      await apiRequest(`/v1/admin/subjects/${encodeURIComponent(s.id)}`, { method: 'DELETE' });
+      toast('Subject deleted');
+      void qc.invalidateQueries({ queryKey: ['admin', 'content'] });
+    } catch (e) {
+      toast(errorText(e));
+    }
+  };
 
   if (q.isLoading) return <LoadingState />;
   if (q.isError || !q.data) return <ErrorRetry message={errorText(q.error)} onRetry={() => q.refetch()} />;
@@ -208,12 +244,18 @@ const BooksAndSubjectsView: React.FC = () => {
                 <td className="p-3">
                   <StatusPill s={b.status} />
                 </td>
-                <td className="p-3 text-right">
+                <td className="p-3 text-right space-x-2 whitespace-nowrap">
                   <button
                     onClick={() => setEditingBook(b)}
                     className="px-3 py-1 rounded-lg border border-sanzar-border text-xs font-semibold hover:bg-sanzar-surface2"
                   >
                     Edit
+                  </button>
+                  <button
+                    onClick={() => void deleteBook(b)}
+                    className="px-2.5 py-1 rounded-lg border border-sanzar-danger/40 text-sanzar-danger text-xs font-semibold hover:bg-sanzar-danger/10"
+                  >
+                    Delete
                   </button>
                 </td>
               </tr>
@@ -251,12 +293,18 @@ const BooksAndSubjectsView: React.FC = () => {
                 <td className="p-3 font-bold">{s.name_en}</td>
                 <td className="p-3 text-xs text-sanzar-muted">{s.id}</td>
                 <td className="p-3">{data.books.filter((b) => b.subject_id === s.id).length}</td>
-                <td className="p-3 text-right">
+                <td className="p-3 text-right space-x-2 whitespace-nowrap">
                   <button
                     onClick={() => setEditingSubject(s)}
                     className="px-3 py-1 rounded-lg border border-sanzar-border text-xs font-semibold hover:bg-sanzar-surface2"
                   >
                     Edit
+                  </button>
+                  <button
+                    onClick={() => void deleteSubject(s)}
+                    className="px-2.5 py-1 rounded-lg border border-sanzar-danger/40 text-sanzar-danger text-xs font-semibold hover:bg-sanzar-danger/10"
+                  >
+                    Delete
                   </button>
                 </td>
               </tr>
@@ -557,6 +605,7 @@ const SubjectForm: React.FC<{ subject: AdminSubject | null; subjects: AdminSubje
     name_en: subject?.name_en ?? '',
     color: subject?.color ?? '#247754',
     sort: String(subject?.sort ?? 0),
+    thumbnail_url: subject?.thumbnail_url ?? '',
   });
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -564,9 +613,11 @@ const SubjectForm: React.FC<{ subject: AdminSubject | null; subjects: AdminSubje
   const submit = async () => {
     const rawName = f.name_en.trim();
     const id = isNew ? f.id || slugify(rawName) || `sub-${Date.now().toString(36)}` : subject!.id;
+    const thumb = f.thumbnail_url.trim();
     const errs = [
       !isId(id) && 'ID may use letters, digits, dot, dash and underscore.',
       rawName.length < 2 && 'Name must be at least 2 characters.',
+      thumb && !isHttps(thumb) && 'Thumbnail URL must start with https://',
     ].filter(Boolean) as string[];
     if (errs.length) return setErrors(errs);
     if (isNew && subjects.some((s) => s.id === id)) return setErrors([`A subject with id "${id}" already exists.`]);
@@ -580,6 +631,7 @@ const SubjectForm: React.FC<{ subject: AdminSubject | null; subjects: AdminSubje
           name_zh: '',
           color: f.color,
           sort: Number(f.sort) || 0,
+          thumbnail_url: thumb || null,
         },
       });
       toast('Saved');
@@ -615,6 +667,10 @@ const SubjectForm: React.FC<{ subject: AdminSubject | null; subjects: AdminSubje
         <label className="space-y-1">
           <span>Colour</span>
           <input type="color" value={f.color} onChange={(e) => setF({ ...f, color: e.target.value })} className="w-16 h-9 rounded border border-sanzar-border" />
+        </label>
+        <label className="space-y-1 sm:col-span-2">
+          <span>Thumbnail URL <small className="font-normal text-sanzar-muted">(optional, https://)</small></span>
+          <input value={f.thumbnail_url} onChange={(e) => setF({ ...f, thumbnail_url: e.target.value })} placeholder="https://…" className="sanzar-input text-sm" />
         </label>
       </div>
       <ErrorsBox list={errors} />
@@ -730,7 +786,7 @@ const BookDetailView: React.FC<{ bookId: string }> = ({ bookId }) => {
               <th className="p-3 font-semibold">Chapter</th>
               <th className="p-3 font-semibold">Notes</th>
               <th className="p-3 font-semibold">Materials</th>
-              <th className="p-3 font-semibold">Questions</th>
+              <th className="p-3 font-semibold">Quiz</th>
               <th className="p-3 font-semibold">Status</th>
               <th className="p-3" />
             </tr>
@@ -740,23 +796,41 @@ const BookDetailView: React.FC<{ bookId: string }> = ({ bookId }) => {
               <tr key={c.id} className="border-b border-sanzar-border last:border-0">
                 <td className="p-3">{c.number}</td>
                 <td className="p-3">
-                  <Link
-                    to={`/admin/content/chapter/${encodeURIComponent(c.id)}`}
-                    className="font-bold text-sanzar-primary hover:underline"
-                  >
-                    {c.title}
-                  </Link>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Link
+                      to={`/admin/content/chapter/${encodeURIComponent(c.id)}`}
+                      className="font-bold text-sanzar-primary hover:underline"
+                    >
+                      {c.title}
+                    </Link>
+                    {!!c.is_whole_chapter && <span className="sanzar-pill text-[10px]">Whole chapter</span>}
+                  </div>
                 </td>
                 <td className="p-3">{hasNotes.has(c.id) ? '✓' : '—'}</td>
                 <td className="p-3">{data.resources.filter((r) => r.chapter_id === c.id).length}</td>
                 <td className="p-3">{data.questionCounts[c.id] ?? 0}</td>
                 <td className="p-3"><StatusPill s={c.status} /></td>
-                <td className="p-3 text-right">
+                <td className="p-3 text-right space-x-2 whitespace-nowrap">
                   <button
                     onClick={() => setEditing(c)}
                     className="px-3 py-1 rounded-lg border border-sanzar-border text-xs font-semibold hover:bg-sanzar-surface2"
                   >
                     Edit
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!window.confirm(`Delete chapter "${c.title}" and all its materials, notes, quiz & Q&A?`)) return;
+                      try {
+                        await apiRequest(`/v1/admin/chapters/${encodeURIComponent(c.id)}`, { method: 'DELETE' });
+                        toast('Chapter deleted');
+                        void qc.invalidateQueries({ queryKey: ['admin', 'content'] });
+                      } catch (e) {
+                        toast(errorText(e));
+                      }
+                    }}
+                    className="px-2.5 py-1 rounded-lg border border-sanzar-danger/40 text-sanzar-danger text-xs font-semibold hover:bg-sanzar-danger/10"
+                  >
+                    Delete
                   </button>
                 </td>
               </tr>
@@ -795,18 +869,29 @@ const ChapterForm: React.FC<{ bookId: string; chapter: AdminChapter | null; next
   const [n, setN] = useState(String(chapter?.number ?? nextNumber));
   const [title, setTitle] = useState(chapter?.title ?? '');
   const [status, setStatus] = useState(chapter?.status ?? 'published');
+  const [isWholeChapter, setIsWholeChapter] = useState(Boolean(chapter?.is_whole_chapter));
+  const [thumbnailUrl, setThumbnailUrl] = useState(chapter?.thumbnail_url ?? '');
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const id = chapter?.id ?? `${bookId}-${String(Number(n) || 0).padStart(2, '0')}`;
 
   const submit = async () => {
+    const thumb = thumbnailUrl.trim();
     if (!title.trim()) return setErrors(['Title is required.']);
     if (!isId(id)) return setErrors(['Invalid id.']);
+    if (thumb && !isHttps(thumb)) return setErrors(['Thumbnail URL must start with https://']);
     setBusy(true);
     try {
       await apiRequest(`/v1/admin/chapters/${id}`, {
         method: 'PUT',
-        bodyJson: { book_id: bookId, number: Number(n), title: title.trim(), status },
+        bodyJson: {
+          book_id: bookId,
+          number: Number(n),
+          title: title.trim(),
+          status,
+          is_whole_chapter: isWholeChapter,
+          thumbnail_url: thumb || null,
+        },
       });
       toast('Saved');
       onDone();
@@ -839,6 +924,19 @@ const ChapterForm: React.FC<{ bookId: string; chapter: AdminChapter | null; next
         <label className="space-y-1">
           <span>ID</span>
           <input value={id} disabled className="sanzar-input text-sm opacity-60" />
+        </label>
+        <label className="space-y-1 sm:col-span-2">
+          <span>Thumbnail URL <small className="font-normal text-sanzar-muted">(optional, https://)</small></span>
+          <input value={thumbnailUrl} onChange={(e) => setThumbnailUrl(e.target.value)} placeholder="https://…" className="sanzar-input text-sm" />
+        </label>
+        <label className="flex items-center gap-2 sm:col-span-2 cursor-pointer pt-1">
+          <input
+            type="checkbox"
+            checked={isWholeChapter}
+            onChange={(e) => setIsWholeChapter(e.target.checked)}
+            className="accent-sanzar-primary"
+          />
+          <span>Whole chapter (single unit — no separate lessons needed)</span>
         </label>
       </div>
       <ErrorsBox list={errors} />
@@ -876,9 +974,17 @@ const ChapterDetailView: React.FC<{ chapterId: string }> = ({ chapterId }) => {
         `/v1/admin/questions?chapter=${encodeURIComponent(chapterId)}`
       ),
   });
+  const qaQ = useQuery({
+    queryKey: ['admin', 'qa', chapterId],
+    queryFn: () =>
+      apiRequest<{ items: AdminQaItem[] }>(
+        `/v1/admin/qa?chapter=${encodeURIComponent(chapterId)}`
+      ),
+  });
 
   const [resModal, setResModal] = useState<AdminResource | null | undefined>(undefined);
   const [qModal, setQModal] = useState<AdminQuestion | null | undefined>(undefined);
+  const [qaModal, setQaModal] = useState<AdminQaItem | null | undefined>(undefined);
 
   if (contentQ.isLoading) return <LoadingState />;
   if (contentQ.isError || !contentQ.data) {
@@ -903,6 +1009,7 @@ const ChapterDetailView: React.FC<{ chapterId: string }> = ({ chapterId }) => {
         <h1 className="text-2xl font-extrabold">
           {ch.number === 0 ? `Whole Book: ${ch.title}` : `Chapter ${ch.number}: ${ch.title}`}
         </h1>
+        {!!ch.is_whole_chapter && <span className="sanzar-pill">Whole chapter</span>}
         <StatusPill s={ch.status} />
       </div>
 
@@ -978,12 +1085,27 @@ const ChapterDetailView: React.FC<{ chapterId: string }> = ({ chapterId }) => {
                       )}
                     </td>
                     <td className="p-3"><StatusPill s={r.status} /></td>
-                    <td className="p-3 text-right">
+                    <td className="p-3 text-right space-x-2 whitespace-nowrap">
                       <button
                         onClick={() => setResModal(r)}
                         className="px-3 py-1 rounded-lg border border-sanzar-border text-xs font-semibold"
                       >
                         Edit
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (!window.confirm(`Delete material "${r.title || r.id}"?`)) return;
+                          try {
+                            await apiRequest(`/v1/admin/resources/${encodeURIComponent(r.id)}`, { method: 'DELETE' });
+                            toast('Material deleted');
+                            void qc.invalidateQueries({ queryKey: ['admin', 'content'] });
+                          } catch (e) {
+                            toast(errorText(e));
+                          }
+                        }}
+                        className="px-2.5 py-1 rounded-lg border border-sanzar-danger/40 text-sanzar-danger text-xs font-semibold hover:bg-sanzar-danger/10"
+                      >
+                        Delete
                       </button>
                     </td>
                   </tr>
@@ -994,28 +1116,28 @@ const ChapterDetailView: React.FC<{ chapterId: string }> = ({ chapterId }) => {
         )}
       </section>
 
-      {/* Questions */}
+      {/* Quiz (Multiple-Choice) */}
       <section className="space-y-2">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-lg font-bold">Questions</h2>
+          <h2 className="text-lg font-bold">Quiz</h2>
           <button
             onClick={() => setQModal(null)}
             className="px-3.5 py-1.5 rounded-xl border border-sanzar-border text-xs font-semibold hover:bg-sanzar-surface2"
           >
-            Add question
+            Add quiz question
           </button>
         </div>
         {qsQ.isLoading ? (
           <LoadingState />
         ) : (qsQ.data?.questions.length ?? 0) === 0 ? (
-          <p className="text-xs text-sanzar-muted">No questions yet. A chapter quiz needs at least 3.</p>
+          <p className="text-xs text-sanzar-muted">No quiz questions yet. A chapter quiz needs at least 3.</p>
         ) : (
           <div className="sanzar-card overflow-x-auto">
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="bg-sanzar-surface2 text-sanzar-text2 text-left border-b border-sanzar-border">
-                  <th className="p-3 font-semibold">Question</th>
-                  <th className="p-3 font-semibold">Correct answer</th>
+                  <th className="p-3 font-semibold">Quiz Question</th>
+                  <th className="p-3 font-semibold">Correct option</th>
                   <th className="p-3 font-semibold">Status</th>
                   <th className="p-3" />
                 </tr>
@@ -1026,12 +1148,28 @@ const ChapterDetailView: React.FC<{ chapterId: string }> = ({ chapterId }) => {
                     <td className="p-3">{x.text}</td>
                     <td className="p-3">{x.options[x.answer]}</td>
                     <td className="p-3"><StatusPill s={x.status} /></td>
-                    <td className="p-3 text-right">
+                    <td className="p-3 text-right space-x-2 whitespace-nowrap">
                       <button
                         onClick={() => setQModal(x)}
                         className="px-3 py-1 rounded-lg border border-sanzar-border text-xs font-semibold"
                       >
                         Edit
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (!window.confirm('Delete this quiz question?')) return;
+                          try {
+                            await apiRequest(`/v1/admin/questions/${encodeURIComponent(x.id)}`, { method: 'DELETE' });
+                            toast('Quiz question deleted');
+                            void qc.invalidateQueries({ queryKey: ['admin', 'questions', chapterId] });
+                            void qc.invalidateQueries({ queryKey: ['admin', 'content'] });
+                          } catch (e) {
+                            toast(errorText(e));
+                          }
+                        }}
+                        className="px-2.5 py-1 rounded-lg border border-sanzar-danger/40 text-sanzar-danger text-xs font-semibold hover:bg-sanzar-danger/10"
+                      >
+                        Delete
                       </button>
                     </td>
                   </tr>
@@ -1041,6 +1179,82 @@ const ChapterDetailView: React.FC<{ chapterId: string }> = ({ chapterId }) => {
           </div>
         )}
       </section>
+
+      {/* Question & Answer (Q&A) */}
+      <section className="space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-bold">Question &amp; Answer (Q&amp;A)</h2>
+          <button
+            onClick={() => setQaModal(null)}
+            className="px-3.5 py-1.5 rounded-xl border border-sanzar-border text-xs font-semibold hover:bg-sanzar-surface2"
+          >
+            Add Q&amp;A
+          </button>
+        </div>
+        {qaQ.isLoading ? (
+          <LoadingState />
+        ) : (qaQ.data?.items.length ?? 0) === 0 ? (
+          <p className="text-xs text-sanzar-muted">No Q&amp;A pairs yet. Add written questions and model answers for this chapter.</p>
+        ) : (
+          <div className="sanzar-card overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="bg-sanzar-surface2 text-sanzar-text2 text-left border-b border-sanzar-border">
+                  <th className="p-3 font-semibold">Question</th>
+                  <th className="p-3 font-semibold">Answer</th>
+                  <th className="p-3 font-semibold">Status</th>
+                  <th className="p-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {qaQ.data!.items.map((item) => (
+                  <tr key={item.id} className="border-b border-sanzar-border last:border-0">
+                    <td className="p-3 font-medium max-w-xs">{item.question}</td>
+                    <td className="p-3 text-xs text-sanzar-text2 max-w-md truncate">{item.answer}</td>
+                    <td className="p-3"><StatusPill s={item.status} /></td>
+                    <td className="p-3 text-right space-x-2 whitespace-nowrap">
+                      <button
+                        onClick={() => setQaModal(item)}
+                        className="px-3 py-1 rounded-lg border border-sanzar-border text-xs font-semibold"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (!window.confirm('Delete this Q&A item?')) return;
+                          try {
+                            await apiRequest(`/v1/admin/qa/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
+                            toast('Q&A deleted');
+                            void qc.invalidateQueries({ queryKey: ['admin', 'qa', chapterId] });
+                          } catch (e) {
+                            toast(errorText(e));
+                          }
+                        }}
+                        className="px-2.5 py-1 rounded-lg border border-sanzar-danger/40 text-sanzar-danger text-xs font-semibold hover:bg-sanzar-danger/10"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {qaModal !== undefined && (
+        <Modal title={qaModal ? 'Edit Q&A' : 'Add Q&A'} onClose={() => setQaModal(undefined)}>
+          <QaForm
+            chapterId={chapterId}
+            item={qaModal}
+            onDone={() => {
+              setQaModal(undefined);
+              void qc.invalidateQueries({ queryKey: ['admin', 'qa', chapterId] });
+            }}
+          />
+        </Modal>
+      )}
 
       {resModal !== undefined && (
         <Modal title={resModal ? 'Edit material' : 'Add material'} onClose={() => setResModal(undefined)}>
@@ -1251,6 +1465,7 @@ const ResourceForm: React.FC<{ chapterId: string; book?: AdminBook; res: AdminRe
     url: res?.url ?? '',
     licence: res?.licence ?? '',
     status: res?.status ?? 'published',
+    thumbnail_url: res?.thumbnail_url ?? '',
     note: '',
   });
   const [localFile, setLocalFile] = useState<File | null>(null);
@@ -1263,10 +1478,12 @@ const ResourceForm: React.FC<{ chapterId: string; book?: AdminBook; res: AdminRe
       res?.id ??
       (f.id || `${chapterId}-${f.type}-${slugify(f.title).slice(0, 20) || Date.now().toString(36)}`);
     const trimmedUrl = f.url.trim();
+    const trimmedThumb = f.thumbnail_url.trim();
     const errs = [
       !isId(id) && 'Invalid id.',
       f.type === 'link' && !trimmedUrl && 'Link is required.',
       trimmedUrl && !isHttps(trimmedUrl) && 'Link must start with https://',
+      trimmedThumb && !isHttps(trimmedThumb) && 'Thumbnail URL must start with https://',
       f.title.trim().length < 2 && 'Add a title.',
     ].filter(Boolean) as string[];
     if (errs.length) return setErrors(errs);
@@ -1281,6 +1498,7 @@ const ResourceForm: React.FC<{ chapterId: string; book?: AdminBook; res: AdminRe
           url: trimmedUrl,
           licence: f.licence,
           status: f.status,
+          thumbnail_url: trimmedThumb || null,
           change_note: f.note,
         },
       });
@@ -1340,6 +1558,12 @@ const ResourceForm: React.FC<{ chapterId: string; book?: AdminBook; res: AdminRe
           {f.type !== 'link' && <small className="font-normal text-sanzar-muted">(optional)</small>}
         </span>
         <input value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} placeholder="https://" className="sanzar-input text-sm" />
+      </label>
+      <label className="block space-y-1">
+        <span>
+          Thumbnail URL <small className="font-normal text-sanzar-muted">(optional, https://)</small>
+        </span>
+        <input value={f.thumbnail_url} onChange={(e) => setF({ ...f, thumbnail_url: e.target.value })} placeholder="https://…" className="sanzar-input text-sm" />
       </label>
       {(f.type === 'pdf' || f.type === 'ppt') && book && (
         <div className="p-3 rounded-xl bg-sanzar-surface2 border border-sanzar-border space-y-2">
@@ -1500,6 +1724,92 @@ const QuestionForm: React.FC<{ chapterId: string; q: AdminQuestion | null; onDon
       <ErrorsBox list={errors} />
       <button onClick={submit} disabled={busy} className="px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold">
         Save question
+      </button>
+    </div>
+  );
+};
+
+
+const QaForm: React.FC<{ chapterId: string; item: AdminQaItem | null; onDone: () => void }> = ({
+  chapterId,
+  item,
+  onDone,
+}) => {
+  const toast = useToast();
+  const [question, setQuestion] = useState(item?.question ?? '');
+  const [answer, setAnswer] = useState(item?.answer ?? '');
+  const [sort, setSort] = useState(String(item?.sort ?? 0));
+  const [status, setStatus] = useState(item?.status ?? 'published');
+  const [errors, setErrors] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    const errs = [
+      question.trim().length < 2 && 'Question must be at least 2 characters.',
+      !answer.trim() && 'Answer is required.',
+    ].filter(Boolean) as string[];
+    if (errs.length) return setErrors(errs);
+    const id = item?.id ?? `${chapterId}-qa-${Date.now().toString(36)}`;
+    setBusy(true);
+    try {
+      await apiRequest(`/v1/admin/qa/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        bodyJson: {
+          chapter_id: chapterId,
+          question: question.trim(),
+          answer: answer.trim(),
+          sort: Number(sort) || 0,
+          status,
+        },
+      });
+      toast('Q&A saved');
+      onDone();
+    } catch (e) {
+      setErrors([errorText(e)]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4 text-xs font-semibold text-sanzar-text2">
+      <label className="block space-y-1">
+        <span>Question</span>
+        <textarea
+          rows={3}
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          placeholder="Write the question…"
+          className="sanzar-input text-sm"
+        />
+      </label>
+      <label className="block space-y-1">
+        <span>Answer</span>
+        <textarea
+          rows={5}
+          value={answer}
+          onChange={(e) => setAnswer(e.target.value)}
+          placeholder="Write the full answer…"
+          className="sanzar-input text-sm"
+        />
+      </label>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <label className="space-y-1">
+          <span>Order</span>
+          <input type="number" min={0} value={sort} onChange={(e) => setSort(e.target.value)} className="sanzar-input text-sm" />
+        </label>
+        <label className="space-y-1">
+          <span>Status</span>
+          <select value={status} onChange={(e) => setStatus(e.target.value)} className="sanzar-input text-sm">
+            <option>draft</option>
+            <option>published</option>
+            <option>archived</option>
+          </select>
+        </label>
+      </div>
+      <ErrorsBox list={errors} />
+      <button onClick={submit} disabled={busy} className="px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold disabled:opacity-50">
+        Save Q&amp;A
       </button>
     </div>
   );

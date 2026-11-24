@@ -434,4 +434,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique ON users(email COLLATE NOCA
 CREATE INDEX IF NOT EXISTS users_created_at ON users(created_at DESC);
 `,
   },
+  {
+    id: '0011_content_enhancements',
+    sql: `
+ALTER TABLE subjects ADD COLUMN thumbnail_url TEXT;
+ALTER TABLE chapters ADD COLUMN thumbnail_url TEXT;
+ALTER TABLE chapters ADD COLUMN is_whole_chapter INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE resources ADD COLUMN thumbnail_url TEXT;
+CREATE TABLE IF NOT EXISTS chapter_qa (
+  id TEXT PRIMARY KEY,
+  chapter_id TEXT NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
+  question TEXT NOT NULL,
+  answer TEXT NOT NULL,
+  sort INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('draft','published','archived')),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chapter_qa_chapter ON chapter_qa(chapter_id, sort);
+`,
+  },
 ];
