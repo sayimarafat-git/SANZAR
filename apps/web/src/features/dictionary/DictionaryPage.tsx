@@ -213,42 +213,61 @@ function highlightMatch(text: string, query: string): React.ReactNode {
   );
 }
 
+let activeTtsAudio: HTMLAudioElement | null = null;
 let speakTimer: number | null = null;
 
-function speakText(text: string, langCode: DictLangCode | 'zh', rate = 1.0) {
+function fallbackBrowserSpeak(text: string, langCode: DictLangCode | 'zh', rate: number) {
   if (typeof window === 'undefined' || !('speechSynthesis' in window) || !text.trim()) return;
   const synth = window.speechSynthesis;
   const targetLang = langCode === 'zh-Hans' || langCode === 'zh' ? 'zh-CN' : langCode === 'bn' ? 'bn-BD' : 'en-US';
   const langPrefix = targetLang.split('-')[0].toLowerCase();
-  const clampedRate = Math.max(0.4, Math.min(1.5, rate));
-
   if (speakTimer !== null) {
     window.clearTimeout(speakTimer);
     speakTimer = null;
   }
   synth.cancel();
-
-  // Short delay after cancel() ensures Chromium/Edge/Vivaldi apply custom playback rate reliably.
   speakTimer = window.setTimeout(() => {
     const u = new SpeechSynthesisUtterance(text);
     u.lang = targetLang;
-    u.rate = clampedRate;
-
+    u.rate = rate;
     const voices = synth.getVoices();
-    if (voices.length > 0) {
-      const matching = voices.filter((v) => v.lang.toLowerCase().startsWith(langPrefix));
-      // For slow playback (< 1.0), prefer a local OS voice because cloud voices often ignore speech rate.
-      const preferred =
-        (clampedRate < 0.95 ? matching.find((v) => v.localService) : null) ||
-        matching.find((v) => v.lang.toLowerCase() === targetLang.toLowerCase()) ||
-        matching[0];
-      if (preferred) {
-        u.voice = preferred;
-      }
-    }
-
+    const matching = voices.filter((v) => v.lang.toLowerCase().startsWith(langPrefix));
+    const preferred =
+      (rate < 0.95 ? matching.find((v) => v.localService) : null) ||
+      matching.find((v) => v.lang.toLowerCase() === targetLang.toLowerCase()) ||
+      matching[0];
+    if (preferred) u.voice = preferred;
     synth.speak(u);
   }, 35);
+}
+
+function speakText(text: string, langCode: DictLangCode | 'zh', rate = 1.0) {
+  const clean = text.trim().slice(0, 200);
+  if (typeof window === 'undefined' || !clean) return;
+  const clampedRate = Math.max(0.4, Math.min(1.5, rate));
+  const apiLang = langCode === 'zh' ? 'zh-Hans' : langCode;
+
+  if (activeTtsAudio) {
+    activeTtsAudio.pause();
+    activeTtsAudio = null;
+  }
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
+  }
+
+  // Primary: server-proxied MP3 audio (supports Bangla, Chinese, English + exact 0.5x playbackRate on all browsers)
+  const audioUrl = `/v1/dictionary/tts?text=${encodeURIComponent(clean)}&lang=${encodeURIComponent(apiLang)}`;
+  const audio = new Audio(audioUrl);
+  audio.playbackRate = clampedRate;
+  activeTtsAudio = audio;
+  audio.onerror = () => {
+    if (activeTtsAudio === audio) activeTtsAudio = null;
+    fallbackBrowserSpeak(clean, langCode, clampedRate);
+  };
+  void audio.play().catch(() => {
+    if (activeTtsAudio === audio) activeTtsAudio = null;
+    fallbackBrowserSpeak(clean, langCode, clampedRate);
+  });
 }
 
 function groupHistoryByDay(items: TranslationHistoryItem[]) {

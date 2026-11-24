@@ -15,7 +15,7 @@
 import { MIGRATIONS } from './schema.js';
 import { routeFeatures, serveCommunityMedia } from './features.js';
 import { routeAdmin } from './admin.js';
-import { searchDictionary, routeDictionaryAuth } from './dictionary.js';
+import { searchDictionary, handleDictionaryTts, routeDictionaryAuth } from './dictionary.js';
 
 const ROLE_RANK = { student: 0, moderator: 1, teacher: 2, content_admin: 3, admin: 4, super_admin: 5 };
 const JWK_URL = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
@@ -408,6 +408,9 @@ export async function handle(req, env, opts = {}) {
 
   if (m === 'GET' && path === '/v1/dictionary') {
     return json(await searchDictionary(env, normUrl));
+  }
+  if (m === 'GET' && path === '/v1/dictionary/tts') {
+    return handleDictionaryTts(normUrl);
   }
 
   if (m === 'GET' && path.startsWith('/v1/media/')) {

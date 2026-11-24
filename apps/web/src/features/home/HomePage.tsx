@@ -166,7 +166,7 @@ export const HomePage: React.FC = () => {
           </div>
 
           {prog && (
-            <div className="flex items-center gap-2.5 flex-wrap">
+            <div className="flex items-center gap-2.5 flex-wrap sm:self-start sm:mt-1.5">
               <div className="px-4 py-2.5 rounded-2xl bg-white/10 backdrop-blur flex items-center gap-2 text-sm font-semibold">
                 <Flame className="w-4 h-4 text-sanzar-warning" />
                 <span>{t('streak', { n: prog.streak })}</span>

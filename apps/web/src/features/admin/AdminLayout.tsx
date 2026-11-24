@@ -12,6 +12,7 @@ const NAV: { to: string; label: string; min: Role; end?: boolean }[] = [
   { to: '/admin/dictionary', label: 'Dictionary', min: 'teacher' },
   { to: '/admin/exams', label: 'Exams', min: 'teacher' },
   { to: '/admin/users', label: 'Users', min: 'admin' },
+  { to: '/admin/xp-streaks', label: 'XP & Streaks', min: 'admin' },
   { to: '/admin/moderation', label: 'Moderation', min: 'moderator' },
   { to: '/admin/announcements', label: 'Announcements', min: 'admin' },
   { to: '/admin/audit', label: 'Audit', min: 'admin' },

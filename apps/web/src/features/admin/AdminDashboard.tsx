@@ -6,6 +6,7 @@ import { AdminContentPage } from './AdminContentPage';
 import { AdminDictionaryPage } from './AdminDictionaryPage';
 import { AdminExamsPage } from './AdminExamsPage';
 import { AdminUsersPage } from './AdminUsersPage';
+import { AdminGamificationPage } from './AdminGamificationPage';
 import { AdminModerationPage } from './AdminModerationPage';
 import { AdminAnnouncementsPage } from './AdminAnnouncementsPage';
 import { AdminAuditPage } from './AdminAuditPage';
@@ -61,6 +62,14 @@ export const AdminDashboard: React.FC = () => {
           element={
             <RoleGuard min="admin">
               <AdminUsersPage />
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="xp-streaks"
+          element={
+            <RoleGuard min="admin">
+              <AdminGamificationPage />
             </RoleGuard>
           }
         />

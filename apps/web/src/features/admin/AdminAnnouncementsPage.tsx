@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiRequest, errorText } from '../../lib/api-client';
 import { LEVELS, fmtTime } from '../../lib/models';
@@ -6,6 +6,12 @@ import { ErrorRetry, LoadingState, useToast } from '../../components/SanzarUI';
 import type { AdminContent } from './AdminContentPage';
 
 const fromLocalDt = (v: string) => (v ? new Date(v).getTime() : null);
+const toLocalDt = (ms: number | null | undefined) => {
+  if (!ms) return '';
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
 
 export const AdminAnnouncementsPage: React.FC = () => {
   const qc = useQueryClient();
@@ -14,6 +20,53 @@ export const AdminAnnouncementsPage: React.FC = () => {
     queryKey: ['admin', 'content'],
     queryFn: () => apiRequest<AdminContent>('/v1/admin/content'),
   });
+  const cfgQuery = useQuery({
+    queryKey: ['config'],
+    queryFn: () => apiRequest<{ config: Record<string, unknown> }>('/v1/config'),
+  });
+
+  const [bannerText, setBannerText] = useState('');
+  const [bannerEnabled, setBannerEnabled] = useState(true);
+  const [bannerExpires, setBannerExpires] = useState('');
+  const [bannerBusy, setBannerBusy] = useState(false);
+
+  useEffect(() => {
+    if (!cfgQuery.data) return;
+    const b = cfgQuery.data.config.banner as { text?: string; enabled?: boolean; expires_at?: number | null } | undefined;
+    if (b && typeof b === 'object') {
+      setBannerText(typeof b.text === 'string' ? b.text : '');
+      setBannerEnabled(b.enabled !== false);
+      setBannerExpires(toLocalDt(b.expires_at ?? null));
+    } else {
+      setBannerText(typeof cfgQuery.data.config.notice === 'string' ? cfgQuery.data.config.notice : '');
+      setBannerEnabled(true);
+      setBannerExpires('');
+    }
+  }, [cfgQuery.data]);
+
+  const saveBanner = async () => {
+    setErr(null);
+    setBannerBusy(true);
+    try {
+      const exp = bannerExpires ? new Date(bannerExpires).getTime() : null;
+      await apiRequest('/v1/admin/config/banner', {
+        method: 'PUT',
+        bodyJson: {
+          value: {
+            enabled: bannerEnabled,
+            text: bannerText.trim(),
+            expires_at: exp && !Number.isNaN(exp) ? exp : null,
+          },
+        },
+      });
+      toast('Banner saved');
+      void qc.invalidateQueries({ queryKey: ['config'] });
+    } catch (e) {
+      setErr(errorText(e));
+    } finally {
+      setBannerBusy(false);
+    }
+  };
 
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
@@ -86,6 +139,51 @@ export const AdminAnnouncementsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-extrabold">Announcements &amp; Push Notifications</h1>
+
+      {/* Student Home Top Banner (moved from Settings) */}
+      <div className="sanzar-card p-5 space-y-3 text-xs font-semibold text-sanzar-text2">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-lg font-bold text-sanzar-text">Banner</h2>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={bannerEnabled}
+              onChange={(e) => setBannerEnabled(e.target.checked)}
+              className="accent-sanzar-primary"
+            />
+            <span>Active</span>
+          </label>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <label className="block space-y-1 sm:col-span-2">
+            <span>
+              Banner message <small className="font-normal text-sanzar-muted">(shown at the top of student home)</small>
+            </span>
+            <input
+              value={bannerText}
+              maxLength={300}
+              onChange={(e) => setBannerText(e.target.value)}
+              className="sanzar-input text-sm"
+            />
+          </label>
+          <label className="block space-y-1">
+            <span>Expires at <small className="font-normal text-sanzar-muted">(optional)</small></span>
+            <input
+              type="datetime-local"
+              value={bannerExpires}
+              onChange={(e) => setBannerExpires(e.target.value)}
+              className="sanzar-input text-sm"
+            />
+          </label>
+        </div>
+        <button
+          onClick={saveBanner}
+          disabled={bannerBusy}
+          className="px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold disabled:opacity-50"
+        >
+          Save banner
+        </button>
+      </div>
 
       <div className="grid lg:grid-cols-2 gap-5">
         <div className="sanzar-card p-5 space-y-3 text-xs font-semibold text-sanzar-text2">

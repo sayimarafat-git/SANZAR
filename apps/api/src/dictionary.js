@@ -474,6 +474,30 @@ export function handleDetectLanguage(input) {
   };
 }
 
+/** Public TTS audio proxy for English, Bangla, and Simplified Chinese (fixes missing OS voices & enables exact playbackRate). */
+export async function handleDictionaryTts(url) {
+  const text = (url.searchParams.get('text') || '').trim().slice(0, 200);
+  if (!text) throw new HttpError(400, 'invalid-argument', 'Text is required');
+  const norm = normalizeApiLang(url.searchParams.get('lang')) || 'en';
+  const tl = norm === 'zh-Hans' ? 'zh-CN' : norm;
+
+  const ttsUrl = `https://translate.googleapis.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${encodeURIComponent(tl)}&q=${encodeURIComponent(text)}`;
+  const res = await fetch(ttsUrl, {
+    headers: {
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      referer: 'https://translate.google.com/',
+    },
+  });
+  if (!res.ok) throw new HttpError(502, 'tts-unavailable', 'Pronunciation audio unavailable');
+  return new Response(res.body, {
+    status: 200,
+    headers: {
+      'content-type': 'audio/mpeg',
+      'cache-control': 'public, max-age=86400',
+    },
+  });
+}
+
 /* ============================== saved vocabulary (per-UID sync) ============================== */
 export async function listSavedVocabulary(env, ctx, url) {
   const since = Math.max(0, Number(url.searchParams.get('since')) || 0);
