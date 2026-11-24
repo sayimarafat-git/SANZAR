@@ -144,9 +144,9 @@ export const HomePage: React.FC = () => {
       )}
 
       {/* Hero Gradient Banner */}
-      <section className="bg-hero-grad text-white rounded-3xl p-7 sm:p-10 shadow-md">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="space-y-2">
+      <section className="bg-hero-grad text-white rounded-3xl p-7 sm:p-10 md:px-12 md:py-11 min-h-[190px] sm:min-h-[216px] flex flex-col justify-center shadow-md">
+        <div className="flex flex-wrap items-center justify-between gap-5">
+          <div className="space-y-2.5">
             <div className="flex items-center gap-2 flex-wrap">
               {levelLabel && (
                 <span className="px-3 py-0.5 rounded-full bg-white/15 text-xs font-semibold backdrop-blur">
@@ -159,7 +159,7 @@ export const HomePage: React.FC = () => {
                 </span>
               )}
             </div>
-            <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
+            <h1 className="text-3xl sm:text-4xl lg:text-[42px] font-extrabold tracking-tight leading-tight">
               {t('hello', { name: firstName })}
             </h1>
             <p className="text-white/80 text-sm sm:text-base">{t('tagline')}</p>
@@ -185,10 +185,10 @@ export const HomePage: React.FC = () => {
       {/* Daily Study Goal & Analog Focus Timer (under Streak & XP) */}
       <div className={`grid gap-4 ${prog ? 'md:grid-cols-2 items-stretch' : ''}`}>
         {prog && (
-          <Link to="/progress" className="sanzar-card p-4 hover:border-sanzar-primary/50 transition flex items-center">
+          <Link to="/progress" className="sanzar-card px-4 py-3.5 hover:border-sanzar-primary/50 transition flex items-center">
             <div className="flex items-center gap-3.5 w-full">
-              <div className="relative w-16 h-16 shrink-0 flex items-center justify-center">
-                <svg className="w-16 h-16 -rotate-90" viewBox="0 0 80 80">
+              <div className="relative w-14 h-14 sm:w-[60px] sm:h-[60px] shrink-0 flex items-center justify-center">
+                <svg className="w-full h-full -rotate-90" viewBox="0 0 80 80">
                   <circle
                     cx="40"
                     cy="40"
@@ -209,9 +209,9 @@ export const HomePage: React.FC = () => {
                     strokeDashoffset={2 * Math.PI * 33 * (1 - goalPct / 100)}
                   />
                 </svg>
-                <span className="absolute font-extrabold text-sm">{todayMin}′</span>
+                <span className="absolute font-extrabold text-xs sm:text-sm">{todayMin}′</span>
               </div>
-              <div className="flex-1 min-w-0 space-y-1.5">
+              <div className="flex-1 min-w-0 space-y-1">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-sm">{t('today')}</span>
                   <span className="text-xs font-semibold text-sanzar-primary">{goalPct}%</span>

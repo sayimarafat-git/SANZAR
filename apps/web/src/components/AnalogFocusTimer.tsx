@@ -4,7 +4,7 @@ import { useFocusTimer } from '../lib/focus-timer-context';
 import { useSettings } from '../lib/settings-context';
 import { mmss } from './SanzarUI';
 
-const DIAL_RADIUS = 50;
+const DIAL_RADIUS = 58;
 const DIAL_CIRCUMFERENCE = 2 * Math.PI * DIAL_RADIUS;
 const PRESETS = [15, 25, 45];
 
@@ -19,21 +19,21 @@ export const AnalogFocusTimer: React.FC = () => {
   const dialDashOffset = DIAL_CIRCUMFERENCE * (1 - clampedForDial / 3600);
 
   return (
-    <div className="sanzar-card p-4 flex items-center gap-3.5">
+    <div className="sanzar-card px-4 py-3.5 flex items-center gap-3.5">
       {/* Compact Analog Clock Dial matching Today Goal Ring */}
-      <div className="relative w-16 h-16 shrink-0 flex items-center justify-center">
+      <div className="relative w-14 h-14 sm:w-[60px] sm:h-[60px] shrink-0 flex items-center justify-center">
         <svg className="w-full h-full" viewBox="0 0 140 140" aria-hidden="true">
           {/* Outer frosted bezel */}
           <circle
             cx="70"
             cy="70"
-            r="64"
+            r="66"
             fill="var(--surface2)"
             stroke="var(--glass-border)"
             strokeWidth="2"
           />
 
-          {/* Track + remaining-time arc */}
+          {/* Track + remaining-time arc cleanly outside the tick marks */}
           <g transform="rotate(-90 70 70)">
             <circle
               cx="70"
@@ -57,7 +57,7 @@ export const AnalogFocusTimer: React.FC = () => {
             />
           </g>
 
-          {/* 60 analog tick marks around the dial */}
+          {/* 60 analog tick marks inset inside the ring */}
           {Array.from({ length: 60 }, (_, idx) => {
             const isMajor = idx % 5 === 0;
             const angle = idx * 6;
@@ -65,11 +65,11 @@ export const AnalogFocusTimer: React.FC = () => {
               <line
                 key={idx}
                 x1="70"
-                y1={isMajor ? 10 : 12.5}
+                y1={isMajor ? 18.5 : 21}
                 x2="70"
-                y2={isMajor ? 17.5 : 15.5}
+                y2="25"
                 stroke={isMajor ? 'var(--text2)' : 'var(--muted)'}
-                strokeWidth={isMajor ? 1.8 : 1}
+                strokeWidth={isMajor ? 2 : 1.1}
                 strokeLinecap="round"
                 opacity={isMajor ? 0.85 : 0.45}
                 transform={`rotate(${angle} 70 70)`}
@@ -77,17 +77,49 @@ export const AnalogFocusTimer: React.FC = () => {
             );
           })}
 
-          {/* Cardinal dial labels (60 / 15 / 30 / 45) */}
-          <text x="70" y="27" textAnchor="middle" fontSize="8.5" fontWeight="700" fill="var(--muted)">
+          {/* Cardinal dial labels placed cleanly inside tick ring */}
+          <text
+            x="70"
+            y="35"
+            textAnchor="middle"
+            dominantBaseline="central"
+            fontSize="9.5"
+            fontWeight="700"
+            fill="var(--muted)"
+          >
             60
           </text>
-          <text x="115" y="73" textAnchor="middle" fontSize="8.5" fontWeight="700" fill="var(--muted)">
+          <text
+            x="105"
+            y="70"
+            textAnchor="middle"
+            dominantBaseline="central"
+            fontSize="9.5"
+            fontWeight="700"
+            fill="var(--muted)"
+          >
             15
           </text>
-          <text x="70" y="119" textAnchor="middle" fontSize="8.5" fontWeight="700" fill="var(--muted)">
+          <text
+            x="70"
+            y="105"
+            textAnchor="middle"
+            dominantBaseline="central"
+            fontSize="9.5"
+            fontWeight="700"
+            fill="var(--muted)"
+          >
             30
           </text>
-          <text x="25" y="73" textAnchor="middle" fontSize="8.5" fontWeight="700" fill="var(--muted)">
+          <text
+            x="35"
+            y="70"
+            textAnchor="middle"
+            dominantBaseline="central"
+            fontSize="9.5"
+            fontWeight="700"
+            fill="var(--muted)"
+          >
             45
           </text>
 
@@ -97,9 +129,9 @@ export const AnalogFocusTimer: React.FC = () => {
               x1="70"
               y1="77"
               x2="70"
-              y2="29"
+              y2="28"
               stroke="var(--text)"
-              strokeWidth="3"
+              strokeWidth="3.5"
               strokeLinecap="round"
             />
           </g>
@@ -112,15 +144,15 @@ export const AnalogFocusTimer: React.FC = () => {
               x2="70"
               y2="22"
               stroke="var(--gold)"
-              strokeWidth="1.5"
+              strokeWidth="1.8"
               strokeLinecap="round"
-              opacity={running ? 1 : 0.45}
+              opacity={running ? 1 : 0.5}
             />
           </g>
 
           {/* Center Pivot */}
-          <circle cx="70" cy="70" r="4.5" fill="var(--primary)" />
-          <circle cx="70" cy="70" r="1.8" fill="var(--on-primary)" />
+          <circle cx="70" cy="70" r="5" fill="var(--primary)" />
+          <circle cx="70" cy="70" r="2" fill="var(--on-primary)" />
         </svg>
       </div>
 
@@ -149,7 +181,7 @@ export const AnalogFocusTimer: React.FC = () => {
                   key={m}
                   type="button"
                   onClick={() => setDurationMins(m)}
-                  className={`px-2 py-0.5 rounded-lg text-xs font-semibold border transition ${
+                  className={`px-2 py-0.5 rounded-lg text-[11px] font-semibold border transition ${
                     durationMins === m
                       ? 'bg-sanzar-primarySoft text-sanzar-primary border-sanzar-primary/40'
                       : 'border-sanzar-border text-sanzar-muted hover:text-sanzar-text'
@@ -167,7 +199,7 @@ export const AnalogFocusTimer: React.FC = () => {
             <button
               type="button"
               onClick={stop}
-              className="px-3 py-1.5 rounded-xl border border-sanzar-border bg-sanzar-surface2 hover:bg-sanzar-surface text-xs font-bold inline-flex items-center gap-1.5 transition shrink-0"
+              className="px-3 py-1.5 rounded-xl border border-sanzar-border bg-sanzar-surface2 hover:bg-sanzar-surface text-xs font-bold inline-flex items-center gap-1.5 transition shrink-0 whitespace-nowrap"
             >
               <Square className="w-3 h-3 fill-current" />
               {t('focusStop')}
@@ -176,7 +208,7 @@ export const AnalogFocusTimer: React.FC = () => {
             <button
               type="button"
               onClick={() => start()}
-              className="px-3 py-1.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-bold inline-flex items-center gap-1.5 shadow-sm hover:opacity-95 transition shrink-0"
+              className="px-3 py-1.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-bold inline-flex items-center gap-1.5 shadow-sm hover:opacity-95 transition shrink-0 whitespace-nowrap"
             >
               <Play className="w-3 h-3 fill-current" />
               {t('focusStart', { n: durationMins })}
