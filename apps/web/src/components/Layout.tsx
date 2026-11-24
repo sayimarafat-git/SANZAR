@@ -246,16 +246,6 @@ export const Layout: React.FC = () => {
                     {profile?.display_name || user.email?.split('@')[0]}
                   </span>
                 </Link>
-                <button
-                  onClick={async () => {
-                    await signOut();
-                    navigate('/');
-                  }}
-                  title={t('signOut')}
-                  className="p-2 text-sanzar-muted hover:text-sanzar-danger rounded-xl hover:bg-sanzar-surface2 transition"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
               </div>
             ) : (
               <div className="flex items-center gap-2">
