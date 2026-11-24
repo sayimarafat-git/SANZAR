@@ -1,7 +1,17 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { apiRequest, errorText } from '../../lib/api-client';
 import { ErrorRetry, LoadingState, useToast } from '../../components/SanzarUI';
+
+const ROLE_DESCRIPTIONS: { role: string; label: string; access: string }[] = [
+  { role: 'student', label: 'Student', access: 'Learning app, dictionary, exams, community, and personal progress.' },
+  { role: 'moderator', label: 'Moderator', access: 'Admin Overview and Community moderation reports.' },
+  { role: 'teacher', label: 'Teacher', access: 'Create & manage Content (books, notes, resources), Dictionary entries, Exams, and Moderation.' },
+  { role: 'content_admin', label: 'Content Admin', access: 'Senior curriculum access across Content, Dictionary, Exams, and Moderation.' },
+  { role: 'admin', label: 'Admin', access: 'Manage Users, Announcements, Audit logs, and platform Settings.' },
+  { role: 'super_admin', label: 'Super Admin', access: 'Full ownership including assigning user roles and running database migrations.' },
+];
 
 const XP_FIELDS: [string, string][] = [
   ['resourceComplete', 'Finishing notes or a material'],
@@ -188,6 +198,34 @@ export const AdminSettingsPage: React.FC = () => {
         >
           Save banner
         </button>
+      </div>
+
+      <div className="sanzar-card p-5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-bold">Roles &amp; permissions</h2>
+            <p className="text-xs text-sanzar-muted mt-0.5">
+              Assign roles (including <b>teacher</b>) to accounts from the Users panel.
+            </p>
+          </div>
+          <Link
+            to="/admin/users"
+            className="px-3.5 py-1.5 rounded-xl border border-sanzar-border text-xs font-semibold hover:bg-sanzar-surface2 transition"
+          >
+            Manage user roles →
+          </Link>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-2.5 text-xs">
+          {ROLE_DESCRIPTIONS.map((r) => (
+            <div key={r.role} className="p-3 rounded-xl bg-sanzar-surface2/70 border border-sanzar-border space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-sanzar-text">{r.label}</span>
+                <span className="sanzar-pill text-[10px]">{r.role}</span>
+              </div>
+              <p className="text-sanzar-text2 leading-relaxed">{r.access}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="sanzar-card p-5 space-y-3">

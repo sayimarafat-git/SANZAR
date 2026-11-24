@@ -84,7 +84,7 @@ async function content(env) {
 }
 
 async function putSubject(env, ctx, id, i) {
-  requireRole(ctx.user, 'content_admin');
+  requireRole(ctx.user, 'teacher');
   slug(id, 'Subject');
   const name = str(i.name_en, { min: 2, max: 80, field: 'Name' });
   await env.DB.prepare(`INSERT INTO subjects (id, name_en, name_bn, name_zh, icon, color, sort) VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -97,7 +97,7 @@ async function putSubject(env, ctx, id, i) {
 }
 
 async function putBook(env, ctx, id, i) {
-  requireRole(ctx.user, 'content_admin');
+  requireRole(ctx.user, 'teacher');
   slug(id, 'Book');
   const subject = slug(i.subject_id, 'Subject');
   if (!(await env.DB.prepare('SELECT 1 FROM subjects WHERE id = ?').bind(subject).first())) throw new HttpError(400, 'invalid-argument', 'Unknown subject');
@@ -124,7 +124,7 @@ async function putBook(env, ctx, id, i) {
 }
 
 async function patchBookCover(env, ctx, id, i) {
-  requireRole(ctx.user, 'content_admin');
+  requireRole(ctx.user, 'teacher');
   slug(id, 'Book');
   const existing = await env.DB.prepare('SELECT id, cover_image, cover_ratio FROM books WHERE id = ?').bind(id).first();
   if (!existing) throw new HttpError(404, 'not-found', 'Book not found');
@@ -139,7 +139,7 @@ async function patchBookCover(env, ctx, id, i) {
 }
 
 async function putChapter(env, ctx, id, i) {
-  requireRole(ctx.user, 'content_admin');
+  requireRole(ctx.user, 'teacher');
   slug(id, 'Chapter');
   const bookId = slug(i.book_id, 'Book');
   if (!(await env.DB.prepare('SELECT 1 FROM books WHERE id = ?').bind(bookId).first())) throw new HttpError(400, 'invalid-argument', 'Unknown book');
@@ -152,7 +152,7 @@ async function putChapter(env, ctx, id, i) {
 }
 
 async function putNotes(env, ctx, chapterId, i) {
-  requireRole(ctx.user, 'content_admin');
+  requireRole(ctx.user, 'teacher');
   if (!(await env.DB.prepare('SELECT 1 FROM chapters WHERE id = ?').bind(chapterId).first())) throw new HttpError(404, 'not-found', 'Chapter not found');
   if (!Array.isArray(i.sections) || !i.sections.length || i.sections.length > 60) throw new HttpError(400, 'invalid-argument', 'Notes need 1–60 sections');
   const sections = i.sections.map((s, k) => ({
@@ -173,14 +173,14 @@ async function putNotes(env, ctx, chapterId, i) {
 }
 
 async function getNotes(env, ctx, chapterId) {
-  requireRole(ctx.user, 'content_admin');
+  requireRole(ctx.user, 'teacher');
   const n = await env.DB.prepare('SELECT current_version FROM notes WHERE chapter_id = ?').bind(chapterId).first();
   const versions = (await env.DB.prepare('SELECT version, sections_json, created_by, created_at FROM note_versions WHERE chapter_id = ? ORDER BY version DESC LIMIT 50').bind(chapterId).all()).results;
   return { chapterId, current: n?.current_version ?? null, versions: versions.map((v) => ({ version: v.version, sections: JSON.parse(v.sections_json), createdBy: v.created_by, createdAt: v.created_at })) };
 }
 
 async function rollback(env, ctx, table, keyCol, id, version) {
-  requireRole(ctx.user, 'content_admin');
+  requireRole(ctx.user, 'teacher');
   const vt = { notes: ['note_versions', 'chapter_id'], resources: ['resource_versions', 'resource_id'], questions: ['question_versions', 'question_id'] }[table];
   const v = num(version, 'Version', 1, 1e6);
   if (!(await env.DB.prepare(`SELECT 1 FROM ${vt[0]} WHERE ${vt[1]} = ? AND version = ?`).bind(id, v).first())) throw new HttpError(404, 'not-found', 'Version not found');
@@ -190,7 +190,7 @@ async function rollback(env, ctx, table, keyCol, id, version) {
 }
 
 async function putResource(env, ctx, id, i) {
-  requireRole(ctx.user, 'content_admin');
+  requireRole(ctx.user, 'teacher');
   slug(id, 'Resource');
   const chapterId = slug(i.chapter_id, 'Chapter');
   if (!(await env.DB.prepare('SELECT 1 FROM chapters WHERE id = ?').bind(chapterId).first())) throw new HttpError(400, 'invalid-argument', 'Unknown chapter');
@@ -238,7 +238,7 @@ async function putResource(env, ctx, id, i) {
 }
 
 async function listQuestions(env, ctx, url) {
-  requireRole(ctx.user, 'content_admin');
+  requireRole(ctx.user, 'teacher');
   const chapter = url.searchParams.get('chapter');
   if (!chapter) throw new HttpError(400, 'invalid-argument', 'chapter is required');
   const rows = (await env.DB.prepare(`SELECT q.id, q.chapter_id, q.type, q.difficulty, q.xp_points, q.status, q.current_version, v.text, v.options_json, v.answer, v.explanation
@@ -247,7 +247,7 @@ async function listQuestions(env, ctx, url) {
 }
 
 async function putQuestion(env, ctx, id, i) {
-  requireRole(ctx.user, 'content_admin');
+  requireRole(ctx.user, 'teacher');
   slug(id, 'Question');
   const chapterId = slug(i.chapter_id, 'Chapter');
   if (!(await env.DB.prepare('SELECT 1 FROM chapters WHERE id = ?').bind(chapterId).first())) throw new HttpError(400, 'invalid-argument', 'Unknown chapter');
@@ -271,7 +271,7 @@ async function putQuestion(env, ctx, id, i) {
 }
 
 async function putExam(env, ctx, id, i) {
-  requireRole(ctx.user, 'content_admin');
+  requireRole(ctx.user, 'teacher');
   slug(id, 'Exam');
   if (!['chapter_quiz', 'model'].includes(i.type)) throw new HttpError(400, 'invalid-argument', 'Type must be chapter_quiz or model');
   const bookId = i.type === 'model' ? slug(i.book_id, 'Book') : null;
@@ -342,13 +342,13 @@ async function deleteAnnouncement(env, ctx, id) {
 }
 
 async function listDictionary(env, ctx) {
-  requireRole(ctx.user, 'content_admin');
+  requireRole(ctx.user, 'teacher');
   const rows = (await env.DB.prepare('SELECT * FROM dictionary_entries ORDER BY updated_at DESC, word ASC LIMIT 300').all()).results;
   return { entries: rows };
 }
 
 async function putDictionary(env, ctx, id, i) {
-  requireRole(ctx.user, 'content_admin');
+  requireRole(ctx.user, 'teacher');
   slug(id, 'Dictionary entry');
   const language = toDbLang(i.language);
   if (!language) throw new HttpError(400, 'invalid-argument', 'Language must be zh, en, or bn');
@@ -380,7 +380,7 @@ async function putDictionary(env, ctx, id, i) {
 }
 
 async function deleteDictionary(env, ctx, id) {
-  requireRole(ctx.user, 'content_admin');
+  requireRole(ctx.user, 'teacher');
   slug(id, 'Dictionary entry');
   await env.DB.prepare('DELETE FROM dictionary_entries WHERE id = ?').bind(id).run();
   await audit(env, ctx, 'dictionary.delete', id);
@@ -401,7 +401,7 @@ function isPublicHttpsUrl(raw) {
 }
 
 async function fetchPreview(env, ctx, url) {
-  requireRole(ctx.user, 'content_admin');
+  requireRole(ctx.user, 'teacher');
   const raw = (url.searchParams.get('url') || '').trim();
   const target = isPublicHttpsUrl(raw);
   if (!target) throw new HttpError(400, 'invalid-argument', 'Valid public https:// URL required');
@@ -463,7 +463,7 @@ export async function routeAdmin(req, env, ctx, url) {
   const path = url.pathname;
   const m = req.method;
   let mm;
-  if (path === '/v1/admin/content' && m === 'GET') { requireRole(ctx.user, 'content_admin'); return json(await content(env)); }
+  if (path === '/v1/admin/content' && m === 'GET') { requireRole(ctx.user, 'teacher'); return json(await content(env)); }
   if (path === '/v1/admin/stats' && m === 'GET') return json(await stats(env, ctx));
   if ((mm = path.match(/^\/v1\/admin\/subjects\/([^/]+)$/)) && m === 'PUT') return json(await putSubject(env, ctx, mm[1], await body(req, 5000)));
   if ((mm = path.match(/^\/v1\/admin\/books\/([^/]+)\/cover$/)) && m === 'PATCH') return json(await patchBookCover(env, ctx, mm[1], await body(req, 300_000)));

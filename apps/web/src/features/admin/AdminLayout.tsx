@@ -8,9 +8,9 @@ import { AmbientBackdrop, BrandMark, LoadingState } from '../../components/Sanza
 
 const NAV: { to: string; label: string; min: Role; end?: boolean }[] = [
   { to: '/admin', label: 'Overview', min: 'moderator', end: true },
-  { to: '/admin/content', label: 'Content', min: 'content_admin' },
-  { to: '/admin/dictionary', label: 'Dictionary', min: 'content_admin' },
-  { to: '/admin/exams', label: 'Exams', min: 'content_admin' },
+  { to: '/admin/content', label: 'Content', min: 'teacher' },
+  { to: '/admin/dictionary', label: 'Dictionary', min: 'teacher' },
+  { to: '/admin/exams', label: 'Exams', min: 'teacher' },
   { to: '/admin/users', label: 'Users', min: 'admin' },
   { to: '/admin/moderation', label: 'Moderation', min: 'moderator' },
   { to: '/admin/announcements', label: 'Announcements', min: 'admin' },

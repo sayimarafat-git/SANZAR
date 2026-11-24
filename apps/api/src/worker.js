@@ -17,7 +17,7 @@ import { routeFeatures, serveCommunityMedia } from './features.js';
 import { routeAdmin } from './admin.js';
 import { searchDictionary, routeDictionaryAuth } from './dictionary.js';
 
-const ROLE_RANK = { student: 0, moderator: 1, content_admin: 2, admin: 3, super_admin: 4 };
+const ROLE_RANK = { student: 0, moderator: 1, teacher: 2, content_admin: 3, admin: 4, super_admin: 5 };
 const JWK_URL = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
 const RATE = { default: [120, 60], write: [30, 60], admin: [300, 60] }; // [requests, seconds]
 

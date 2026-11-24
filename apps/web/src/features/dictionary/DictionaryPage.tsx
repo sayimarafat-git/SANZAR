@@ -130,13 +130,42 @@ function highlightMatch(text: string, query: string): React.ReactNode {
   );
 }
 
+let speakTimer: number | null = null;
+
 function speakText(text: string, langCode: DictLangCode | 'zh', rate = 1.0) {
   if (typeof window === 'undefined' || !('speechSynthesis' in window) || !text.trim()) return;
-  window.speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = langCode === 'zh-Hans' || langCode === 'zh' ? 'zh-CN' : langCode === 'bn' ? 'bn-BD' : 'en-US';
-  u.rate = rate;
-  window.speechSynthesis.speak(u);
+  const synth = window.speechSynthesis;
+  const targetLang = langCode === 'zh-Hans' || langCode === 'zh' ? 'zh-CN' : langCode === 'bn' ? 'bn-BD' : 'en-US';
+  const langPrefix = targetLang.split('-')[0].toLowerCase();
+  const clampedRate = Math.max(0.4, Math.min(1.5, rate));
+
+  if (speakTimer !== null) {
+    window.clearTimeout(speakTimer);
+    speakTimer = null;
+  }
+  synth.cancel();
+
+  // Short delay after cancel() ensures Chromium/Edge/Vivaldi apply custom playback rate reliably.
+  speakTimer = window.setTimeout(() => {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = targetLang;
+    u.rate = clampedRate;
+
+    const voices = synth.getVoices();
+    if (voices.length > 0) {
+      const matching = voices.filter((v) => v.lang.toLowerCase().startsWith(langPrefix));
+      // For slow playback (< 1.0), prefer a local OS voice because cloud voices often ignore speech rate.
+      const preferred =
+        (clampedRate < 0.95 ? matching.find((v) => v.localService) : null) ||
+        matching.find((v) => v.lang.toLowerCase() === targetLang.toLowerCase()) ||
+        matching[0];
+      if (preferred) {
+        u.voice = preferred;
+      }
+    }
+
+    synth.speak(u);
+  }, 35);
 }
 
 function groupHistoryByDay(items: TranslationHistoryItem[]) {
@@ -455,8 +484,9 @@ export const DictionaryPage: React.FC = () => {
 
     try {
       const sourceParam = langFilter !== 'all' ? langFilter : 'auto';
-      if (sourceParam !== 'auto') {
-        const cached = await getCachedTranslation(sourceParam, tgt, clean);
+      const cacheSource = sourceParam !== 'auto' ? sourceParam : detectClientLang(clean);
+      if (cacheSource) {
+        const cached = await getCachedTranslation(cacheSource, tgt, clean);
         if (cached) {
           setTranslation({
             translatedText: cached.translatedText,
@@ -502,7 +532,15 @@ export const DictionaryPage: React.FC = () => {
         created_at: nowMs,
         updated_at: nowMs,
       });
-      setHistoryItems((prev) => [histItem, ...prev]);
+      const dedupKey = `${histItem.source_language}::${histItem.target_language}::${histItem.source_text.trim().toLowerCase()}`;
+      setHistoryItems((prev) => [
+        histItem,
+        ...prev.filter(
+          (x) =>
+            x.id !== histItem.id &&
+            `${x.source_language}::${x.target_language}::${x.source_text.trim().toLowerCase()}` !== dedupKey
+        ),
+      ]);
       void syncTranslationHistory(uid).then(setHistoryItems);
     } catch (e) {
       setTranslateError(errorText(e));
@@ -561,213 +599,185 @@ export const DictionaryPage: React.FC = () => {
   const activeCard = filteredSaved[safeCardIndex];
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-8">
-      {/* ==================== EMERALD HERO SEARCH STUDIO ==================== */}
-      <section className="bg-hero-grad rounded-[24px] p-5 sm:p-7 text-white relative overflow-hidden">
-        {/* Subtle decorative light accents */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute -top-24 -right-16 w-72 h-72 rounded-full opacity-30"
-          style={{ background: 'radial-gradient(circle, rgba(111,194,148,0.65) 0%, transparent 70%)' }}
-        />
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute -bottom-24 -left-12 w-64 h-64 rounded-full opacity-20"
-          style={{ background: 'radial-gradient(circle, rgba(198,164,106,0.6) 0%, transparent 70%)' }}
-        />
+    <div className="space-y-5 max-w-5xl mx-auto pb-8">
+      {/* ==================== COMPACT HEADER BAR ==================== */}
+      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="w-10 h-10 rounded-2xl bg-sanzar-primarySoft border border-sanzar-primary/25 flex items-center justify-center text-sanzar-primary shrink-0">
+            <BookA className="w-5 h-5" />
+          </span>
+          <div>
+            <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight leading-none text-sanzar-text">
+              {t('dictionary')}
+            </h1>
+            <p className="text-xs text-sanzar-muted mt-1">
+              English · বাংলা · 简体中文 — Dictionary &amp; Instant Translation
+            </p>
+          </div>
+        </div>
 
-        <div className="relative z-10 space-y-5">
-          {/* Top bar: Brand Title + Segmented Mode Switcher */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2.5">
-                <span className="w-9 h-9 rounded-xl bg-white/15 border border-white/20 flex items-center justify-center backdrop-blur-md">
-                  <BookA className="w-5 h-5 text-emerald-200" />
-                </span>
-                <div>
-                  <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight leading-none">
-                    {t('dictionary')}
-                  </h1>
-                  <p className="text-xs text-emerald-100/75 mt-1">
-                    English · বাংলা · 简体中文 — Instant Translation & Curated Lexicon
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Segmented Tab Switcher */}
-            <div className="inline-flex p-1 rounded-2xl bg-black/25 border border-white/15 backdrop-blur-md self-start sm:self-auto">
-              {(
-                [
-                  { k: 'dictionary', label: 'Search', icon: Search, count: null },
-                  { k: 'saved', label: 'Saved', icon: BookmarkCheck, count: savedItems.length },
-                  { k: 'history', label: 'History', icon: Clock, count: historyItems.length },
-                ] as const
-              ).map((tab) => {
-                const Icon = tab.icon;
-                const active = activeTab === tab.k;
-                return (
-                  <button
-                    key={tab.k}
-                    type="button"
-                    onClick={() => {
-                      setActiveTab(tab.k);
-                      setFlashcardMode(false);
-                    }}
-                    className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 ${
-                      active
-                        ? 'bg-white text-[#102017] shadow-sm'
-                        : 'text-emerald-100/80 hover:text-white hover:bg-white/10'
+        {/* Clean Segmented Tab Switcher */}
+        <div className="inline-flex p-1 rounded-2xl sanzar-glass self-start sm:self-auto">
+          {(
+            [
+              { k: 'dictionary', label: 'Search', icon: Search, count: null },
+              { k: 'saved', label: 'Saved', icon: BookmarkCheck, count: savedItems.length },
+              { k: 'history', label: 'History', icon: Clock, count: historyItems.length },
+            ] as const
+          ).map((tab) => {
+            const Icon = tab.icon;
+            const active = activeTab === tab.k;
+            return (
+              <button
+                key={tab.k}
+                type="button"
+                onClick={() => {
+                  setActiveTab(tab.k);
+                  setFlashcardMode(false);
+                }}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 ${
+                  active
+                    ? 'bg-sanzar-primary text-sanzar-onPrimary shadow-sm'
+                    : 'text-sanzar-text2 hover:text-sanzar-text hover:bg-sanzar-surface2/80'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                <span>{tab.label}</span>
+                {tab.count !== null && tab.count > 0 && (
+                  <span
+                    className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold leading-none ${
+                      active ? 'bg-black/15 text-sanzar-onPrimary' : 'bg-sanzar-surface2 text-sanzar-text2'
                     }`}
                   >
-                    <Icon className="w-3.5 h-3.5" />
-                    <span>{tab.label}</span>
-                    {tab.count !== null && tab.count > 0 && (
-                      <span
-                        className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold leading-none ${
-                          active ? 'bg-emerald-600/15 text-emerald-800' : 'bg-white/15 text-emerald-100'
-                        }`}
-                      >
-                        {tab.count}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Spotlight Command Search Input (visible in Dictionary tab) */}
-          {activeTab === 'dictionary' && (
-            <div className="space-y-3">
-              <div className="rounded-2xl bg-black/25 border border-white/20 focus-within:border-emerald-300/70 focus-within:bg-black/35 backdrop-blur-md p-2 transition shadow-lg">
-                <div className="flex flex-col md:flex-row md:items-center gap-2">
-                  <div className="relative flex-1 flex items-center">
-                    <Search className="w-4 h-4 text-emerald-200/80 ml-3 shrink-0 pointer-events-none" />
-                    <input
-                      ref={searchInputRef}
-                      type="text"
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && query.trim()) {
-                          e.preventDefault();
-                          void handleTranslate();
-                        }
-                      }}
-                      placeholder="Type a word, Pinyin (e.g. nihao), or sentence…"
-                      aria-label={t('searchDictionary')}
-                      className="w-full bg-transparent text-white placeholder:text-emerald-100/50 text-sm sm:text-base font-medium px-3 py-2.5 outline-none"
-                    />
-                    {query ? (
-                      <button
-                        type="button"
-                        aria-label={t('clearSearch')}
-                        onClick={() => setQuery('')}
-                        className="p-1.5 mr-1 rounded-lg text-emerald-100/60 hover:text-white hover:bg-white/10 transition"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    ) : (
-                      <kbd className="hidden sm:inline-flex items-center px-2 py-0.5 mr-2 rounded-md text-[10px] font-bold text-emerald-100/60 bg-white/10 border border-white/15">
-                        /
-                      </kbd>
-                    )}
-                  </div>
-
-                  {/* Target Language Pill Selector + Translate CTA */}
-                  <div className="flex items-center justify-between md:justify-end gap-2 pt-2 md:pt-0 border-t md:border-t-0 border-white/10">
-                    <div className="inline-flex items-center p-0.5 rounded-xl bg-white/10 border border-white/15">
-                      {LANG_OPTIONS.map((l) => {
-                        const selected = targetLang === l.code;
-                        return (
-                          <button
-                            key={l.code}
-                            type="button"
-                            onClick={() => {
-                              setTargetLang(l.code);
-                              if (query.trim()) void handleTranslate(query, l.code);
-                            }}
-                            title={`Translate to ${l.label}`}
-                            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition ${
-                              selected
-                                ? 'bg-emerald-400/25 text-emerald-100 border border-emerald-300/40'
-                                : 'text-emerald-100/70 hover:text-white'
-                            }`}
-                          >
-                            {l.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    <button
-                      type="button"
-                      disabled={translating || !query.trim()}
-                      onClick={() => void handleTranslate()}
-                      className="px-4 py-2 rounded-xl bg-[#6FC294] hover:bg-[#82cfa4] text-[#0d2318] text-xs font-extrabold disabled:opacity-45 transition flex items-center gap-1.5 shadow-sm shrink-0"
-                    >
-                      {translating ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <Sparkles className="w-3.5 h-3.5" />
-                      )}
-                      Translate
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Bottom Hero Strip: Live script detection OR quick-try samples */}
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                {detectedClientLang ? (
-                  <div className="flex items-center gap-2 text-emerald-100/85">
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 border border-white/15 text-[11px] font-semibold">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
-                      Detected: {langLabel(detectedClientLang)}
-                    </span>
-                    <ArrowRight className="w-3 h-3 text-emerald-200/60" />
-                    <span className="text-[11px] font-semibold text-emerald-200">
-                      {langLabel(targetLang)}
-                    </span>
-                    <span className="hidden sm:inline text-[11px] text-emerald-100/55">
-                      · Press Enter to translate
-                    </span>
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-[11px] text-emerald-100/60 mr-1">Try:</span>
-                    {QUICK_SAMPLES.map((s) => (
-                      <button
-                        key={s.text}
-                        type="button"
-                        onClick={() => handleQuickSample(s)}
-                        className="px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/20 border border-white/15 text-[11px] font-medium text-emerald-50 transition inline-flex items-center gap-1.5"
-                      >
-                        <span>{s.text}</span>
-                        <span className="text-[10px] text-emerald-200/70">{s.hint}</span>
-                      </button>
-                    ))}
-                  </div>
+                    {tab.count}
+                  </span>
                 )}
-
-                {!user && (
-                  <Link
-                    to="/login"
-                    className="text-[11px] font-semibold text-emerald-200 hover:text-white underline underline-offset-2"
-                  >
-                    {t('signIn')} for instant translation & sync
-                  </Link>
-                )}
-              </div>
-            </div>
-          )}
+              </button>
+            );
+          })}
         </div>
-      </section>
+      </header>
 
       {/* ==================== TAB 1: UNIFIED DICTIONARY + INLINE TRANSLATION ==================== */}
       {activeTab === 'dictionary' && (
         <div className="space-y-5">
+          {/* Standalone Spotlight Search Card */}
+          <section className="sanzar-card p-3.5 sm:p-4 space-y-3 border-sanzar-primary/25">
+            <div className="flex flex-col md:flex-row md:items-center gap-2.5">
+              <div className="relative flex-1 flex items-center rounded-2xl bg-sanzar-surface2 border border-sanzar-border focus-within:border-sanzar-primary focus-within:ring-2 focus-within:ring-sanzar-primary/20 transition">
+                <Search className="w-4 h-4 text-sanzar-muted ml-3.5 shrink-0 pointer-events-none" />
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && query.trim()) {
+                      e.preventDefault();
+                      void handleTranslate();
+                    }
+                  }}
+                  placeholder="Type a word, Pinyin (e.g. nihao), or sentence…"
+                  aria-label={t('searchDictionary')}
+                  className="w-full bg-transparent text-sanzar-text placeholder:text-sanzar-muted text-sm sm:text-base font-medium px-3 py-2.5 outline-none"
+                />
+                {query ? (
+                  <button
+                    type="button"
+                    aria-label={t('clearSearch')}
+                    onClick={() => setQuery('')}
+                    className="p-1.5 mr-1.5 rounded-lg text-sanzar-muted hover:text-sanzar-text hover:bg-sanzar-surface transition"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                ) : (
+                  <kbd className="hidden sm:inline-flex items-center px-2 py-0.5 mr-2.5 rounded-md text-[10px] font-bold text-sanzar-muted bg-sanzar-surface border border-sanzar-border">
+                    /
+                  </kbd>
+                )}
+              </div>
+
+              {/* Target Language Pill Selector + Translate CTA */}
+              <div className="flex items-center justify-between md:justify-end gap-2 shrink-0">
+                <div className="inline-flex items-center p-0.5 rounded-xl bg-sanzar-surface2 border border-sanzar-border">
+                  {LANG_OPTIONS.map((l) => {
+                    const selected = targetLang === l.code;
+                    return (
+                      <button
+                        key={l.code}
+                        type="button"
+                        onClick={() => {
+                          setTargetLang(l.code);
+                          if (query.trim()) void handleTranslate(query, l.code);
+                        }}
+                        title={`Translate to ${l.label}`}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition ${
+                          selected
+                            ? 'bg-sanzar-primarySoft text-sanzar-primary border border-sanzar-primary/30'
+                            : 'text-sanzar-text2 hover:text-sanzar-text'
+                        }`}
+                      >
+                        {l.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <button
+                  type="button"
+                  disabled={translating || !query.trim()}
+                  onClick={() => void handleTranslate()}
+                  className="px-4 py-2.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-extrabold disabled:opacity-45 transition flex items-center gap-1.5 shadow-sm shrink-0"
+                >
+                  {translating ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5" />
+                  )}
+                  Translate
+                </button>
+              </div>
+            </div>
+
+            {/* Bottom Strip: Live script detection OR quick-try samples */}
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              {detectedClientLang ? (
+                <div className="flex items-center gap-2 text-sanzar-text2">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-sanzar-primarySoft text-sanzar-primary text-[11px] font-semibold">
+                    <span className="w-1.5 h-1.5 rounded-full bg-sanzar-primary animate-pulse" />
+                    Detected: {langLabel(detectedClientLang)}
+                  </span>
+                  <ArrowRight className="w-3 h-3 text-sanzar-muted" />
+                  <span className="text-[11px] font-bold text-sanzar-text">{langLabel(targetLang)}</span>
+                  <span className="hidden sm:inline text-[11px] text-sanzar-muted">· Press Enter to translate</span>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] text-sanzar-muted mr-0.5">Try:</span>
+                  {QUICK_SAMPLES.map((s) => (
+                    <button
+                      key={s.text}
+                      type="button"
+                      onClick={() => handleQuickSample(s)}
+                      className="px-2.5 py-0.5 rounded-full bg-sanzar-surface2 hover:bg-sanzar-primarySoft hover:text-sanzar-primary border border-sanzar-border text-[11px] font-medium text-sanzar-text2 transition inline-flex items-center gap-1.5"
+                    >
+                      <span>{s.text}</span>
+                      <span className="text-[10px] text-sanzar-muted">{s.hint}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {!user && (
+                <Link
+                  to="/login"
+                  className="text-[11px] font-semibold text-sanzar-primary hover:underline underline-offset-2"
+                >
+                  {t('signIn')} for instant translation &amp; sync
+                </Link>
+              )}
+            </div>
+          </section>
           {/* Translation Error Banner */}
           {translateError && (
             <div className="sanzar-card p-3.5 border-sanzar-danger/40 bg-sanzar-danger/10 text-xs text-sanzar-danger flex items-center justify-between gap-3">
@@ -834,11 +844,11 @@ export const DictionaryPage: React.FC = () => {
                         </button>
                         <button
                           type="button"
-                          onClick={() => speakText(translation.translatedText, translation.targetLanguage, 0.7)}
-                          title="Listen slowly (0.7x)"
-                          className="p-2 rounded-xl border border-sanzar-border hover:bg-sanzar-surface2 text-sanzar-text2 hover:text-sanzar-primary transition"
+                          onClick={() => speakText(translation.translatedText, translation.targetLanguage, 0.5)}
+                          title="Listen slowly (0.5×)"
+                          className="px-2 py-2 rounded-xl border border-sanzar-border hover:bg-sanzar-surface2 text-sanzar-text2 hover:text-sanzar-primary transition inline-flex items-center gap-1 text-[11px] font-bold"
                         >
-                          <Turtle className="w-4 h-4" />
+                          <Turtle className="w-3.5 h-3.5" /> 0.5×
                         </button>
                         <button
                           type="button"
@@ -1529,10 +1539,10 @@ export const DictionaryPage: React.FC = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => speakText(detailEntry.word, toCanonicalLang(detailEntry.language), 0.7)}
+                  onClick={() => speakText(detailEntry.word, toCanonicalLang(detailEntry.language), 0.5)}
                   className="px-3 py-2 rounded-xl border border-sanzar-border bg-sanzar-surface hover:bg-sanzar-surface2 text-xs font-semibold inline-flex items-center gap-1.5"
                 >
-                  <Turtle className="w-4 h-4" /> Slow (0.7×)
+                  <Turtle className="w-4 h-4" /> Slow (0.5×)
                 </button>
                 <button
                   type="button"

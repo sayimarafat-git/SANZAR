@@ -209,14 +209,29 @@ export async function syncSavedVocabulary(uid: string): Promise<SavedVocabularyI
 }
 
 /* ============================== translation history (per-UID) ============================== */
+function historyDedupKey(item: Pick<TranslationHistoryItem, 'source_language' | 'target_language' | 'source_text'>): string {
+  return `${item.source_language}::${item.target_language}::${item.source_text.trim().toLowerCase()}`;
+}
+
 export async function getLocalTranslationHistory(uid: string): Promise<TranslationHistoryItem[]> {
   try {
     const rows = await txPromise<TranslationHistoryItem[]>('translation_history', 'readonly', (s) =>
       s.index('by_user').getAll(uid)
     );
-    return rows
+    const activeSorted = rows
       .filter((r) => !r.deleted_at)
       .sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+
+    // Deduplicate by (source_language, target_language, normalized source_text) keeping the most recent
+    const seen = new Set<string>();
+    const deduped: TranslationHistoryItem[] = [];
+    for (const r of activeSorted) {
+      const k = historyDedupKey(r);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      deduped.push(r);
+    }
+    return deduped;
   } catch {
     return [];
   }
@@ -226,13 +241,39 @@ export async function addLocalTranslationHistory(
   uid: string,
   item: Omit<TranslationHistoryItem, 'user_id' | 'sync_status'>
 ): Promise<TranslationHistoryItem> {
+  const existingRows = await txPromise<TranslationHistoryItem[]>('translation_history', 'readonly', (s) =>
+    s.index('by_user').getAll(uid)
+  );
+  const targetKey = historyDedupKey(item);
+  const matching = existingRows
+    .filter((r) => !r.deleted_at && historyDedupKey(r) === targetKey)
+    .sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+
+  const primaryId = matching[0]?.id || item.id;
+  const nowMs = Date.now();
   const record: TranslationHistoryItem = {
     ...item,
+    id: primaryId,
     user_id: uid,
+    created_at: nowMs,
+    updated_at: nowMs,
     deleted_at: null,
     sync_status: 'pending',
   };
-  await txPromise('translation_history', 'readwrite', (s) => s.put(record));
+
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('translation_history', 'readwrite');
+    const store = tx.objectStore('translation_history');
+    store.put(record);
+    // Soft-delete any extra older local duplicates for the same word + pair
+    for (const extra of matching.slice(1)) {
+      store.put({ ...extra, deleted_at: nowMs, updated_at: nowMs, sync_status: 'pending' });
+    }
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+
   return record;
 }
 

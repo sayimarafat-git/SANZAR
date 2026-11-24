@@ -19,7 +19,7 @@ export const AdminDashboard: React.FC = () => {
         <Route
           path="content"
           element={
-            <RoleGuard min="content_admin">
+            <RoleGuard min="teacher">
               <AdminContentPage view="books" />
             </RoleGuard>
           }
@@ -27,7 +27,7 @@ export const AdminDashboard: React.FC = () => {
         <Route
           path="content/book/:bookId"
           element={
-            <RoleGuard min="content_admin">
+            <RoleGuard min="teacher">
               <AdminContentPage view="book" />
             </RoleGuard>
           }
@@ -35,7 +35,7 @@ export const AdminDashboard: React.FC = () => {
         <Route
           path="content/chapter/:chapterId"
           element={
-            <RoleGuard min="content_admin">
+            <RoleGuard min="teacher">
               <AdminContentPage view="chapter" />
             </RoleGuard>
           }
@@ -43,7 +43,7 @@ export const AdminDashboard: React.FC = () => {
         <Route
           path="dictionary"
           element={
-            <RoleGuard min="content_admin">
+            <RoleGuard min="teacher">
               <AdminDictionaryPage />
             </RoleGuard>
           }
@@ -51,7 +51,7 @@ export const AdminDashboard: React.FC = () => {
         <Route
           path="exams"
           element={
-            <RoleGuard min="content_admin">
+            <RoleGuard min="teacher">
               <AdminExamsPage />
             </RoleGuard>
           }

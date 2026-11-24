@@ -492,7 +492,20 @@ export async function listTranslationHistory(env, ctx, url) {
           .all()
       ).results;
 
-  return { items: rows, serverTime: now() };
+  if (since > 0) {
+    return { items: rows, serverTime: now() };
+  }
+
+  // Deduplicate active history by (source_language, target_language, normalized source_text)
+  const seen = new Set();
+  const deduped = [];
+  for (const r of rows) {
+    const key = `${r.source_language}::${r.target_language}::${String(r.source_text || '').trim().toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(r);
+  }
+  return { items: deduped, serverTime: now() };
 }
 
 export async function batchTranslationHistory(env, ctx, input) {
@@ -504,7 +517,7 @@ export async function batchTranslationHistory(env, ctx, input) {
   const synced = [];
 
   for (const raw of items) {
-    const id = str(raw.id || newId('th'), { min: 2, max: 80, field: 'ID' });
+    const incomingId = str(raw.id || newId('th'), { min: 2, max: 80, field: 'ID' });
     const sourceLang = normalizeApiLang(raw.source_language || raw.sourceLanguage || 'en') || 'en';
     const targetLang = normalizeApiLang(raw.target_language || raw.targetLanguage || 'bn') || 'bn';
     const sourceText = str(raw.source_text || raw.sourceText, { min: 1, max: 2000, field: 'Source text' });
@@ -514,19 +527,65 @@ export async function batchTranslationHistory(env, ctx, input) {
     const updatedAt = Math.max(Number(raw.updated_at || raw.updatedAt) || t, t);
     const deletedAt = raw.deleted_at || raw.deletedAt ? Number(raw.deleted_at || raw.deletedAt) : null;
 
+    // If an active record already exists for the exact same word + language pair, update it in place instead of duplicating
+    if (!deletedAt) {
+      const existing = await env.DB.prepare(
+        `SELECT id FROM translation_history
+         WHERE user_id = ? AND deleted_at IS NULL AND source_language = ? AND target_language = ? AND lower(trim(source_text)) = lower(trim(?))
+         ORDER BY created_at DESC LIMIT 1`
+      )
+        .bind(ctx.user.uid, sourceLang, targetLang, sourceText)
+        .first();
+
+      if (existing && existing.id !== incomingId) {
+        await env.DB.prepare(
+          `UPDATE translation_history
+           SET translated_text = ?, provider = ?, created_at = ?, updated_at = ?
+           WHERE id = ? AND user_id = ?`
+        )
+          .bind(translatedText, provider, createdAt, updatedAt, existing.id, ctx.user.uid)
+          .run();
+
+        // Soft-delete any older duplicates for the same word + pair
+        await env.DB.prepare(
+          `UPDATE translation_history
+           SET deleted_at = ?, updated_at = ?
+           WHERE user_id = ? AND deleted_at IS NULL AND id != ? AND source_language = ? AND target_language = ? AND lower(trim(source_text)) = lower(trim(?))`
+        )
+          .bind(t, t, ctx.user.uid, existing.id, sourceLang, targetLang, sourceText)
+          .run();
+
+        synced.push({
+          id: existing.id,
+          source_language: sourceLang,
+          target_language: targetLang,
+          source_text: sourceText,
+          translated_text: translatedText,
+          provider,
+          created_at: createdAt,
+          updated_at: updatedAt,
+          deleted_at: null,
+        });
+        continue;
+      }
+    }
+
     await env.DB.prepare(
       `INSERT INTO translation_history (id, user_id, source_language, target_language, source_text, translated_text, provider, created_at, updated_at, deleted_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
+         translated_text = excluded.translated_text,
+         provider = excluded.provider,
+         created_at = excluded.created_at,
          updated_at = excluded.updated_at,
          deleted_at = excluded.deleted_at
        WHERE translation_history.user_id = excluded.user_id AND excluded.updated_at >= translation_history.updated_at`
     )
-      .bind(id, ctx.user.uid, sourceLang, targetLang, sourceText, translatedText, provider, createdAt, updatedAt, deletedAt)
+      .bind(incomingId, ctx.user.uid, sourceLang, targetLang, sourceText, translatedText, provider, createdAt, updatedAt, deletedAt)
       .run();
 
     synced.push({
-      id,
+      id: incomingId,
       source_language: sourceLang,
       target_language: targetLang,
       source_text: sourceText,
@@ -554,7 +613,7 @@ export async function deleteTranslationHistory(env, ctx, id) {
 
 /* ============================== admin bulk import ============================== */
 export async function adminBulkImportDictionary(env, ctx, input) {
-  requireRole(ctx.user, 'content_admin');
+  requireRole(ctx.user, 'teacher');
   const rows = Array.isArray(input.entries) ? input.entries : [];
   if (rows.length === 0 || rows.length > 500) {
     throw new HttpError(400, 'invalid-argument', 'Provide 1 to 500 entries per import');

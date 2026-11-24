@@ -1,9 +1,10 @@
 export const ROLE_RANK = {
   student: 0,
   moderator: 1,
-  content_admin: 2,
-  admin: 3,
-  super_admin: 4,
+  teacher: 2,
+  content_admin: 3,
+  admin: 4,
+  super_admin: 5,
 } as const;
 
 export type Role = keyof typeof ROLE_RANK;

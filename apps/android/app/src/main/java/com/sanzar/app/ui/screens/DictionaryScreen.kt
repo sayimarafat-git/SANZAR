@@ -178,86 +178,52 @@ fun DictionaryScreen(
             contentPadding = PaddingValues(start = SanzarSpace.S4.dp, end = SanzarSpace.S4.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(SanzarSpace.S3.dp)
         ) {
-            // Emerald Hero Header Card
+            // Compact 3-Tab Switcher (outside hero, clean native surface)
             item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(Color(0xFF0E291D), Color(0xFF176B4B), Color(0xFF247754))
-                            )
-                        )
-                        .padding(16.dp)
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(SanzarSpace.S2.dp)
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(
-                            text = "English · বাংলা · 简体中文",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color(0xFFA8E6C4),
-                            fontWeight = FontWeight.SemiBold
+                    listOf(
+                        "dictionary" to "Search",
+                        "saved" to "Saved (${state.savedVocabulary.size})",
+                        "history" to "History (${state.translationHistory.size})"
+                    ).forEach { (key, label) ->
+                        FilterChip(
+                            selected = activeTab == key,
+                            onClick = {
+                                activeTab = key
+                                flashcardMode = false
+                            },
+                            label = { Text(label, fontWeight = FontWeight.SemiBold) }
                         )
+                    }
+                }
+            }
 
-                        // 3 Clean Mode Tabs inside Hero
-                        Row(
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            // Standalone Spotlight Search Card (outside header)
+            if (activeTab == "dictionary") {
+                item {
+                    SanzarCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(SanzarSpace.S4.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            listOf(
-                                "dictionary" to "Search",
-                                "saved" to "Saved (${state.savedVocabulary.size})",
-                                "history" to "History (${state.translationHistory.size})"
-                            ).forEach { (key, label) ->
-                                val selected = activeTab == key
-                                Surface(
-                                    onClick = {
-                                        activeTab = key
-                                        flashcardMode = false
-                                    },
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = if (selected) Color.White else Color.White.copy(alpha = 0.14f)
-                                ) {
-                                    Text(
-                                        text = label,
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (selected) Color(0xFF0E291D) else Color.White
-                                    )
-                                }
-                            }
-                        }
-
-                        if (activeTab == "dictionary") {
                             OutlinedTextField(
                                 value = query,
                                 onValueChange = { query = it },
-                                placeholder = {
-                                    Text(
-                                        "Word, Pinyin (nihao), or sentence…",
-                                        color = Color.White.copy(alpha = 0.65f)
-                                    )
-                                },
+                                placeholder = { Text("Word, Pinyin (nihao), or sentence…") },
                                 leadingIcon = {
-                                    Icon(Icons.Rounded.Search, contentDescription = null, tint = Color(0xFFA8E6C4))
+                                    Icon(Icons.Rounded.Search, contentDescription = null, tint = palette.primary)
                                 },
                                 trailingIcon = {
                                     if (query.isNotEmpty()) {
                                         IconButton(onClick = { query = "" }) {
-                                            Icon(Icons.Rounded.Clear, contentDescription = s("clearSearch"), tint = Color.White)
+                                            Icon(Icons.Rounded.Clear, contentDescription = s("clearSearch"))
                                         }
                                     }
                                 },
                                 singleLine = true,
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = Color.White,
-                                    unfocusedTextColor = Color.White,
-                                    focusedBorderColor = Color(0xFF6FC294),
-                                    unfocusedBorderColor = Color.White.copy(alpha = 0.28f),
-                                    focusedContainerColor = Color.Black.copy(alpha = 0.25f),
-                                    unfocusedContainerColor = Color.Black.copy(alpha = 0.20f)
-                                ),
                                 shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -275,8 +241,8 @@ fun DictionaryScreen(
                                 ) {
                                     listOf("bn" to "→ বাংলা", "en" to "→ EN", "zh-Hans" to "→ 中文")
                                         .forEach { (code, label) ->
-                                            val sel = targetLang == code
-                                            Surface(
+                                            FilterChip(
+                                                selected = targetLang == code,
                                                 onClick = {
                                                     targetLang = code
                                                     if (query.isNotBlank()) {
@@ -284,17 +250,8 @@ fun DictionaryScreen(
                                                         onTranslate(query, src, code)
                                                     }
                                                 },
-                                                shape = RoundedCornerShape(10.dp),
-                                                color = if (sel) Color(0xFF6FC294).copy(alpha = 0.30f) else Color.White.copy(alpha = 0.10f)
-                                            ) {
-                                                Text(
-                                                    text = label,
-                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = Color.White
-                                                )
-                                            }
+                                                label = { Text(label) }
+                                            )
                                         }
                                 }
                                 Spacer(Modifier.width(8.dp))
@@ -304,21 +261,13 @@ fun DictionaryScreen(
                                         onTranslate(query, src, targetLang)
                                     },
                                     enabled = !state.translating && query.isNotBlank(),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = Color(0xFF6FC294),
-                                        contentColor = Color(0xFF0D2318)
-                                    ),
                                     shape = RoundedCornerShape(12.dp)
                                 ) {
                                     if (state.translating) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(14.dp),
-                                            strokeWidth = 2.dp,
-                                            color = Color(0xFF0D2318)
-                                        )
+                                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                                         Spacer(Modifier.width(6.dp))
                                     }
-                                    Text("Translate", fontWeight = FontWeight.ExtraBold)
+                                    Text("Translate", fontWeight = FontWeight.Bold)
                                 }
                             }
 
@@ -326,7 +275,7 @@ fun DictionaryScreen(
                                 Text(
                                     text = "Detected: ${langFullLabel(detectedLang)} → ${langFullLabel(targetLang)}",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = Color(0xFFA8E6C4)
+                                    color = palette.primary
                                 )
                             } else {
                                 Row(
@@ -334,24 +283,16 @@ fun DictionaryScreen(
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Try:", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.65f))
+                                    Text("Try:", style = MaterialTheme.typography.labelSmall, color = palette.muted)
                                     listOf("你好" to "bn", "ধন্যবাদ" to "en", "Knowledge" to "zh-Hans").forEach { (w, tgt) ->
-                                        Surface(
+                                        AssistChip(
                                             onClick = {
                                                 query = w
                                                 targetLang = tgt
                                                 if (state.firebaseUser != null) onTranslate(w, "auto", tgt)
                                             },
-                                            shape = RoundedCornerShape(999.dp),
-                                            color = Color.White.copy(alpha = 0.14f)
-                                        ) {
-                                            Text(
-                                                text = w,
-                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = Color.White
-                                            )
-                                        }
+                                            label = { Text(w) }
+                                        )
                                     }
                                 }
                             }
@@ -399,6 +340,9 @@ fun DictionaryScreen(
                                     Row {
                                         IconButton(onClick = { speak(state.translationOutput, targetLang, 1.0f) }) {
                                             Icon(Icons.Rounded.VolumeUp, contentDescription = "Listen", tint = palette.primary)
+                                        }
+                                        IconButton(onClick = { speak(state.translationOutput, targetLang, 0.5f) }) {
+                                            Icon(Icons.Rounded.SlowMotionVideo, contentDescription = "Listen slowly 0.5x", tint = palette.text2)
                                         }
                                         IconButton(onClick = { copyToClipboard(state.translationOutput) }) {
                                             Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy", tint = palette.text2)
