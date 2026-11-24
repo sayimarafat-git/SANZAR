@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Square } from 'lucide-react';
+import { Pencil, Play, Square } from 'lucide-react';
 import { useFocusTimer } from '../lib/focus-timer-context';
 import { useSettings } from '../lib/settings-context';
 import { mmss } from './SanzarUI';
@@ -197,13 +197,15 @@ export const AnalogFocusTimer: React.FC = () => {
                     setCustomVal(String(durationMins));
                     setCustomOpen(true);
                   }}
-                  className={`px-1.5 sm:px-2 py-0.5 rounded-md text-[10px] sm:text-[11px] font-semibold border transition leading-tight ${
+                  title="Set custom minutes"
+                  className={`px-1.5 sm:px-2 py-0.5 rounded-md text-[10px] sm:text-[11px] font-semibold border transition leading-tight inline-flex items-center gap-1 ${
                     !PRESETS.includes(durationMins)
                       ? 'bg-sanzar-primarySoft text-sanzar-primary border-sanzar-primary/40'
                       : 'border-sanzar-border text-sanzar-muted hover:text-sanzar-text'
                   }`}
                 >
-                  {!PRESETS.includes(durationMins) ? `${durationMins}m` : 'Custom'}
+                  <Pencil className="w-2.5 h-2.5 shrink-0" />
+                  <span>{!PRESETS.includes(durationMins) ? `Custom (${durationMins}m)` : 'Custom'}</span>
                 </button>
               )}
             </div>
