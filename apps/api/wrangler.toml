@@ -13,3 +13,6 @@ binding = "DB"
 database_name = "sanzar-db"
 database_id = "127ccd3d-758d-4609-99a8-60c23c6c9eaa"
 migrations_dir = "../../database/migrations"
+
+[ai]
+binding = "AI"

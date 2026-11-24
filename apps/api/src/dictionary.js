@@ -227,6 +227,25 @@ async function callTranslationProvider(env, text, sourceLang, targetLang) {
     }
   }
 
+  // 2.5. Cloudflare Workers AI native translation (@cf/meta/m2m100-1.2b) — zero API key, never IP-blocked
+  if (env.AI && typeof env.AI.run === 'function') {
+    try {
+      const cfSrc = sourceLang === 'zh-Hans' ? 'zh' : sourceLang;
+      const cfTgt = targetLang === 'zh-Hans' ? 'zh' : targetLang;
+      const aiRes = await env.AI.run('@cf/meta/m2m100-1.2b', {
+        text,
+        source_lang: cfSrc,
+        target_lang: cfTgt,
+      });
+      const translated = aiRes?.translated_text;
+      if (translated && String(translated).trim()) {
+        return { translatedText: String(translated).trim(), provider: 'cloudflare-ai' };
+      }
+    } catch {
+      // Fall through to external fallbacks
+    }
+  }
+
   // 3. Default zero-config provider #1: Google public gtx endpoint (reliable on Cloudflare Workers, supports en/bn/zh-CN)
   try {
     const sl = toProviderLang(sourceLang, 'google');
