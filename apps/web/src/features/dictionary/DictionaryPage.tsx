@@ -1,17 +1,26 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
+  ArrowLeftRight,
+  ArrowRight,
   BookA,
   Bookmark,
   BookmarkCheck,
+  BookOpen,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Copy,
+  Filter,
   Globe,
+  Layers,
   Loader2,
+  RotateCcw,
   Search,
   Sparkles,
   Trash2,
+  Turtle,
   Volume2,
   X,
 } from 'lucide-react';
@@ -25,7 +34,7 @@ import type {
   TranslationHistoryItem,
   TranslationResult,
 } from '../../lib/models';
-import { LoadingState, Modal } from '../../components/SanzarUI';
+import { Modal, useToast } from '../../components/SanzarUI';
 import {
   addLocalTranslationHistory,
   deleteLocalTranslationHistory,
@@ -43,6 +52,13 @@ const LANG_OPTIONS: { code: DictLangCode; label: string; short: string }[] = [
   { code: 'bn', label: 'বাংলা', short: 'BN' },
   { code: 'en', label: 'English', short: 'EN' },
   { code: 'zh-Hans', label: '简体中文', short: '中文' },
+];
+
+const QUICK_SAMPLES: { text: string; hint: string; target: DictLangCode }[] = [
+  { text: '你好', hint: '中文', target: 'bn' },
+  { text: 'ধন্যবাদ', hint: 'বাংলা', target: 'en' },
+  { text: 'Knowledge', hint: 'EN', target: 'zh-Hans' },
+  { text: '学习', hint: 'HSK 1', target: 'en' },
 ];
 
 const HSK_OPTIONS = ['', 'HSK 1', 'HSK 2', 'HSK 3', 'HSK 4', 'HSK 5', 'HSK 6'];
@@ -66,6 +82,35 @@ function toCanonicalLang(code: string): DictLangCode {
   return 'en';
 }
 
+function langBadgeClass(code: string): string {
+  if (code === 'zh' || code === 'zh-Hans') {
+    return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/25';
+  }
+  if (code === 'bn') {
+    return 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/25';
+  }
+  return 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/25';
+}
+
+/** Fast client-side Unicode script detector for instant visual feedback while typing. */
+function detectClientLang(text: string): DictLangCode | null {
+  const s = text.trim();
+  if (!s) return null;
+  let bn = 0;
+  let zh = 0;
+  let latin = 0;
+  for (const ch of s) {
+    const cp = ch.codePointAt(0) || 0;
+    if (cp >= 0x0980 && cp <= 0x09ff) bn++;
+    else if ((cp >= 0x4e00 && cp <= 0x9fff) || (cp >= 0x3400 && cp <= 0x4dbf)) zh++;
+    else if ((cp >= 0x0041 && cp <= 0x005a) || (cp >= 0x0061 && cp <= 0x007a)) latin++;
+  }
+  if (bn === 0 && zh === 0 && latin === 0) return null;
+  if (bn >= zh && bn >= latin && bn > 0) return 'bn';
+  if (zh >= bn && zh >= latin && zh > 0) return 'zh-Hans';
+  return 'en';
+}
+
 function highlightMatch(text: string, query: string): React.ReactNode {
   const q = query.trim();
   if (!q || !text) return text;
@@ -73,7 +118,10 @@ function highlightMatch(text: string, query: string): React.ReactNode {
   const parts = text.split(new RegExp(`(${escaped})`, 'gi'));
   return parts.map((part, i) =>
     part.toLowerCase() === q.toLowerCase() ? (
-      <mark key={i} className="bg-sanzar-primarySoft text-sanzar-primary rounded px-0.5 font-semibold">
+      <mark
+        key={i}
+        className="bg-sanzar-primary/20 text-sanzar-primary rounded px-0.5 font-bold"
+      >
         {part}
       </mark>
     ) : (
@@ -82,18 +130,64 @@ function highlightMatch(text: string, query: string): React.ReactNode {
   );
 }
 
-function speakText(text: string, langCode: DictLangCode | 'zh') {
+function speakText(text: string, langCode: DictLangCode | 'zh', rate = 1.0) {
   if (typeof window === 'undefined' || !('speechSynthesis' in window) || !text.trim()) return;
   window.speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.lang = langCode === 'zh-Hans' || langCode === 'zh' ? 'zh-CN' : langCode === 'bn' ? 'bn-BD' : 'en-US';
+  u.rate = rate;
   window.speechSynthesis.speak(u);
 }
+
+function groupHistoryByDay(items: TranslationHistoryItem[]) {
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfYesterday = startOfToday - 86_400_000;
+  const groups: { label: string; items: TranslationHistoryItem[] }[] = [
+    { label: 'Today', items: [] },
+    { label: 'Yesterday', items: [] },
+    { label: 'Earlier', items: [] },
+  ];
+  for (const item of items) {
+    if (item.created_at >= startOfToday) groups[0].items.push(item);
+    else if (item.created_at >= startOfYesterday) groups[1].items.push(item);
+    else groups[2].items.push(item);
+  }
+  return groups.filter((g) => g.items.length > 0);
+}
+
+const DictionarySkeletonGrid: React.FC = () => (
+  <div className="grid sm:grid-cols-2 gap-4">
+    {[0, 1, 2, 3].map((i) => (
+      <div key={i} className="sanzar-card p-5 space-y-3 animate-pulse">
+        <div className="flex items-start justify-between">
+          <div className="space-y-2 w-2/3">
+            <div className="h-5 w-1/2 rounded-lg bg-sanzar-surface2" />
+            <div className="flex gap-1.5">
+              <div className="h-4 w-10 rounded-full bg-sanzar-surface2" />
+              <div className="h-4 w-14 rounded-full bg-sanzar-surface2" />
+            </div>
+          </div>
+          <div className="flex gap-1.5">
+            <div className="h-8 w-8 rounded-xl bg-sanzar-surface2" />
+            <div className="h-8 w-8 rounded-xl bg-sanzar-surface2" />
+          </div>
+        </div>
+        <div className="space-y-2 pt-1">
+          <div className="h-3.5 w-full rounded bg-sanzar-surface2" />
+          <div className="h-3.5 w-4/5 rounded bg-sanzar-surface2" />
+        </div>
+      </div>
+    ))}
+  </div>
+);
 
 export const DictionaryPage: React.FC = () => {
   const { user } = useAuth();
   const { t } = useSettings();
+  const toast = useToast();
   const uid = user?.uid || '';
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const [activeTab, setActiveTab] = useState<'dictionary' | 'saved' | 'history'>('dictionary');
 
@@ -104,12 +198,14 @@ export const DictionaryPage: React.FC = () => {
   const [translation, setTranslation] = useState<TranslationResult | null>(null);
   const [translating, setTranslating] = useState(false);
   const [translateError, setTranslateError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [savedTranslationKey, setSavedTranslationKey] = useState<string | null>(null);
 
   // Dictionary filters & pagination
   const [langFilter, setLangFilter] = useState<'all' | DictLangCode>('all');
   const [hskFilter, setHskFilter] = useState('');
   const [posFilter, setPosFilter] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
   const [entries, setEntries] = useState<DictionaryEntry[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -118,16 +214,45 @@ export const DictionaryPage: React.FC = () => {
   const [dictError, setDictError] = useState<string | null>(null);
   const [detailEntry, setDetailEntry] = useState<DictionaryEntry | null>(null);
 
-  // Saved vocabulary & History (IndexedDB + D1 sync, isolated by UID)
+  // Saved vocabulary, Saved search & Flashcard review mode
   const [savedItems, setSavedItems] = useState<SavedVocabularyItem[]>([]);
+  const [savedSearch, setSavedSearch] = useState('');
+  const [flashcardMode, setFlashcardMode] = useState(false);
+  const [cardIndex, setCardIndex] = useState(0);
+  const [cardFlipped, setCardFlipped] = useState(false);
+
+  // History
   const [historyItems, setHistoryItems] = useState<TranslationHistoryItem[]>([]);
+
+  const detectedClientLang = useMemo(() => detectClientLang(query), [query]);
+
+  // Automatically pick a sensible non-identical target language when the user switches script
+  useEffect(() => {
+    if (!detectedClientLang) return;
+    if (detectedClientLang === targetLang) {
+      setTargetLang(detectedClientLang === 'en' ? 'bn' : 'en');
+    }
+  }, [detectedClientLang]);
+
+  // Keyboard shortcut: press "/" to jump into search bar
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      e.preventDefault();
+      setActiveTab('dictionary');
+      window.setTimeout(() => searchInputRef.current?.focus(), 0);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), 260);
     return () => window.clearTimeout(timer);
   }, [query]);
 
-  // Clear translation when search is cleared
   useEffect(() => {
     if (!query.trim()) {
       setTranslation(null);
@@ -135,7 +260,7 @@ export const DictionaryPage: React.FC = () => {
     }
   }, [query]);
 
-  // Load & sync personal data when account changes (strict UID isolation)
+  // Load & sync personal data with strict Firebase UID isolation
   useEffect(() => {
     if (!uid) {
       setSavedItems([]);
@@ -166,7 +291,6 @@ export const DictionaryPage: React.FC = () => {
     };
   }, [uid]);
 
-  // Fetch curated dictionary entries
   const fetchDictionary = useCallback(
     async (cursor?: string | null) => {
       const isMore = Boolean(cursor);
@@ -217,12 +341,37 @@ export const DictionaryPage: React.FC = () => {
     return s;
   }, [savedItems]);
 
+  const filteredSaved = useMemo(() => {
+    const q = savedSearch.trim().toLowerCase();
+    if (!q) return savedItems;
+    return savedItems.filter((item) =>
+      [item.word, item.phonetic, item.meaning, item.hsk_level].some((v) =>
+        (v || '').toLowerCase().includes(q)
+      )
+    );
+  }, [savedItems, savedSearch]);
+
+  const groupedHistory = useMemo(() => groupHistoryByDay(historyItems), [historyItems]);
+
+  const activeFilterCount = (langFilter !== 'all' ? 1 : 0) + (hskFilter ? 1 : 0) + (posFilter ? 1 : 0);
+
+  const handleCopy = (text: string, id: string) => {
+    void navigator.clipboard?.writeText(text);
+    setCopiedId(id);
+    toast('Copied to clipboard');
+    window.setTimeout(() => setCopiedId((prev) => (prev === id ? null : prev)), 1600);
+  };
+
   const handleToggleSaveEntry = async (entry: DictionaryEntry) => {
-    if (!uid) return;
+    if (!uid) {
+      toast('Sign in to save vocabulary');
+      return;
+    }
     const existing = savedItems.find((s) => s.dictionary_entry_id === entry.id || s.id === entry.id);
     if (existing) {
       await deleteLocalVocabularyItem(uid, existing.id);
       setSavedItems((prev) => prev.filter((x) => x.id !== existing.id));
+      toast('Removed from saved vocabulary');
       void syncSavedVocabulary(uid).then(setSavedItems);
       return;
     }
@@ -244,25 +393,35 @@ export const DictionaryPage: React.FC = () => {
     };
     await saveLocalVocabularyItem(uid, newItem);
     setSavedItems((prev) => [newItem, ...prev]);
+    toast(`Saved "${entry.word}"`);
     void syncSavedVocabulary(uid).then(setSavedItems);
   };
 
-  const handleSaveTranslationResult = async () => {
-    if (!uid || !translation || !query.trim()) return;
+  const handleSaveTranslationResult = async (srcWord?: string, tgtMeaning?: string, srcLang?: DictLangCode, tgtLang?: DictLangCode) => {
+    const word = (srcWord ?? query).trim();
+    const meaning = (tgtMeaning ?? translation?.translatedText ?? '').trim();
+    const sLang = srcLang ?? translation?.sourceLanguage ?? 'en';
+    const tLang = tgtLang ?? translation?.targetLanguage ?? targetLang;
+    if (!uid || !word || !meaning) {
+      if (!uid) toast('Sign in to save vocabulary');
+      return;
+    }
+    const key = `${sLang}:${tLang}:${word}`;
     const nowMs = Date.now();
-    const id = `sv_tr_${nowMs}_${Math.random().toString(36).slice(2, 7)}`;
     const newItem: SavedVocabularyItem = {
-      id,
+      id: `sv_tr_${nowMs}_${Math.random().toString(36).slice(2, 7)}`,
       dictionary_entry_id: null,
-      source_language: translation.sourceLanguage,
-      target_language: translation.targetLanguage,
-      word: query.trim().slice(0, 200),
-      meaning: translation.translatedText.slice(0, 1000),
+      source_language: sLang,
+      target_language: tLang,
+      word: word.slice(0, 200),
+      meaning: meaning.slice(0, 1000),
       created_at: nowMs,
       updated_at: nowMs,
     };
     await saveLocalVocabularyItem(uid, newItem);
     setSavedItems((prev) => [newItem, ...prev]);
+    setSavedTranslationKey(key);
+    toast('Saved translation to vocabulary');
     void syncSavedVocabulary(uid).then(setSavedItems);
   };
 
@@ -270,6 +429,7 @@ export const DictionaryPage: React.FC = () => {
     if (!uid) return;
     await deleteLocalVocabularyItem(uid, id);
     setSavedItems((prev) => prev.filter((x) => x.id !== id));
+    toast('Removed from saved');
     void syncSavedVocabulary(uid).then(setSavedItems);
   };
 
@@ -280,17 +440,18 @@ export const DictionaryPage: React.FC = () => {
     void syncTranslationHistory(uid).then(setHistoryItems);
   };
 
-  const handleTranslate = async (overrideTarget?: DictLangCode) => {
-    const clean = query.trim();
+  const handleTranslate = async (overrideText?: string, overrideTarget?: DictLangCode) => {
+    const clean = (overrideText ?? query).trim();
     if (!clean) return;
     const tgt = overrideTarget || targetLang;
     if (!uid) {
-      setTranslateError('Sign in to translate words and sentences.');
+      setTranslateError('Sign in to use instant translation and sync your history.');
       return;
     }
 
     setTranslating(true);
     setTranslateError(null);
+    setSavedTranslationKey(null);
 
     try {
       const sourceParam = langFilter !== 'all' ? langFilter : 'auto';
@@ -350,6 +511,24 @@ export const DictionaryPage: React.FC = () => {
     }
   };
 
+  const handleSwapAndTranslate = () => {
+    if (!translation) return;
+    const nextQuery = translation.translatedText;
+    const nextTarget = translation.sourceLanguage;
+    setQuery(nextQuery);
+    setTargetLang(nextTarget);
+    void handleTranslate(nextQuery, nextTarget);
+  };
+
+  const handleQuickSample = (sample: { text: string; target: DictLangCode }) => {
+    setQuery(sample.text);
+    setTargetLang(sample.target);
+    setActiveTab('dictionary');
+    if (uid) {
+      void handleTranslate(sample.text, sample.target);
+    }
+  };
+
   const handleReopenHistory = (item: TranslationHistoryItem) => {
     setQuery(item.source_text);
     setTargetLang(item.target_language);
@@ -366,130 +545,385 @@ export const DictionaryPage: React.FC = () => {
     setActiveTab('dictionary');
   };
 
-  const handleCopy = (text: string) => {
-    void navigator.clipboard?.writeText(text);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
-  };
+  const otherTargetLangs = useMemo(() => {
+    if (!translation) return [];
+    return LANG_OPTIONS.filter(
+      (l) => l.code !== translation.targetLanguage && l.code !== translation.sourceLanguage
+    );
+  }, [translation]);
+
+  const currentTranslationKey = translation
+    ? `${translation.sourceLanguage}:${translation.targetLanguage}:${query.trim()}`
+    : null;
+  const isCurrentTranslationSaved = Boolean(currentTranslationKey && savedTranslationKey === currentTranslationKey);
+
+  const safeCardIndex = filteredSaved.length > 0 ? Math.min(cardIndex, filteredSaved.length - 1) : 0;
+  const activeCard = filteredSaved[safeCardIndex];
 
   return (
-    <div className="space-y-5 max-w-4xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-extrabold flex items-center gap-2">
-            <BookA className="w-6 h-6 text-sanzar-primary" />
-            <span>{t('dictionary')}</span>
-          </h1>
-          <p className="text-xs text-sanzar-muted mt-0.5">
-            Search & translate English · বাংলা · 简体中文 words, phrases, or sentences
-          </p>
-        </div>
-        {!user && (
-          <Link
-            to="/login"
-            className="px-4 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-semibold"
-          >
-            {t('signIn')} to Sync
-          </Link>
-        )}
-      </div>
+    <div className="space-y-6 max-w-5xl mx-auto pb-8">
+      {/* ==================== EMERALD HERO SEARCH STUDIO ==================== */}
+      <section className="bg-hero-grad rounded-[24px] p-5 sm:p-7 text-white relative overflow-hidden">
+        {/* Subtle decorative light accents */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-24 -right-16 w-72 h-72 rounded-full opacity-30"
+          style={{ background: 'radial-gradient(circle, rgba(111,194,148,0.65) 0%, transparent 70%)' }}
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -bottom-24 -left-12 w-64 h-64 rounded-full opacity-20"
+          style={{ background: 'radial-gradient(circle, rgba(198,164,106,0.6) 0%, transparent 70%)' }}
+        />
 
-      {/* 3 Clean Tabs: Dictionary, Saved, History */}
-      <div className="flex flex-wrap items-center gap-2">
-        {(
-          [
-            { k: 'dictionary', label: 'Dictionary', icon: BookA },
-            { k: 'saved', label: `Saved (${savedItems.length})`, icon: BookmarkCheck },
-            { k: 'history', label: `History (${historyItems.length})`, icon: Clock },
-          ] as const
-        ).map((tab) => {
-          const Icon = tab.icon;
-          const active = activeTab === tab.k;
-          return (
-            <button
-              key={tab.k}
-              type="button"
-              onClick={() => setActiveTab(tab.k)}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition flex items-center gap-1.5 ${
-                active
-                  ? 'bg-sanzar-primary text-sanzar-onPrimary border-sanzar-primary'
-                  : 'bg-sanzar-surface border-sanzar-border text-sanzar-text2 hover:bg-sanzar-surface2'
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* ==================== TAB 1: UNIFIED DICTIONARY + INLINE TRANSLATION ==================== */}
-      {activeTab === 'dictionary' && (
-        <div className="space-y-4">
-          {/* Unified Search + Translate + Filters Card */}
-          <div className="sanzar-card p-3.5 sm:p-4 space-y-3">
-            <div className="flex flex-col sm:flex-row gap-2">
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 text-sanzar-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none z-10" />
-                <input
-                  type="text"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && query.trim()) {
-                      e.preventDefault();
-                      void handleTranslate();
-                    }
-                  }}
-                  placeholder="Search word, Pinyin, or enter a sentence to translate…"
-                  aria-label={t('searchDictionary')}
-                  className="sanzar-input pl-10 pr-9 text-sm"
-                />
-                {query && (
-                  <button
-                    type="button"
-                    aria-label={t('clearSearch')}
-                    onClick={() => setQuery('')}
-                    className="p-1 rounded-lg text-sanzar-muted hover:text-sanzar-text absolute right-2.5 top-1/2 -translate-y-1/2 z-10"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                <select
-                  aria-label="Translate to language"
-                  value={targetLang}
-                  onChange={(e) => {
-                    const next = e.target.value as DictLangCode;
-                    setTargetLang(next);
-                    if (query.trim() && translation) void handleTranslate(next);
-                  }}
-                  className="sanzar-input text-xs font-semibold py-2 w-auto"
-                >
-                  {LANG_OPTIONS.map((l) => (
-                    <option key={l.code} value={l.code}>
-                      → {l.label}
-                    </option>
-                  ))}
-                </select>
-
-                <button
-                  type="button"
-                  disabled={translating || !query.trim()}
-                  onClick={() => void handleTranslate()}
-                  className="px-4 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5 shrink-0"
-                >
-                  {translating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                  Translate
-                </button>
+        <div className="relative z-10 space-y-5">
+          {/* Top bar: Brand Title + Segmented Mode Switcher */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2.5">
+                <span className="w-9 h-9 rounded-xl bg-white/15 border border-white/20 flex items-center justify-center backdrop-blur-md">
+                  <BookA className="w-5 h-5 text-emerald-200" />
+                </span>
+                <div>
+                  <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight leading-none">
+                    {t('dictionary')}
+                  </h1>
+                  <p className="text-xs text-emerald-100/75 mt-1">
+                    English · বাংলা · 简体中文 — Instant Translation & Curated Lexicon
+                  </p>
+                </div>
               </div>
             </div>
 
-            {/* Filters Row */}
-            <div className="flex flex-wrap items-center gap-2">
+            {/* Segmented Tab Switcher */}
+            <div className="inline-flex p-1 rounded-2xl bg-black/25 border border-white/15 backdrop-blur-md self-start sm:self-auto">
+              {(
+                [
+                  { k: 'dictionary', label: 'Search', icon: Search, count: null },
+                  { k: 'saved', label: 'Saved', icon: BookmarkCheck, count: savedItems.length },
+                  { k: 'history', label: 'History', icon: Clock, count: historyItems.length },
+                ] as const
+              ).map((tab) => {
+                const Icon = tab.icon;
+                const active = activeTab === tab.k;
+                return (
+                  <button
+                    key={tab.k}
+                    type="button"
+                    onClick={() => {
+                      setActiveTab(tab.k);
+                      setFlashcardMode(false);
+                    }}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 ${
+                      active
+                        ? 'bg-white text-[#102017] shadow-sm'
+                        : 'text-emerald-100/80 hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{tab.label}</span>
+                    {tab.count !== null && tab.count > 0 && (
+                      <span
+                        className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold leading-none ${
+                          active ? 'bg-emerald-600/15 text-emerald-800' : 'bg-white/15 text-emerald-100'
+                        }`}
+                      >
+                        {tab.count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Spotlight Command Search Input (visible in Dictionary tab) */}
+          {activeTab === 'dictionary' && (
+            <div className="space-y-3">
+              <div className="rounded-2xl bg-black/25 border border-white/20 focus-within:border-emerald-300/70 focus-within:bg-black/35 backdrop-blur-md p-2 transition shadow-lg">
+                <div className="flex flex-col md:flex-row md:items-center gap-2">
+                  <div className="relative flex-1 flex items-center">
+                    <Search className="w-4 h-4 text-emerald-200/80 ml-3 shrink-0 pointer-events-none" />
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && query.trim()) {
+                          e.preventDefault();
+                          void handleTranslate();
+                        }
+                      }}
+                      placeholder="Type a word, Pinyin (e.g. nihao), or sentence…"
+                      aria-label={t('searchDictionary')}
+                      className="w-full bg-transparent text-white placeholder:text-emerald-100/50 text-sm sm:text-base font-medium px-3 py-2.5 outline-none"
+                    />
+                    {query ? (
+                      <button
+                        type="button"
+                        aria-label={t('clearSearch')}
+                        onClick={() => setQuery('')}
+                        className="p-1.5 mr-1 rounded-lg text-emerald-100/60 hover:text-white hover:bg-white/10 transition"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    ) : (
+                      <kbd className="hidden sm:inline-flex items-center px-2 py-0.5 mr-2 rounded-md text-[10px] font-bold text-emerald-100/60 bg-white/10 border border-white/15">
+                        /
+                      </kbd>
+                    )}
+                  </div>
+
+                  {/* Target Language Pill Selector + Translate CTA */}
+                  <div className="flex items-center justify-between md:justify-end gap-2 pt-2 md:pt-0 border-t md:border-t-0 border-white/10">
+                    <div className="inline-flex items-center p-0.5 rounded-xl bg-white/10 border border-white/15">
+                      {LANG_OPTIONS.map((l) => {
+                        const selected = targetLang === l.code;
+                        return (
+                          <button
+                            key={l.code}
+                            type="button"
+                            onClick={() => {
+                              setTargetLang(l.code);
+                              if (query.trim()) void handleTranslate(query, l.code);
+                            }}
+                            title={`Translate to ${l.label}`}
+                            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition ${
+                              selected
+                                ? 'bg-emerald-400/25 text-emerald-100 border border-emerald-300/40'
+                                : 'text-emerald-100/70 hover:text-white'
+                            }`}
+                          >
+                            {l.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={translating || !query.trim()}
+                      onClick={() => void handleTranslate()}
+                      className="px-4 py-2 rounded-xl bg-[#6FC294] hover:bg-[#82cfa4] text-[#0d2318] text-xs font-extrabold disabled:opacity-45 transition flex items-center gap-1.5 shadow-sm shrink-0"
+                    >
+                      {translating ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-3.5 h-3.5" />
+                      )}
+                      Translate
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom Hero Strip: Live script detection OR quick-try samples */}
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                {detectedClientLang ? (
+                  <div className="flex items-center gap-2 text-emerald-100/85">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 border border-white/15 text-[11px] font-semibold">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
+                      Detected: {langLabel(detectedClientLang)}
+                    </span>
+                    <ArrowRight className="w-3 h-3 text-emerald-200/60" />
+                    <span className="text-[11px] font-semibold text-emerald-200">
+                      {langLabel(targetLang)}
+                    </span>
+                    <span className="hidden sm:inline text-[11px] text-emerald-100/55">
+                      · Press Enter to translate
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] text-emerald-100/60 mr-1">Try:</span>
+                    {QUICK_SAMPLES.map((s) => (
+                      <button
+                        key={s.text}
+                        type="button"
+                        onClick={() => handleQuickSample(s)}
+                        className="px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/20 border border-white/15 text-[11px] font-medium text-emerald-50 transition inline-flex items-center gap-1.5"
+                      >
+                        <span>{s.text}</span>
+                        <span className="text-[10px] text-emerald-200/70">{s.hint}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {!user && (
+                  <Link
+                    to="/login"
+                    className="text-[11px] font-semibold text-emerald-200 hover:text-white underline underline-offset-2"
+                  >
+                    {t('signIn')} for instant translation & sync
+                  </Link>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* ==================== TAB 1: UNIFIED DICTIONARY + INLINE TRANSLATION ==================== */}
+      {activeTab === 'dictionary' && (
+        <div className="space-y-5">
+          {/* Translation Error Banner */}
+          {translateError && (
+            <div className="sanzar-card p-3.5 border-sanzar-danger/40 bg-sanzar-danger/10 text-xs text-sanzar-danger flex items-center justify-between gap-3">
+              <span className="font-medium">{translateError}</span>
+              {uid ? (
+                <button
+                  type="button"
+                  onClick={() => void handleTranslate()}
+                  className="px-3 py-1 rounded-lg bg-sanzar-danger/15 hover:bg-sanzar-danger/25 font-bold shrink-0"
+                >
+                  Retry
+                </button>
+              ) : (
+                <Link to="/login" className="px-3 py-1 rounded-lg bg-sanzar-primary text-sanzar-onPrimary font-bold shrink-0">
+                  {t('signIn')}
+                </Link>
+              )}
+            </div>
+          )}
+
+          {/* Featured Inline Translation Spotlight Card */}
+          {(translation || translating) && (
+            <div className="sanzar-card overflow-hidden border-sanzar-primary/35 relative">
+              <div className="h-1 w-full bg-brand-grad" />
+              <div className="p-5 sm:p-6">
+                {translating && !translation ? (
+                  <div className="flex items-center gap-3 text-sm text-sanzar-muted py-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-sanzar-primary" />
+                    <span>Translating to {langLabel(targetLang)}…</span>
+                  </div>
+                ) : translation ? (
+                  <div className="space-y-4">
+                    {/* Meta + Action Toolbar */}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${langBadgeClass(translation.sourceLanguage)}`}>
+                          {langLabel(translation.sourceLanguage)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleSwapAndTranslate}
+                          title="Reverse translate"
+                          className="p-1 rounded-lg hover:bg-sanzar-surface2 text-sanzar-muted hover:text-sanzar-primary transition"
+                        >
+                          <ArrowLeftRight className="w-3.5 h-3.5" />
+                        </button>
+                        <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${langBadgeClass(translation.targetLanguage)}`}>
+                          {langLabel(translation.targetLanguage)}
+                        </span>
+                        <span className="sanzar-pill gap-1 text-[11px] text-sanzar-primary">
+                          <Globe className="w-3 h-3" />
+                          {translation.fromCache ? 'Instant cache' : translation.provider}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => speakText(translation.translatedText, translation.targetLanguage, 1.0)}
+                          title="Listen"
+                          className="p-2 rounded-xl border border-sanzar-border hover:bg-sanzar-surface2 text-sanzar-primary transition"
+                        >
+                          <Volume2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => speakText(translation.translatedText, translation.targetLanguage, 0.7)}
+                          title="Listen slowly (0.7x)"
+                          className="p-2 rounded-xl border border-sanzar-border hover:bg-sanzar-surface2 text-sanzar-text2 hover:text-sanzar-primary transition"
+                        >
+                          <Turtle className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(translation.translatedText, 'tr')}
+                          title="Copy translation"
+                          className="p-2 rounded-xl border border-sanzar-border hover:bg-sanzar-surface2 text-sanzar-text2 transition"
+                        >
+                          {copiedId === 'tr' ? (
+                            <Check className="w-4 h-4 text-sanzar-primary" />
+                          ) : (
+                            <Copy className="w-4 h-4" />
+                          )}
+                        </button>
+                        {uid && (
+                          <button
+                            type="button"
+                            onClick={() => void handleSaveTranslationResult()}
+                            title="Save to vocabulary"
+                            className={`px-3 py-2 rounded-xl border text-xs font-semibold transition inline-flex items-center gap-1.5 ${
+                              isCurrentTranslationSaved
+                                ? 'bg-sanzar-primarySoft border-sanzar-primary/40 text-sanzar-primary'
+                                : 'border-sanzar-border hover:bg-sanzar-surface2 text-sanzar-text'
+                            }`}
+                          >
+                            {isCurrentTranslationSaved ? (
+                              <>
+                                <BookmarkCheck className="w-3.5 h-3.5" /> Saved
+                              </>
+                            ) : (
+                              <>
+                                <Bookmark className="w-3.5 h-3.5" /> Save
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Translated Text Display */}
+                    <div className="space-y-1.5">
+                      <p className="text-2xl sm:text-3xl font-extrabold tracking-tight text-sanzar-text leading-snug whitespace-pre-wrap">
+                        {translation.translatedText}
+                      </p>
+                      <div className="flex items-center gap-2 text-xs text-sanzar-muted">
+                        <span className="truncate">{query.trim()}</span>
+                        <button
+                          type="button"
+                          onClick={() => speakText(query.trim(), translation.sourceLanguage, 1.0)}
+                          title="Listen to original"
+                          className="p-1 rounded-md hover:bg-sanzar-surface2 hover:text-sanzar-primary transition shrink-0"
+                        >
+                          <Volume2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* One-tap "Also translate to..." chip */}
+                    {otherTargetLangs.length > 0 && (
+                      <div className="pt-3 border-t border-sanzar-border/60 flex flex-wrap items-center gap-2">
+                        <span className="text-[11px] font-medium text-sanzar-muted">Also translate to:</span>
+                        {otherTargetLangs.map((l) => (
+                          <button
+                            key={l.code}
+                            type="button"
+                            disabled={translating}
+                            onClick={() => {
+                              setTargetLang(l.code);
+                              void handleTranslate(query, l.code);
+                            }}
+                            className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-sanzar-surface2 hover:bg-sanzar-primarySoft hover:text-sanzar-primary border border-sanzar-border transition inline-flex items-center gap-1"
+                          >
+                            {l.label} <ArrowRight className="w-3 h-3" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )}
+
+          {/* Compact Filter & Results Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-1.5">
               {(
                 [
                   { k: 'all', label: t('allWords') },
@@ -502,110 +936,99 @@ export const DictionaryPage: React.FC = () => {
                   key={tab.k}
                   type="button"
                   onClick={() => setLangFilter(tab.k)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
+                  className={`px-3.5 py-1.5 rounded-full text-xs font-semibold border transition ${
                     langFilter === tab.k
-                      ? 'bg-sanzar-primary text-sanzar-onPrimary border-sanzar-primary'
+                      ? 'bg-sanzar-primary text-sanzar-onPrimary border-sanzar-primary shadow-sm'
                       : 'bg-sanzar-surface border-sanzar-border text-sanzar-text2 hover:bg-sanzar-surface2'
                   }`}
                 >
                   {tab.label}
                 </button>
               ))}
-
-              <select
-                aria-label="Filter by HSK level"
-                value={hskFilter}
-                onChange={(e) => setHskFilter(e.target.value)}
-                className="sanzar-input text-xs py-1.5 w-auto"
-              >
-                {HSK_OPTIONS.map((h) => (
-                  <option key={h || 'all'} value={h}>
-                    {h || 'All HSK'}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                aria-label="Filter by part of speech"
-                value={posFilter}
-                onChange={(e) => setPosFilter(e.target.value)}
-                className="sanzar-input text-xs py-1.5 w-auto"
-              >
-                {POS_OPTIONS.map((p) => (
-                  <option key={p || 'all'} value={p}>
-                    {p ? p.charAt(0).toUpperCase() + p.slice(1) : 'All POS'}
-                  </option>
-                ))}
-              </select>
             </div>
-          </div>
 
-          {/* Inline Translation Error */}
-          {translateError && (
-            <div className="p-3 rounded-xl bg-sanzar-danger/10 border border-sanzar-danger/30 text-xs text-sanzar-danger flex items-center justify-between gap-2">
-              <span>{translateError}</span>
-              {uid && (
-                <button type="button" onClick={() => void handleTranslate()} className="underline font-semibold shrink-0">
-                  Retry
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-sanzar-muted">
+                {entries.length} {entries.length === 1 ? 'word' : 'words'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowFilters((v) => !v)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition inline-flex items-center gap-1.5 ${
+                  showFilters || hskFilter || posFilter
+                    ? 'bg-sanzar-primarySoft border-sanzar-primary/40 text-sanzar-primary'
+                    : 'bg-sanzar-surface border-sanzar-border text-sanzar-text2 hover:bg-sanzar-surface2'
+                }`}
+              >
+                <Filter className="w-3.5 h-3.5" />
+                Filters
+                {hskFilter || posFilter ? (
+                  <span className="px-1.5 py-0.2 rounded-full bg-sanzar-primary text-sanzar-onPrimary text-[10px]">
+                    {(hskFilter ? 1 : 0) + (posFilter ? 1 : 0)}
+                  </span>
+                ) : null}
+              </button>
+              {activeFilterCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLangFilter('all');
+                    setHskFilter('');
+                    setPosFilter('');
+                  }}
+                  className="text-xs font-semibold text-sanzar-muted hover:text-sanzar-text inline-flex items-center gap-1"
+                >
+                  <RotateCcw className="w-3 h-3" /> Reset
                 </button>
               )}
             </div>
-          )}
+          </div>
 
-          {/* Inline Translation Result Card (top of search results) */}
-          {translation && (
-            <div className="sanzar-card p-4 sm:p-5 border-sanzar-primary/40 space-y-2.5">
-              <div className="flex items-start justify-between gap-3">
-                <div className="space-y-1.5 min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="sanzar-pill">
-                      {langShort(translation.sourceLanguage)} → {langShort(translation.targetLanguage)}
-                    </span>
-                    <span className="sanzar-pill text-sanzar-primary gap-1">
-                      <Globe className="w-3 h-3" />
-                      {translation.fromCache ? 'Cached' : `Translation (${translation.provider})`}
-                    </span>
-                  </div>
-                  <p className="text-lg font-extrabold text-sanzar-text whitespace-pre-wrap">
-                    {translation.translatedText}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => speakText(translation.translatedText, translation.targetLanguage)}
-                    title="Listen"
-                    aria-label="Listen"
-                    className="p-2 rounded-xl border border-sanzar-border hover:bg-sanzar-surface2 text-sanzar-primary"
-                  >
-                    <Volume2 className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleCopy(translation.translatedText)}
-                    title="Copy"
-                    aria-label="Copy"
-                    className="p-2 rounded-xl border border-sanzar-border hover:bg-sanzar-surface2 text-sanzar-text2"
-                  >
-                    {copied ? <Check className="w-4 h-4 text-sanzar-primary" /> : <Copy className="w-4 h-4" />}
-                  </button>
-                  {uid && (
+          {/* Expandable HSK + Part-of-Speech Filter Drawer */}
+          {showFilters && (
+            <div className="sanzar-card p-4 flex flex-wrap items-center gap-4">
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-sanzar-muted">HSK Level</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {HSK_OPTIONS.map((h) => (
                     <button
+                      key={h || 'all'}
                       type="button"
-                      onClick={() => void handleSaveTranslationResult()}
-                      title="Save to vocabulary"
-                      aria-label="Save to vocabulary"
-                      className="p-2 rounded-xl border border-sanzar-border hover:bg-sanzar-surface2 text-sanzar-primary"
+                      onClick={() => setHskFilter(h)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
+                        hskFilter === h
+                          ? 'bg-sanzar-primary text-sanzar-onPrimary border-sanzar-primary'
+                          : 'bg-sanzar-surface2 border-sanzar-border text-sanzar-text2 hover:text-sanzar-text'
+                      }`}
                     >
-                      <Bookmark className="w-4 h-4" />
+                      {h || 'All'}
                     </button>
-                  )}
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-sanzar-muted">Part of Speech</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {POS_OPTIONS.map((p) => (
+                    <button
+                      key={p || 'all'}
+                      type="button"
+                      onClick={() => setPosFilter(p)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition capitalize ${
+                        posFilter === p
+                          ? 'bg-sanzar-primary text-sanzar-onPrimary border-sanzar-primary'
+                          : 'bg-sanzar-surface2 border-sanzar-border text-sanzar-text2 hover:text-sanzar-text'
+                      }`}
+                    >
+                      {p || 'All'}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
           )}
 
-          {/* Curated Dictionary Results */}
+          {/* Curated Dictionary Error */}
           {dictError && (
             <div className="sanzar-card p-4 text-xs text-sanzar-danger flex items-center justify-between">
               <span>{dictError}</span>
@@ -615,38 +1038,50 @@ export const DictionaryPage: React.FC = () => {
             </div>
           )}
 
+          {/* Curated Dictionary Grid */}
           {dictLoading ? (
-            <LoadingState />
+            <DictionarySkeletonGrid />
           ) : entries.length === 0 && !translation ? (
-            <div className="sanzar-card p-10 text-center space-y-2">
-              <p className="text-sm text-sanzar-muted">{t('noWordsFound')}</p>
+            <div className="sanzar-card p-10 text-center space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-sanzar-primarySoft text-sanzar-primary mx-auto flex items-center justify-center">
+                <BookOpen className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-bold text-sanzar-text">{t('noWordsFound')}</p>
+                <p className="text-xs text-sanzar-muted">
+                  {query.trim()
+                    ? 'Not in the curated dictionary yet — translate it instantly instead.'
+                    : 'Try adjusting your filters or searching a word.'}
+                </p>
+              </div>
               {query.trim() && (
                 <button
                   type="button"
                   onClick={() => void handleTranslate()}
-                  className="px-4 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-semibold inline-flex items-center gap-1.5"
+                  className="px-4 py-2.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-bold inline-flex items-center gap-1.5 shadow-sm"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
                   Translate "{query.trim()}" to {langLabel(targetLang)}
                 </button>
               )}
             </div>
-          ) : (
+          ) : entries.length > 0 ? (
             <>
-              <div className="grid sm:grid-cols-2 gap-3.5">
+              <div className="grid sm:grid-cols-2 gap-4">
                 {entries.map((entry) => {
                   const isSaved = savedEntryIdSet.has(entry.id);
                   return (
                     <article
                       key={entry.id}
                       onClick={() => setDetailEntry(entry)}
-                      className="sanzar-card p-4 sm:p-5 space-y-2.5 flex flex-col justify-between cursor-pointer hover:border-sanzar-primary/40 transition"
+                      className="group sanzar-card p-5 flex flex-col justify-between gap-3.5 cursor-pointer hover:-translate-y-0.5 hover:border-sanzar-primary/45 transition-all"
                     >
-                      <div className="space-y-2">
+                      <div className="space-y-3">
+                        {/* Headword + Quick Actions */}
                         <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="flex items-baseline gap-2 flex-wrap">
-                              <h2 className="text-lg font-extrabold text-sanzar-text">
+                          <div className="min-w-0 space-y-1.5">
+                            <div className="flex items-baseline gap-2.5 flex-wrap">
+                              <h2 className="text-xl font-black tracking-tight text-sanzar-text group-hover:text-sanzar-primary transition-colors">
                                 {highlightMatch(entry.word, debouncedQuery)}
                               </h2>
                               {entry.phonetic && (
@@ -655,64 +1090,110 @@ export const DictionaryPage: React.FC = () => {
                                 </span>
                               )}
                             </div>
-                            <div className="flex items-center gap-1.5 flex-wrap mt-1">
-                              <span className="sanzar-pill">{langShort(entry.language)}</span>
-                              {entry.part_of_speech && <span className="sanzar-pill">{entry.part_of_speech}</span>}
-                              {entry.hsk_level && <span className="sanzar-pill published">{entry.hsk_level}</span>}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${langBadgeClass(entry.language)}`}
+                              >
+                                {langShort(entry.language)}
+                              </span>
+                              {entry.part_of_speech && (
+                                <span className="sanzar-pill text-[11px]">{entry.part_of_speech}</span>
+                              )}
+                              {entry.hsk_level && (
+                                <span className="sanzar-pill published text-[11px]">{entry.hsk_level}</span>
+                              )}
                             </div>
                           </div>
-                          <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+
+                          <div
+                            className="flex items-center gap-1 shrink-0"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <button
                               type="button"
                               onClick={() => speakText(entry.word, toCanonicalLang(entry.language))}
                               title={t('pronounce')}
                               aria-label={t('pronounce')}
-                              className="p-2 rounded-xl border border-sanzar-border hover:bg-sanzar-surface2 text-sanzar-primary transition"
+                              className="p-2 rounded-xl border border-sanzar-border hover:bg-sanzar-primarySoft hover:border-sanzar-primary/30 text-sanzar-primary transition"
                             >
                               <Volume2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(entry.word, entry.id)}
+                              title="Copy word"
+                              aria-label="Copy word"
+                              className="p-2 rounded-xl border border-sanzar-border hover:bg-sanzar-surface2 text-sanzar-muted hover:text-sanzar-text transition"
+                            >
+                              {copiedId === entry.id ? (
+                                <Check className="w-4 h-4 text-sanzar-primary" />
+                              ) : (
+                                <Copy className="w-4 h-4" />
+                              )}
                             </button>
                             {uid && (
                               <button
                                 type="button"
                                 onClick={() => void handleToggleSaveEntry(entry)}
+                                title={isSaved ? 'Remove from saved' : 'Save word'}
                                 aria-label={t('savedWords')}
-                                className={`p-2 rounded-xl border border-sanzar-border hover:bg-sanzar-surface2 transition ${
-                                  isSaved ? 'text-sanzar-primary bg-sanzar-primarySoft/60' : 'text-sanzar-muted'
+                                className={`p-2 rounded-xl border transition ${
+                                  isSaved
+                                    ? 'border-sanzar-primary/40 text-sanzar-primary bg-sanzar-primarySoft'
+                                    : 'border-sanzar-border text-sanzar-muted hover:text-sanzar-primary hover:bg-sanzar-surface2'
                                 }`}
                               >
-                                {isSaved ? <BookmarkCheck className="w-4 h-4" /> : <Bookmark className="w-4 h-4" />}
+                                {isSaved ? (
+                                  <BookmarkCheck className="w-4 h-4" />
+                                ) : (
+                                  <Bookmark className="w-4 h-4" />
+                                )}
                               </button>
                             )}
                           </div>
                         </div>
 
-                        <div className="space-y-1 text-sm pt-1">
+                        {/* Aligned Trilingual Meanings */}
+                        <div className="space-y-1.5 text-sm">
                           {entry.meaning_en && (
-                            <p className="text-sanzar-text">
-                              <span className="text-[11px] font-bold text-sanzar-muted mr-1.5">EN</span>
-                              {highlightMatch(entry.meaning_en, debouncedQuery)}
-                            </p>
+                            <div className="flex items-baseline gap-2.5">
+                              <span className="w-8 shrink-0 text-[10px] font-extrabold uppercase tracking-wider text-sky-600 dark:text-sky-400">
+                                EN
+                              </span>
+                              <p className="text-sanzar-text font-medium leading-snug">
+                                {highlightMatch(entry.meaning_en, debouncedQuery)}
+                              </p>
+                            </div>
                           )}
                           {entry.meaning_bn && (
-                            <p className="text-sanzar-text2">
-                              <span className="text-[11px] font-bold text-sanzar-muted mr-1.5">BN</span>
-                              {highlightMatch(entry.meaning_bn, debouncedQuery)}
-                            </p>
+                            <div className="flex items-baseline gap-2.5">
+                              <span className="w-8 shrink-0 text-[10px] font-extrabold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                                BN
+                              </span>
+                              <p className="text-sanzar-text2 leading-snug">
+                                {highlightMatch(entry.meaning_bn, debouncedQuery)}
+                              </p>
+                            </div>
                           )}
                           {entry.meaning_zh && (
-                            <p className="text-sanzar-text2">
-                              <span className="text-[11px] font-bold text-sanzar-muted mr-1.5">中文</span>
-                              {highlightMatch(entry.meaning_zh, debouncedQuery)}
-                            </p>
+                            <div className="flex items-baseline gap-2.5">
+                              <span className="w-8 shrink-0 text-[10px] font-extrabold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                                中文
+                              </span>
+                              <p className="text-sanzar-text2 leading-snug">
+                                {highlightMatch(entry.meaning_zh, debouncedQuery)}
+                              </p>
+                            </div>
                           )}
                         </div>
                       </div>
 
+                      {/* Example Callout */}
                       {entry.example && (
-                        <div className="pt-2.5 border-t border-sanzar-border/70 text-xs space-y-0.5">
-                          <p className="font-medium text-sanzar-text">{entry.example}</p>
+                        <div className="pl-3 border-l-2 border-sanzar-primary/45 text-xs space-y-0.5 bg-sanzar-surface2/50 rounded-r-xl py-2 pr-2.5">
+                          <p className="font-semibold text-sanzar-text leading-relaxed">{entry.example}</p>
                           {entry.example_translation && (
-                            <p className="text-sanzar-muted">{entry.example_translation}</p>
+                            <p className="text-sanzar-muted leading-relaxed">{entry.example_translation}</p>
                           )}
                         </div>
                       )}
@@ -727,11 +1208,200 @@ export const DictionaryPage: React.FC = () => {
                     type="button"
                     disabled={loadingMore}
                     onClick={() => void fetchDictionary(nextCursor)}
-                    className="px-5 py-2.5 rounded-xl border border-sanzar-border bg-sanzar-surface hover:bg-sanzar-surface2 text-xs font-semibold inline-flex items-center gap-2"
+                    className="px-6 py-2.5 rounded-xl border border-sanzar-border bg-sanzar-surface hover:bg-sanzar-surface2 text-xs font-bold inline-flex items-center gap-2 transition shadow-sm"
                   >
                     {loadingMore && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                    Load more words
+                    Load more vocabulary
                   </button>
+                </div>
+              )}
+            </>
+          ) : null}
+        </div>
+      )}
+
+      {/* ==================== TAB 2: SAVED VOCABULARY + FLASHCARD PRACTICE ==================== */}
+      {activeTab === 'saved' && (
+        <div className="space-y-4">
+          {!uid ? (
+            <div className="sanzar-card p-10 text-center space-y-3">
+              <BookmarkCheck className="w-10 h-10 text-sanzar-primary mx-auto opacity-80" />
+              <p className="text-sm font-semibold text-sanzar-text">
+                Sign in to save vocabulary and sync across Web and Android.
+              </p>
+              <Link
+                to="/login"
+                className="inline-block px-5 py-2.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-bold"
+              >
+                {t('signIn')}
+              </Link>
+            </div>
+          ) : savedItems.length === 0 ? (
+            <div className="sanzar-card p-12 text-center space-y-2">
+              <Bookmark className="w-10 h-10 text-sanzar-muted mx-auto opacity-60" />
+              <p className="text-sm font-bold text-sanzar-text">Your vocabulary collection is empty</p>
+              <p className="text-xs text-sanzar-muted">
+                Bookmark curated entries or translations from Search — they work offline and sync automatically.
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Saved Toolbar: Filter + Flashcard Practice Toggle */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="relative flex-1 max-w-sm">
+                  <Search className="w-4 h-4 text-sanzar-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={savedSearch}
+                    onChange={(e) => {
+                      setSavedSearch(e.target.value);
+                      setCardIndex(0);
+                      setCardFlipped(false);
+                    }}
+                    placeholder="Filter saved words…"
+                    className="sanzar-input pl-10 text-xs py-2"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFlashcardMode((v) => !v);
+                    setCardIndex(0);
+                    setCardFlipped(false);
+                  }}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold border transition inline-flex items-center gap-2 self-start sm:self-auto ${
+                    flashcardMode
+                      ? 'bg-sanzar-primary text-sanzar-onPrimary border-sanzar-primary'
+                      : 'bg-sanzar-surface border-sanzar-border text-sanzar-text hover:bg-sanzar-surface2'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  {flashcardMode ? 'Back to List' : `Practice Flashcards (${filteredSaved.length})`}
+                </button>
+              </div>
+
+              {/* Flashcard Review Mode */}
+              {flashcardMode && activeCard ? (
+                <div className="max-w-xl mx-auto space-y-4">
+                  <div
+                    onClick={() => setCardFlipped((f) => !f)}
+                    className="sanzar-card p-8 sm:p-10 min-h-[260px] flex flex-col items-center justify-center text-center cursor-pointer border-sanzar-primary/35 hover:border-sanzar-primary/60 transition select-none space-y-4"
+                  >
+                    <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${langBadgeClass(activeCard.source_language)}`}>
+                      {cardFlipped ? 'Meaning' : langLabel(activeCard.source_language)}
+                    </span>
+
+                    {!cardFlipped ? (
+                      <div className="space-y-2">
+                        <h3 className="text-3xl sm:text-4xl font-black tracking-tight text-sanzar-text">
+                          {activeCard.word}
+                        </h3>
+                        {activeCard.phonetic && (
+                          <p className="text-sm font-semibold text-sanzar-primary">{activeCard.phonetic}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5">
+                        <p className="text-xl sm:text-2xl font-bold text-sanzar-text leading-snug">
+                          {activeCard.meaning}
+                        </p>
+                        {activeCard.example && (
+                          <p className="text-xs text-sanzar-muted italic pt-1">{activeCard.example}</p>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-3 pt-2" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => speakText(activeCard.word, activeCard.source_language)}
+                        className="px-3 py-1.5 rounded-xl bg-sanzar-primarySoft text-sanzar-primary text-xs font-semibold inline-flex items-center gap-1.5"
+                      >
+                        <Volume2 className="w-3.5 h-3.5" /> Listen
+                      </button>
+                      <span className="text-[11px] text-sanzar-muted">Click card to flip</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <button
+                      type="button"
+                      disabled={safeCardIndex === 0}
+                      onClick={() => {
+                        setCardIndex((i) => Math.max(0, i - 1));
+                        setCardFlipped(false);
+                      }}
+                      className="px-4 py-2 rounded-xl border border-sanzar-border bg-sanzar-surface hover:bg-sanzar-surface2 text-xs font-semibold disabled:opacity-40 inline-flex items-center gap-1"
+                    >
+                      <ChevronLeft className="w-4 h-4" /> Previous
+                    </button>
+                    <span className="text-xs font-bold text-sanzar-muted">
+                      {safeCardIndex + 1} / {filteredSaved.length}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={safeCardIndex >= filteredSaved.length - 1}
+                      onClick={() => {
+                        setCardIndex((i) => Math.min(filteredSaved.length - 1, i + 1));
+                        setCardFlipped(false);
+                      }}
+                      className="px-4 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-semibold disabled:opacity-40 inline-flex items-center gap-1"
+                    >
+                      Next <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid sm:grid-cols-2 gap-4">
+                  {filteredSaved.map((item) => (
+                    <article key={item.id} className="sanzar-card p-5 space-y-2.5 flex flex-col justify-between">
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="flex items-baseline gap-2 flex-wrap">
+                              <h3 className="text-lg font-extrabold text-sanzar-text">{item.word}</h3>
+                              {item.phonetic && (
+                                <span className="text-xs text-sanzar-primary font-semibold">{item.phonetic}</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-1.5">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${langBadgeClass(item.source_language)}`}
+                              >
+                                {langShort(item.source_language)}
+                              </span>
+                              {item.hsk_level && <span className="sanzar-pill published text-[11px]">{item.hsk_level}</span>}
+                              {item.sync_status === 'pending' && <span className="sanzar-pill draft text-[10px]">Syncing…</span>}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => speakText(item.word, item.source_language)}
+                              aria-label="Listen"
+                              className="p-2 rounded-xl border border-sanzar-border hover:bg-sanzar-primarySoft text-sanzar-primary transition"
+                            >
+                              <Volume2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteSaved(item.id)}
+                              aria-label="Remove saved word"
+                              className="p-2 rounded-xl border border-sanzar-danger/30 text-sanzar-danger hover:bg-sanzar-danger/10 transition"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                        {item.meaning && <p className="text-sm text-sanzar-text2 leading-relaxed">{item.meaning}</p>}
+                      </div>
+                      {item.example && (
+                        <p className="text-xs text-sanzar-muted italic pl-3 border-l-2 border-sanzar-primary/40">
+                          {item.example}
+                        </p>
+                      )}
+                    </article>
+                  ))}
                 </div>
               )}
             </>
@@ -739,162 +1409,209 @@ export const DictionaryPage: React.FC = () => {
         </div>
       )}
 
-      {/* ==================== TAB 2: SAVED VOCABULARY ==================== */}
-      {activeTab === 'saved' && (
-        <div className="space-y-3">
-          {!uid ? (
-            <div className="sanzar-card p-8 text-center space-y-3">
-              <p className="text-sm text-sanzar-text2">Sign in to save vocabulary and sync across Web and Android.</p>
-              <Link
-                to="/login"
-                className="inline-block px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-semibold"
-              >
-                {t('signIn')}
-              </Link>
-            </div>
-          ) : savedItems.length === 0 ? (
-            <div className="sanzar-card p-10 text-center text-sm text-sanzar-muted">
-              No saved vocabulary yet. Save words or translations from the Dictionary to build your personal list.
-            </div>
-          ) : (
-            <div className="grid sm:grid-cols-2 gap-3.5">
-              {savedItems.map((item) => (
-                <article key={item.id} className="sanzar-card p-4 space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <div className="flex items-baseline gap-2 flex-wrap">
-                        <h3 className="text-base font-extrabold">{item.word}</h3>
-                        {item.phonetic && <span className="text-xs text-sanzar-primary font-semibold">{item.phonetic}</span>}
-                      </div>
-                      <div className="flex items-center gap-1.5 mt-1">
-                        <span className="sanzar-pill">{langShort(item.source_language)}</span>
-                        {item.hsk_level && <span className="sanzar-pill published">{item.hsk_level}</span>}
-                        {item.sync_status === 'pending' && <span className="sanzar-pill">Pending sync</span>}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => speakText(item.word, item.source_language)}
-                        aria-label="Listen"
-                        className="p-1.5 rounded-lg border border-sanzar-border hover:bg-sanzar-surface2 text-sanzar-primary"
-                      >
-                        <Volume2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleDeleteSaved(item.id)}
-                        aria-label="Remove saved word"
-                        className="p-1.5 rounded-lg border border-sanzar-danger/30 text-sanzar-danger hover:bg-sanzar-danger/10"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                  {item.meaning && <p className="text-sm text-sanzar-text2">{item.meaning}</p>}
-                  {item.example && <p className="text-xs text-sanzar-muted italic pt-1 border-t border-sanzar-border/60">{item.example}</p>}
-                </article>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ==================== TAB 3: TRANSLATION HISTORY ==================== */}
+      {/* ==================== TAB 3: TRANSLATION HISTORY (GROUPED BY DAY) ==================== */}
       {activeTab === 'history' && (
-        <div className="space-y-3">
+        <div className="space-y-5">
           {!uid ? (
-            <div className="sanzar-card p-8 text-center space-y-3">
-              <p className="text-sm text-sanzar-text2">Sign in to view and synchronize your translation history.</p>
+            <div className="sanzar-card p-10 text-center space-y-3">
+              <Clock className="w-10 h-10 text-sanzar-primary mx-auto opacity-80" />
+              <p className="text-sm font-semibold text-sanzar-text">
+                Sign in to view and synchronize your translation history.
+              </p>
               <Link
                 to="/login"
-                className="inline-block px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-semibold"
+                className="inline-block px-5 py-2.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-bold"
               >
                 {t('signIn')}
               </Link>
             </div>
           ) : historyItems.length === 0 ? (
-            <div className="sanzar-card p-10 text-center text-sm text-sanzar-muted">
-              No translation history yet.
+            <div className="sanzar-card p-12 text-center space-y-2">
+              <Clock className="w-10 h-10 text-sanzar-muted mx-auto opacity-60" />
+              <p className="text-sm font-bold text-sanzar-text">No translation history yet</p>
+              <p className="text-xs text-sanzar-muted">
+                Every word or sentence you translate appears here and syncs across your devices.
+              </p>
             </div>
           ) : (
-            <div className="space-y-2.5">
-              {historyItems.map((item) => (
-                <div
-                  key={item.id}
-                  onClick={() => handleReopenHistory(item)}
-                  className="sanzar-card p-4 flex items-start justify-between gap-3 cursor-pointer hover:border-sanzar-primary/40 transition"
-                >
-                  <div className="space-y-1 min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="sanzar-pill">
-                        {langShort(item.source_language)} → {langShort(item.target_language)}
-                      </span>
-                      <span className="text-[11px] text-sanzar-muted">
-                        {new Date(item.created_at).toLocaleString()}
-                      </span>
+            groupedHistory.map((group) => (
+              <div key={group.label} className="space-y-2.5">
+                <h2 className="text-xs font-extrabold uppercase tracking-wider text-sanzar-muted px-1">
+                  {group.label}
+                </h2>
+                <div className="space-y-2.5">
+                  {group.items.map((item) => (
+                    <div
+                      key={item.id}
+                      onClick={() => handleReopenHistory(item)}
+                      className="sanzar-card p-4 flex items-center justify-between gap-3 cursor-pointer hover:border-sanzar-primary/45 transition group"
+                    >
+                      <div className="space-y-1.5 min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${langBadgeClass(item.source_language)}`}>
+                            {langShort(item.source_language)}
+                          </span>
+                          <ArrowRight className="w-3 h-3 text-sanzar-muted" />
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${langBadgeClass(item.target_language)}`}>
+                            {langShort(item.target_language)}
+                          </span>
+                          <span className="text-[11px] text-sanzar-muted">
+                            {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <p className="text-sm font-bold text-sanzar-text truncate group-hover:text-sanzar-primary transition-colors">
+                          {item.source_text}
+                        </p>
+                        <p className="text-sm text-sanzar-text2 truncate">{item.translated_text}</p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          title="Save to vocabulary"
+                          onClick={() =>
+                            void handleSaveTranslationResult(
+                              item.source_text,
+                              item.translated_text,
+                              item.source_language,
+                              item.target_language
+                            )
+                          }
+                          className="p-2 rounded-xl border border-sanzar-border hover:bg-sanzar-primarySoft text-sanzar-primary transition"
+                        >
+                          <Bookmark className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          title="Delete history item"
+                          onClick={() => void handleDeleteHistory(item.id)}
+                          className="p-2 rounded-xl border border-sanzar-danger/30 text-sanzar-danger hover:bg-sanzar-danger/10 transition"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
-                    <p className="text-sm font-semibold text-sanzar-text truncate">{item.source_text}</p>
-                    <p className="text-sm text-sanzar-text2 truncate">{item.translated_text}</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void handleDeleteHistory(item.id);
-                    }}
-                    aria-label="Delete history item"
-                    className="p-2 rounded-xl border border-sanzar-danger/30 text-sanzar-danger hover:bg-sanzar-danger/10 shrink-0"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </div>
+            ))
           )}
         </div>
       )}
 
-      {/* ==================== VOCABULARY DETAIL MODAL ==================== */}
+      {/* ==================== ENHANCED VOCABULARY DETAIL MODAL ==================== */}
       {detailEntry && (
-        <Modal title={detailEntry.word} onClose={() => setDetailEntry(null)}>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div className="flex items-center gap-2 flex-wrap">
-                {detailEntry.phonetic && (
-                  <span className="text-sm font-semibold text-sanzar-primary">{detailEntry.phonetic}</span>
-                )}
-                <span className="sanzar-pill">{langLabel(detailEntry.language)}</span>
-                {detailEntry.part_of_speech && <span className="sanzar-pill">{detailEntry.part_of_speech}</span>}
-                {detailEntry.hsk_level && <span className="sanzar-pill published">{detailEntry.hsk_level}</span>}
+        <Modal title="Vocabulary Details" onClose={() => setDetailEntry(null)}>
+          <div className="space-y-5">
+            {/* Headword Hero Banner */}
+            <div className="rounded-2xl bg-sanzar-surface2 p-5 border border-sanzar-border space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <h3 className="text-3xl font-black tracking-tight text-sanzar-text">{detailEntry.word}</h3>
+                  {detailEntry.phonetic && (
+                    <p className="text-base font-semibold text-sanzar-primary">{detailEntry.phonetic}</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${langBadgeClass(detailEntry.language)}`}>
+                    {langLabel(detailEntry.language)}
+                  </span>
+                  {detailEntry.hsk_level && <span className="sanzar-pill published">{detailEntry.hsk_level}</span>}
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => speakText(detailEntry.word, toCanonicalLang(detailEntry.language))}
-                className="px-3 py-1.5 rounded-xl border border-sanzar-border hover:bg-sanzar-surface2 text-xs font-semibold text-sanzar-primary inline-flex items-center gap-1.5"
-              >
-                <Volume2 className="w-4 h-4" /> Pronounce
-              </button>
-            </div>
 
-            <div className="space-y-2 text-sm">
-              {detailEntry.meaning_en && (
-                <p><span className="font-bold text-sanzar-muted mr-2">EN</span>{detailEntry.meaning_en}</p>
-              )}
-              {detailEntry.meaning_bn && (
-                <p><span className="font-bold text-sanzar-muted mr-2">BN</span>{detailEntry.meaning_bn}</p>
-              )}
-              {detailEntry.meaning_zh && (
-                <p><span className="font-bold text-sanzar-muted mr-2">中文</span>{detailEntry.meaning_zh}</p>
-              )}
-            </div>
-
-            {detailEntry.example && (
-              <div className="p-3 rounded-xl bg-sanzar-surface2 space-y-1 text-xs">
-                <p className="font-semibold text-sanzar-text">{detailEntry.example}</p>
-                {detailEntry.example_translation && (
-                  <p className="text-sanzar-muted">{detailEntry.example_translation}</p>
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => speakText(detailEntry.word, toCanonicalLang(detailEntry.language), 1.0)}
+                  className="px-3.5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-bold inline-flex items-center gap-1.5"
+                >
+                  <Volume2 className="w-4 h-4" /> Listen
+                </button>
+                <button
+                  type="button"
+                  onClick={() => speakText(detailEntry.word, toCanonicalLang(detailEntry.language), 0.7)}
+                  className="px-3 py-2 rounded-xl border border-sanzar-border bg-sanzar-surface hover:bg-sanzar-surface2 text-xs font-semibold inline-flex items-center gap-1.5"
+                >
+                  <Turtle className="w-4 h-4" /> Slow (0.7×)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(detailEntry.word, `modal_${detailEntry.id}`)}
+                  className="px-3 py-2 rounded-xl border border-sanzar-border bg-sanzar-surface hover:bg-sanzar-surface2 text-xs font-semibold inline-flex items-center gap-1.5"
+                >
+                  <Copy className="w-3.5 h-3.5" /> Copy
+                </button>
+                {uid && (
+                  <button
+                    type="button"
+                    onClick={() => void handleToggleSaveEntry(detailEntry)}
+                    className={`px-3 py-2 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 ${
+                      savedEntryIdSet.has(detailEntry.id)
+                        ? 'bg-sanzar-primarySoft border-sanzar-primary/40 text-sanzar-primary'
+                        : 'border-sanzar-border bg-sanzar-surface hover:bg-sanzar-surface2'
+                    }`}
+                  >
+                    {savedEntryIdSet.has(detailEntry.id) ? (
+                      <>
+                        <BookmarkCheck className="w-4 h-4" /> Saved
+                      </>
+                    ) : (
+                      <>
+                        <Bookmark className="w-4 h-4" /> Save
+                      </>
+                    )}
+                  </button>
                 )}
+              </div>
+            </div>
+
+            {/* Trilingual Meaning Cards */}
+            <div className="space-y-2.5">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-sanzar-muted">
+                Meanings {detailEntry.part_of_speech ? `· ${detailEntry.part_of_speech}` : ''}
+              </p>
+              <div className="grid gap-2">
+                {detailEntry.meaning_en && (
+                  <div className="p-3.5 rounded-xl bg-sanzar-surface2/70 border border-sanzar-border flex items-baseline gap-3">
+                    <span className="text-xs font-extrabold text-sky-600 dark:text-sky-400 w-10 shrink-0">EN</span>
+                    <span className="text-sm font-medium text-sanzar-text">{detailEntry.meaning_en}</span>
+                  </div>
+                )}
+                {detailEntry.meaning_bn && (
+                  <div className="p-3.5 rounded-xl bg-sanzar-surface2/70 border border-sanzar-border flex items-baseline gap-3">
+                    <span className="text-xs font-extrabold text-amber-600 dark:text-amber-400 w-10 shrink-0">BN</span>
+                    <span className="text-sm font-medium text-sanzar-text">{detailEntry.meaning_bn}</span>
+                  </div>
+                )}
+                {detailEntry.meaning_zh && (
+                  <div className="p-3.5 rounded-xl bg-sanzar-surface2/70 border border-sanzar-border flex items-baseline gap-3">
+                    <span className="text-xs font-extrabold text-emerald-600 dark:text-emerald-400 w-10 shrink-0">中文</span>
+                    <span className="text-sm font-medium text-sanzar-text">{detailEntry.meaning_zh}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Example Sentence with Audio */}
+            {detailEntry.example && (
+              <div className="space-y-2">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-sanzar-muted">Example in Context</p>
+                <div className="p-4 rounded-xl bg-sanzar-surface2/70 border-l-4 border-sanzar-primary flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <p className="text-sm font-bold text-sanzar-text leading-relaxed">{detailEntry.example}</p>
+                    {detailEntry.example_translation && (
+                      <p className="text-xs text-sanzar-muted leading-relaxed">{detailEntry.example_translation}</p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => speakText(detailEntry.example, toCanonicalLang(detailEntry.language), 0.9)}
+                    title="Listen to example"
+                    className="p-2 rounded-xl border border-sanzar-border bg-sanzar-surface hover:bg-sanzar-primarySoft text-sanzar-primary shrink-0"
+                  >
+                    <Volume2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             )}
           </div>
