@@ -227,14 +227,47 @@ async function callTranslationProvider(env, text, sourceLang, targetLang) {
     }
   }
 
-  // 3. Default zero-config provider: MyMemory (supports en, bn, zh-CN)
+  // 3. Default zero-config provider #1: Google public gtx endpoint (reliable on Cloudflare Workers, supports en/bn/zh-CN)
+  try {
+    const sl = toProviderLang(sourceLang, 'google');
+    const tl = toProviderLang(targetLang, 'google');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const res = await fetch(
+        `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(sl)}&tl=${encodeURIComponent(tl)}&dt=t&q=${encodeURIComponent(text)}`,
+        {
+          headers: { 'user-agent': 'Mozilla/5.0 (compatible; Sanzar/1.0)' },
+          signal: controller.signal,
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const translated = Array.isArray(data?.[0])
+          ? data[0].map((seg) => (Array.isArray(seg) ? seg[0] : '')).join('')
+          : '';
+        if (translated) {
+          return { translatedText: translated, provider: 'google-gtx' };
+        }
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    // Fall through to MyMemory
+  }
+
+  // 4. Default zero-config provider #2: MyMemory fallback (supports en, bn, zh-CN)
   const pair = `${toProviderLang(sourceLang, 'mymemory')}|${toProviderLang(targetLang, 'mymemory')}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   try {
     const res = await fetch(
       `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${encodeURIComponent(pair)}`,
-      { signal: controller.signal }
+      {
+        headers: { 'user-agent': 'Sanzar/1.0' },
+        signal: controller.signal,
+      }
     );
     if (!res.ok) throw new HttpError(502, 'provider-error', 'Online translation service unavailable');
     const data = await res.json();
