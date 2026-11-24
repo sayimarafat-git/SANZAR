@@ -50,20 +50,15 @@ fun DictionaryScreen(
     val palette = LocalSanzarPalette.current
     val context = LocalContext.current
 
-    var activeTab by remember { mutableStateOf("translator") }
+    var activeTab by remember { mutableStateOf("dictionary") }
 
-    // Translator state
-    var sourceLang by remember { mutableStateOf("auto") }
-    var targetLang by remember { mutableStateOf("bn") }
-    var inputText by remember { mutableStateOf("") }
-
-    // Dictionary state
+    // Unified search + inline translation state
     var query by remember { mutableStateOf("") }
+    var targetLang by remember { mutableStateOf("bn") }
     var langFilter by remember { mutableStateOf("all") }
     var hskFilter by remember { mutableStateOf("") }
     var posFilter by remember { mutableStateOf("") }
 
-    // Android TextToSpeech
     var tts by remember { mutableStateOf<TextToSpeech?>(null) }
     DisposableEffect(context) {
         val engine = TextToSpeech(context) { }
@@ -118,14 +113,13 @@ fun DictionaryScreen(
             contentPadding = PaddingValues(start = SanzarSpace.S4.dp, end = SanzarSpace.S4.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(SanzarSpace.S3.dp)
         ) {
-            // Mode tabs
+            // 3 Clean Tabs: Dictionary, Saved, History
             item {
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(SanzarSpace.S2.dp)
                 ) {
                     listOf(
-                        "translator" to "Translator",
                         "dictionary" to "Dictionary",
                         "saved" to "Saved (${state.savedVocabulary.size})",
                         "history" to "History (${state.translationHistory.size})"
@@ -139,130 +133,13 @@ fun DictionaryScreen(
                 }
             }
 
-            // ==================== TRANSLATOR TAB ====================
-            if (activeTab == "translator") {
-                item {
-                    SanzarCard(modifier = Modifier.fillMaxWidth()) {
-                        Column(
-                            modifier = Modifier.padding(SanzarSpace.S4.dp),
-                            verticalArrangement = Arrangement.spacedBy(SanzarSpace.S3.dp)
-                        ) {
-                            Text("Source", style = MaterialTheme.typography.labelMedium, color = palette.muted)
-                            Row(
-                                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                listOf("auto" to "Auto", "en" to "English", "bn" to "বাংলা", "zh-Hans" to "简体中文")
-                                    .forEach { (code, label) ->
-                                        FilterChip(
-                                            selected = sourceLang == code,
-                                            onClick = { sourceLang = code },
-                                            label = { Text(label) }
-                                        )
-                                    }
-                            }
-
-                            Text("Target", style = MaterialTheme.typography.labelMedium, color = palette.muted)
-                            Row(
-                                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                listOf("en" to "English", "bn" to "বাংলা", "zh-Hans" to "简体中文")
-                                    .forEach { (code, label) ->
-                                        FilterChip(
-                                            selected = targetLang == code,
-                                            onClick = { targetLang = code },
-                                            label = { Text(label) }
-                                        )
-                                    }
-                            }
-
-                            OutlinedTextField(
-                                value = inputText,
-                                onValueChange = { inputText = it },
-                                placeholder = { Text("Enter word, phrase, or sentence…") },
-                                minLines = 3,
-                                maxLines = 6,
-                                shape = RoundedCornerShape(SanzarRadius.SM.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("${inputText.length}/2000", style = MaterialTheme.typography.labelSmall, color = palette.muted)
-                                Button(
-                                    onClick = { onTranslate(inputText, sourceLang, targetLang) },
-                                    enabled = !state.translating && inputText.isNotBlank()
-                                ) {
-                                    if (state.translating) {
-                                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                        Spacer(Modifier.width(8.dp))
-                                    }
-                                    Text("Translate")
-                                }
-                            }
-
-                            if (!state.translationError.isNullOrBlank()) {
-                                Text(
-                                    text = state.translationError,
-                                    color = MaterialTheme.colorScheme.error,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-
-                            if (state.translationOutput.isNotBlank()) {
-                                HorizontalDivider()
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.Top
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            SanzarPill(text = "${langShortLabel(state.translationDetectedLang.ifBlank { sourceLang })} → ${langShortLabel(targetLang)}")
-                                            if (state.translationProvider.isNotBlank()) {
-                                                SanzarPill(text = state.translationProvider)
-                                            }
-                                        }
-                                        Spacer(Modifier.height(6.dp))
-                                        Text(
-                                            text = state.translationOutput,
-                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                                        )
-                                    }
-                                    IconButton(onClick = { speak(state.translationOutput, targetLang) }) {
-                                        Icon(Icons.Rounded.VolumeUp, contentDescription = "Listen", tint = palette.primary)
-                                    }
-                                    if (state.firebaseUser != null) {
-                                        IconButton(
-                                            onClick = {
-                                                onSaveTranslation(
-                                                    inputText.trim(),
-                                                    state.translationOutput,
-                                                    state.translationDetectedLang.ifBlank { if (sourceLang == "auto") "en" else sourceLang },
-                                                    targetLang
-                                                )
-                                            }
-                                        ) {
-                                            Icon(Icons.Rounded.BookmarkAdd, contentDescription = "Save", tint = palette.primary)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ==================== DICTIONARY TAB ====================
+            // ==================== UNIFIED DICTIONARY + INLINE TRANSLATION ====================
             if (activeTab == "dictionary") {
                 item {
                     OutlinedTextField(
                         value = query,
                         onValueChange = { query = it },
-                        placeholder = { Text("Search EN, বাংলা, 中文, or Pinyin…") },
+                        placeholder = { Text("Search word, Pinyin, or sentence to translate…") },
                         leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                         trailingIcon = {
                             if (query.isNotEmpty()) {
@@ -277,6 +154,102 @@ fun DictionaryScreen(
                     )
                 }
 
+                // Inline Target Language + Translate button
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf("bn" to "→ বাংলা", "en" to "→ English", "zh-Hans" to "→ 简体中文")
+                                .forEach { (code, label) ->
+                                    FilterChip(
+                                        selected = targetLang == code,
+                                        onClick = { targetLang = code },
+                                        label = { Text(label) }
+                                    )
+                                }
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                val src = if (langFilter == "all") "auto" else langFilter
+                                onTranslate(query, src, targetLang)
+                            },
+                            enabled = !state.translating && query.isNotBlank()
+                        ) {
+                            if (state.translating) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(6.dp))
+                            }
+                            Text("Translate")
+                        }
+                    }
+                }
+
+                // Inline Translation Error
+                if (!state.translationError.isNullOrBlank()) {
+                    item {
+                        Text(
+                            text = state.translationError,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+
+                // Inline Translation Result Card (top of search results)
+                if (query.isNotBlank() && state.translationOutput.isNotBlank()) {
+                    item {
+                        SanzarCard(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.padding(SanzarSpace.S4.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        SanzarPill(
+                                            text = "${langShortLabel(state.translationDetectedLang.ifBlank { "en" })} → ${langShortLabel(targetLang)}"
+                                        )
+                                        if (state.translationProvider.isNotBlank()) {
+                                            SanzarPill(text = state.translationProvider)
+                                        }
+                                    }
+                                    Spacer(Modifier.height(6.dp))
+                                    Text(
+                                        text = state.translationOutput,
+                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold)
+                                    )
+                                }
+                                IconButton(onClick = { speak(state.translationOutput, targetLang) }) {
+                                    Icon(Icons.Rounded.VolumeUp, contentDescription = "Listen", tint = palette.primary)
+                                }
+                                if (state.firebaseUser != null) {
+                                    IconButton(
+                                        onClick = {
+                                            onSaveTranslation(
+                                                query.trim(),
+                                                state.translationOutput,
+                                                state.translationDetectedLang.ifBlank { "en" },
+                                                targetLang
+                                            )
+                                        }
+                                    ) {
+                                        Icon(Icons.Rounded.BookmarkAdd, contentDescription = "Save", tint = palette.primary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Language & HSK filters
                 item {
                     Row(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -315,7 +288,7 @@ fun DictionaryScreen(
                             CircularProgressIndicator()
                         }
                     }
-                } else if (state.dictionaryEntries.isEmpty()) {
+                } else if (state.dictionaryEntries.isEmpty() && state.translationOutput.isBlank()) {
                     item { EmptyStateView(message = s("noWordsFound"), icon = Icons.Rounded.MenuBook) }
                 } else {
                     items(state.dictionaryEntries, key = { it.id }) { entry ->

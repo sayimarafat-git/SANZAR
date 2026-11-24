@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  ArrowLeftRight,
   BookA,
   Bookmark,
   BookmarkCheck,
@@ -9,7 +8,6 @@ import {
   Clock,
   Copy,
   Globe,
-  Languages,
   Loader2,
   Search,
   Sparkles,
@@ -42,8 +40,8 @@ import {
 } from './dictionary-db';
 
 const LANG_OPTIONS: { code: DictLangCode; label: string; short: string }[] = [
-  { code: 'en', label: 'English', short: 'EN' },
   { code: 'bn', label: 'বাংলা', short: 'BN' },
+  { code: 'en', label: 'English', short: 'EN' },
   { code: 'zh-Hans', label: '简体中文', short: '中文' },
 ];
 
@@ -97,20 +95,18 @@ export const DictionaryPage: React.FC = () => {
   const { t } = useSettings();
   const uid = user?.uid || '';
 
-  const [activeTab, setActiveTab] = useState<'translator' | 'dictionary' | 'saved' | 'history'>('translator');
+  const [activeTab, setActiveTab] = useState<'dictionary' | 'saved' | 'history'>('dictionary');
 
-  // --- Translator state ---
-  const [sourceLang, setSourceLang] = useState<'auto' | DictLangCode>('auto');
+  // Unified search + inline translation state
+  const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [targetLang, setTargetLang] = useState<DictLangCode>('bn');
-  const [inputText, setInputText] = useState('');
   const [translation, setTranslation] = useState<TranslationResult | null>(null);
   const [translating, setTranslating] = useState(false);
   const [translateError, setTranslateError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // --- Dictionary search & pagination state ---
-  const [query, setQuery] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
+  // Dictionary filters & pagination
   const [langFilter, setLangFilter] = useState<'all' | DictLangCode>('all');
   const [hskFilter, setHskFilter] = useState('');
   const [posFilter, setPosFilter] = useState('');
@@ -122,13 +118,21 @@ export const DictionaryPage: React.FC = () => {
   const [dictError, setDictError] = useState<string | null>(null);
   const [detailEntry, setDetailEntry] = useState<DictionaryEntry | null>(null);
 
-  // --- Saved vocabulary & History (IndexedDB + D1 sync, isolated by UID) ---
+  // Saved vocabulary & History (IndexedDB + D1 sync, isolated by UID)
   const [savedItems, setSavedItems] = useState<SavedVocabularyItem[]>([]);
   const [historyItems, setHistoryItems] = useState<TranslationHistoryItem[]>([]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), 260);
     return () => window.clearTimeout(timer);
+  }, [query]);
+
+  // Clear translation when search is cleared
+  useEffect(() => {
+    if (!query.trim()) {
+      setTranslation(null);
+      setTranslateError(null);
+    }
   }, [query]);
 
   // Load & sync personal data when account changes (strict UID isolation)
@@ -162,7 +166,7 @@ export const DictionaryPage: React.FC = () => {
     };
   }, [uid]);
 
-  // Fetch curated dictionary entries (public endpoint, works for guests too)
+  // Fetch curated dictionary entries
   const fetchDictionary = useCallback(
     async (cursor?: string | null) => {
       const isMore = Boolean(cursor);
@@ -244,7 +248,7 @@ export const DictionaryPage: React.FC = () => {
   };
 
   const handleSaveTranslationResult = async () => {
-    if (!uid || !translation || !inputText.trim()) return;
+    if (!uid || !translation || !query.trim()) return;
     const nowMs = Date.now();
     const id = `sv_tr_${nowMs}_${Math.random().toString(36).slice(2, 7)}`;
     const newItem: SavedVocabularyItem = {
@@ -252,7 +256,7 @@ export const DictionaryPage: React.FC = () => {
       dictionary_entry_id: null,
       source_language: translation.sourceLanguage,
       target_language: translation.targetLanguage,
-      word: inputText.trim().slice(0, 200),
+      word: query.trim().slice(0, 200),
       meaning: translation.translatedText.slice(0, 1000),
       created_at: nowMs,
       updated_at: nowMs,
@@ -276,22 +280,12 @@ export const DictionaryPage: React.FC = () => {
     void syncTranslationHistory(uid).then(setHistoryItems);
   };
 
-  const handleSwapLanguages = () => {
-    const effectiveSource = sourceLang === 'auto' ? translation?.sourceLanguage || 'en' : sourceLang;
-    if (effectiveSource === targetLang) return;
-    setSourceLang(targetLang);
-    setTargetLang(effectiveSource);
-    if (translation?.translatedText) {
-      setInputText(translation.translatedText);
-      setTranslation(null);
-    }
-  };
-
-  const handleTranslate = async () => {
-    const clean = inputText.trim();
+  const handleTranslate = async (overrideTarget?: DictLangCode) => {
+    const clean = query.trim();
     if (!clean) return;
+    const tgt = overrideTarget || targetLang;
     if (!uid) {
-      setTranslateError('Please sign in to use online translation and sync your history.');
+      setTranslateError('Sign in to translate words and sentences.');
       return;
     }
 
@@ -299,9 +293,9 @@ export const DictionaryPage: React.FC = () => {
     setTranslateError(null);
 
     try {
-      // Check local translation cache when source language is explicitly chosen
-      if (sourceLang !== 'auto') {
-        const cached = await getCachedTranslation(sourceLang, targetLang, clean);
+      const sourceParam = langFilter !== 'all' ? langFilter : 'auto';
+      if (sourceParam !== 'auto') {
+        const cached = await getCachedTranslation(sourceParam, tgt, clean);
         if (cached) {
           setTranslation({
             translatedText: cached.translatedText,
@@ -313,7 +307,6 @@ export const DictionaryPage: React.FC = () => {
             fromCache: true,
           });
           setTranslating(false);
-          // Per architecture Section 5.4: cache hits do NOT create history records
           return;
         }
       }
@@ -322,14 +315,13 @@ export const DictionaryPage: React.FC = () => {
         method: 'POST',
         bodyJson: {
           text: clean,
-          sourceLanguage: sourceLang,
-          targetLanguage: targetLang,
+          sourceLanguage: sourceParam,
+          targetLanguage: tgt,
         },
       });
 
       setTranslation(res);
 
-      // Store in local LRU cache
       void putCachedTranslation({
         sourceLanguage: res.sourceLanguage,
         targetLanguage: res.targetLanguage,
@@ -338,7 +330,6 @@ export const DictionaryPage: React.FC = () => {
         provider: res.provider,
       });
 
-      // Save explicit translation action to local-first history & sync
       const nowMs = Date.now();
       const histItem = await addLocalTranslationHistory(uid, {
         id: `th_${nowMs}_${Math.random().toString(36).slice(2, 8)}`,
@@ -360,10 +351,8 @@ export const DictionaryPage: React.FC = () => {
   };
 
   const handleReopenHistory = (item: TranslationHistoryItem) => {
-    // Reopening an old history item must NOT create a new history event
-    setSourceLang(item.source_language);
+    setQuery(item.source_text);
     setTargetLang(item.target_language);
-    setInputText(item.source_text);
     setTranslation({
       translatedText: item.translated_text,
       sourceLanguage: item.source_language,
@@ -374,7 +363,7 @@ export const DictionaryPage: React.FC = () => {
       fromCache: true,
     });
     setTranslateError(null);
-    setActiveTab('translator');
+    setActiveTab('dictionary');
   };
 
   const handleCopy = (text: string) => {
@@ -393,7 +382,7 @@ export const DictionaryPage: React.FC = () => {
             <span>{t('dictionary')}</span>
           </h1>
           <p className="text-xs text-sanzar-muted mt-0.5">
-            English · বাংলা · 简体中文 — Translator, Curated Dictionary & Synced Vocabulary
+            Search & translate English · বাংলা · 简体中文 words, phrases, or sentences
           </p>
         </div>
         {!user && (
@@ -406,11 +395,10 @@ export const DictionaryPage: React.FC = () => {
         )}
       </div>
 
-      {/* Mode Tabs */}
+      {/* 3 Clean Tabs: Dictionary, Saved, History */}
       <div className="flex flex-wrap items-center gap-2">
         {(
           [
-            { k: 'translator', label: 'Translator', icon: Languages },
             { k: 'dictionary', label: 'Dictionary', icon: BookA },
             { k: 'saved', label: `Saved (${savedItems.length})`, icon: BookmarkCheck },
             { k: 'history', label: `History (${historyItems.length})`, icon: Clock },
@@ -436,223 +424,71 @@ export const DictionaryPage: React.FC = () => {
         })}
       </div>
 
-      {/* ==================== TAB 1: TRANSLATOR ==================== */}
-      {activeTab === 'translator' && (
+      {/* ==================== TAB 1: UNIFIED DICTIONARY + INLINE TRANSLATION ==================== */}
+      {activeTab === 'dictionary' && (
         <div className="space-y-4">
-          <div className="sanzar-card p-4 sm:p-5 space-y-4">
-            {/* Language selector bar */}
-            <div className="flex flex-wrap items-center gap-2 justify-between">
-              <div className="flex items-center gap-2 flex-1 min-w-[200px]">
-                <select
-                  aria-label="Source language"
-                  value={sourceLang}
-                  onChange={(e) => setSourceLang(e.target.value as 'auto' | DictLangCode)}
-                  className="sanzar-input text-xs font-semibold py-2 flex-1"
-                >
-                  <option value="auto">
-                    Auto-detect{translation?.detectedSourceLanguage ? ` (${langLabel(translation.detectedSourceLanguage)})` : ''}
-                  </option>
-                  {LANG_OPTIONS.map((l) => (
-                    <option key={l.code} value={l.code}>
-                      {l.label}
-                    </option>
-                  ))}
-                </select>
-
-                <button
-                  type="button"
-                  onClick={handleSwapLanguages}
-                  title="Swap languages"
-                  aria-label="Swap languages"
-                  className="p-2 rounded-xl border border-sanzar-border hover:bg-sanzar-surface2 text-sanzar-text2 transition shrink-0"
-                >
-                  <ArrowLeftRight className="w-4 h-4" />
-                </button>
-
-                <select
-                  aria-label="Target language"
-                  value={targetLang}
-                  onChange={(e) => setTargetLang(e.target.value as DictLangCode)}
-                  className="sanzar-input text-xs font-semibold py-2 flex-1"
-                >
-                  {LANG_OPTIONS.map((l) => (
-                    <option key={l.code} value={l.code}>
-                      {l.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Source Input */}
-            <div className="relative">
-              <textarea
-                rows={3}
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                onKeyDown={(e) => {
-                  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                    e.preventDefault();
-                    void handleTranslate();
-                  }
-                }}
-                placeholder="Enter a word, phrase, or sentence in English, বাংলা, or 简体中文…"
-                className="sanzar-input text-sm resize-y pr-10"
-                maxLength={2000}
-              />
-              {inputText && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setInputText('');
-                    setTranslation(null);
-                    setTranslateError(null);
+          {/* Unified Search + Translate + Filters Card */}
+          <div className="sanzar-card p-3.5 sm:p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row gap-2">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-sanzar-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none z-10" />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && query.trim()) {
+                      e.preventDefault();
+                      void handleTranslate();
+                    }
                   }}
-                  aria-label="Clear text"
-                  className="p-1.5 rounded-lg text-sanzar-muted hover:text-sanzar-text absolute right-2.5 top-2.5"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-[11px] text-sanzar-muted">{inputText.length} / 2000</span>
-              <button
-                type="button"
-                disabled={translating || !inputText.trim()}
-                onClick={() => void handleTranslate()}
-                className="px-5 py-2.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-semibold disabled:opacity-50 flex items-center gap-2"
-              >
-                {translating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                Translate
-              </button>
-            </div>
-
-            {translateError && (
-              <div className="p-3 rounded-xl bg-sanzar-danger/10 border border-sanzar-danger/30 text-xs text-sanzar-danger flex items-center justify-between gap-2">
-                <span>{translateError}</span>
-                {uid && (
+                  placeholder="Search word, Pinyin, or enter a sentence to translate…"
+                  aria-label={t('searchDictionary')}
+                  className="sanzar-input pl-10 pr-9 text-sm"
+                />
+                {query && (
                   <button
                     type="button"
-                    onClick={() => void handleTranslate()}
-                    className="underline font-semibold shrink-0"
+                    aria-label={t('clearSearch')}
+                    onClick={() => setQuery('')}
+                    className="p-1 rounded-lg text-sanzar-muted hover:text-sanzar-text absolute right-2.5 top-1/2 -translate-y-1/2 z-10"
                   >
-                    Retry
+                    <X className="w-4 h-4" />
                   </button>
                 )}
               </div>
-            )}
 
-            {/* Translation Result */}
-            {translation && (
-              <div className="pt-4 border-t border-sanzar-border space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-1 min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="sanzar-pill">
-                        {langShort(translation.sourceLanguage)} → {langShort(translation.targetLanguage)}
-                      </span>
-                      <span className="sanzar-pill text-sanzar-primary gap-1">
-                        <Globe className="w-3 h-3" />
-                        {translation.fromCache ? 'Cached' : `Online (${translation.provider})`}
-                      </span>
-                    </div>
-                    <p className="text-lg font-bold text-sanzar-text whitespace-pre-wrap pt-1">
-                      {translation.translatedText}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => speakText(translation.translatedText, translation.targetLanguage)}
-                      title="Listen"
-                      aria-label="Listen"
-                      className="p-2 rounded-xl border border-sanzar-border hover:bg-sanzar-surface2 text-sanzar-primary"
-                    >
-                      <Volume2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleCopy(translation.translatedText)}
-                      title="Copy"
-                      aria-label="Copy"
-                      className="p-2 rounded-xl border border-sanzar-border hover:bg-sanzar-surface2 text-sanzar-text2"
-                    >
-                      {copied ? <Check className="w-4 h-4 text-sanzar-primary" /> : <Copy className="w-4 h-4" />}
-                    </button>
-                    {uid && (
-                      <button
-                        type="button"
-                        onClick={() => void handleSaveTranslationResult()}
-                        title="Save to vocabulary"
-                        aria-label="Save to vocabulary"
-                        className="p-2 rounded-xl border border-sanzar-border hover:bg-sanzar-surface2 text-sanzar-primary"
-                      >
-                        <Bookmark className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <select
+                  aria-label="Translate to language"
+                  value={targetLang}
+                  onChange={(e) => {
+                    const next = e.target.value as DictLangCode;
+                    setTargetLang(next);
+                    if (query.trim() && translation) void handleTranslate(next);
+                  }}
+                  className="sanzar-input text-xs font-semibold py-2 w-auto"
+                >
+                  {LANG_OPTIONS.map((l) => (
+                    <option key={l.code} value={l.code}>
+                      → {l.label}
+                    </option>
+                  ))}
+                </select>
 
-          {/* Curated SANZAR Dictionary Enrichment */}
-          {translation?.matchedEntries && translation.matchedEntries.length > 0 && (
-            <div className="space-y-2">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-sanzar-muted">
-                Curated SANZAR Dictionary Match
-              </h2>
-              <div className="grid sm:grid-cols-2 gap-3">
-                {translation.matchedEntries.map((entry) => (
-                  <article
-                    key={entry.id}
-                    onClick={() => setDetailEntry(entry)}
-                    className="sanzar-card p-4 space-y-2 cursor-pointer hover:border-sanzar-primary/40 transition"
-                  >
-                    <div className="flex items-baseline gap-2 flex-wrap">
-                      <span className="text-base font-extrabold">{entry.word}</span>
-                      {entry.phonetic && <span className="text-xs text-sanzar-primary font-semibold">{entry.phonetic}</span>}
-                      {entry.hsk_level && <span className="sanzar-pill published">{entry.hsk_level}</span>}
-                    </div>
-                    <p className="text-xs text-sanzar-text2">
-                      {[entry.meaning_en, entry.meaning_bn, entry.meaning_zh].filter(Boolean).join(' · ')}
-                    </p>
-                  </article>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ==================== TAB 2: CURATED DICTIONARY ==================== */}
-      {activeTab === 'dictionary' && (
-        <div className="space-y-4">
-          <div className="sanzar-card p-3.5 space-y-3">
-            <div className="relative">
-              <Search className="w-4 h-4 text-sanzar-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none z-10" />
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search English, বাংলা, 简体中文, or Pinyin (e.g. nihao)…"
-                aria-label={t('searchDictionary')}
-                className="sanzar-input pl-10 pr-9 text-sm"
-              />
-              {query && (
                 <button
                   type="button"
-                  aria-label={t('clearSearch')}
-                  onClick={() => setQuery('')}
-                  className="p-1 rounded-lg text-sanzar-muted hover:text-sanzar-text absolute right-2.5 top-1/2 -translate-y-1/2 z-10"
+                  disabled={translating || !query.trim()}
+                  onClick={() => void handleTranslate()}
+                  className="px-4 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5 shrink-0"
                 >
-                  <X className="w-4 h-4" />
+                  {translating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                  Translate
                 </button>
-              )}
+              </div>
             </div>
 
+            {/* Filters Row */}
             <div className="flex flex-wrap items-center gap-2">
               {(
                 [
@@ -704,6 +540,72 @@ export const DictionaryPage: React.FC = () => {
             </div>
           </div>
 
+          {/* Inline Translation Error */}
+          {translateError && (
+            <div className="p-3 rounded-xl bg-sanzar-danger/10 border border-sanzar-danger/30 text-xs text-sanzar-danger flex items-center justify-between gap-2">
+              <span>{translateError}</span>
+              {uid && (
+                <button type="button" onClick={() => void handleTranslate()} className="underline font-semibold shrink-0">
+                  Retry
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Inline Translation Result Card (top of search results) */}
+          {translation && (
+            <div className="sanzar-card p-4 sm:p-5 border-sanzar-primary/40 space-y-2.5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1.5 min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="sanzar-pill">
+                      {langShort(translation.sourceLanguage)} → {langShort(translation.targetLanguage)}
+                    </span>
+                    <span className="sanzar-pill text-sanzar-primary gap-1">
+                      <Globe className="w-3 h-3" />
+                      {translation.fromCache ? 'Cached' : `Translation (${translation.provider})`}
+                    </span>
+                  </div>
+                  <p className="text-lg font-extrabold text-sanzar-text whitespace-pre-wrap">
+                    {translation.translatedText}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => speakText(translation.translatedText, translation.targetLanguage)}
+                    title="Listen"
+                    aria-label="Listen"
+                    className="p-2 rounded-xl border border-sanzar-border hover:bg-sanzar-surface2 text-sanzar-primary"
+                  >
+                    <Volume2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(translation.translatedText)}
+                    title="Copy"
+                    aria-label="Copy"
+                    className="p-2 rounded-xl border border-sanzar-border hover:bg-sanzar-surface2 text-sanzar-text2"
+                  >
+                    {copied ? <Check className="w-4 h-4 text-sanzar-primary" /> : <Copy className="w-4 h-4" />}
+                  </button>
+                  {uid && (
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveTranslationResult()}
+                      title="Save to vocabulary"
+                      aria-label="Save to vocabulary"
+                      className="p-2 rounded-xl border border-sanzar-border hover:bg-sanzar-surface2 text-sanzar-primary"
+                    >
+                      <Bookmark className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Curated Dictionary Results */}
           {dictError && (
             <div className="sanzar-card p-4 text-xs text-sanzar-danger flex items-center justify-between">
               <span>{dictError}</span>
@@ -715,8 +617,20 @@ export const DictionaryPage: React.FC = () => {
 
           {dictLoading ? (
             <LoadingState />
-          ) : entries.length === 0 ? (
-            <div className="sanzar-card p-10 text-center text-sm text-sanzar-muted">{t('noWordsFound')}</div>
+          ) : entries.length === 0 && !translation ? (
+            <div className="sanzar-card p-10 text-center space-y-2">
+              <p className="text-sm text-sanzar-muted">{t('noWordsFound')}</p>
+              {query.trim() && (
+                <button
+                  type="button"
+                  onClick={() => void handleTranslate()}
+                  className="px-4 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-semibold inline-flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Translate "{query.trim()}" to {langLabel(targetLang)}
+                </button>
+              )}
+            </div>
           ) : (
             <>
               <div className="grid sm:grid-cols-2 gap-3.5">
@@ -747,10 +661,7 @@ export const DictionaryPage: React.FC = () => {
                               {entry.hsk_level && <span className="sanzar-pill published">{entry.hsk_level}</span>}
                             </div>
                           </div>
-                          <div
-                            className="flex items-center gap-1 shrink-0"
-                            onClick={(e) => e.stopPropagation()}
-                          >
+                          <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                             <button
                               type="button"
                               onClick={() => speakText(entry.word, toCanonicalLang(entry.language))}
@@ -828,7 +739,7 @@ export const DictionaryPage: React.FC = () => {
         </div>
       )}
 
-      {/* ==================== TAB 3: SAVED VOCABULARY ==================== */}
+      {/* ==================== TAB 2: SAVED VOCABULARY ==================== */}
       {activeTab === 'saved' && (
         <div className="space-y-3">
           {!uid ? (
@@ -843,7 +754,7 @@ export const DictionaryPage: React.FC = () => {
             </div>
           ) : savedItems.length === 0 ? (
             <div className="sanzar-card p-10 text-center text-sm text-sanzar-muted">
-              No saved vocabulary yet. Save words from the Translator or Dictionary to build your personal list.
+              No saved vocabulary yet. Save words or translations from the Dictionary to build your personal list.
             </div>
           ) : (
             <div className="grid sm:grid-cols-2 gap-3.5">
@@ -889,7 +800,7 @@ export const DictionaryPage: React.FC = () => {
         </div>
       )}
 
-      {/* ==================== TAB 4: TRANSLATION HISTORY ==================== */}
+      {/* ==================== TAB 3: TRANSLATION HISTORY ==================== */}
       {activeTab === 'history' && (
         <div className="space-y-3">
           {!uid ? (
