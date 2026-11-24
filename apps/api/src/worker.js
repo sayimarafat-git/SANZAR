@@ -325,7 +325,8 @@ async function putConfig(env, ctx, key, value) {
   requireRole(ctx.user, 'admin');
   if (!/^[a-z][a-zA-Z0-9_.-]{1,40}$/.test(key)) throw new HttpError(400, 'invalid-argument', 'Invalid config key');
   const text = JSON.stringify(value);
-  if (text.length > 50_000) throw new HttpError(413, 'payload-too-large', 'Config value too large');
+  const maxLen = key === 'focus_sound' ? 2_000_000 : 50_000;
+  if (text.length > maxLen) throw new HttpError(413, 'payload-too-large', 'Config value too large');
   await env.DB.prepare(`INSERT INTO config (key, value_json, updated_by, updated_at) VALUES (?, ?, ?, ?)
     ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
     .bind(key, text, ctx.user.uid, now()).run();
@@ -452,7 +453,7 @@ export async function handle(req, env, opts = {}) {
   if (path === '/v1/admin/users' && m === 'GET') return json(await listUsers(env, ctx, normUrl));
   if ((mm = path.match(/^\/v1\/admin\/users\/([\w-]{1,128})\/role$/)) && m === 'PUT') return json(await setRole(env, ctx, mm[1], (await body(req, 1000)).role));
   if ((mm = path.match(/^\/v1\/admin\/users\/([\w-]{1,128})\/block$/)) && m === 'PUT') return json(await setBlocked(env, ctx, mm[1], (await body(req, 1000)).blocked));
-  if ((mm = path.match(/^\/v1\/admin\/config\/([\w.-]{1,40})$/)) && m === 'PUT') return json(await putConfig(env, ctx, mm[1], (await body(req, 60_000)).value));
+  if ((mm = path.match(/^\/v1\/admin\/config\/([\w.-]{1,40})$/)) && m === 'PUT') return json(await putConfig(env, ctx, mm[1], (await body(req, mm[1] === 'focus_sound' ? 2_100_000 : 60_000)).value));
   if (path === '/v1/admin/audit' && m === 'GET') return json(await auditList(env, ctx, normUrl));
   const featured = (await routeDictionaryAuth(req, env, ctx, normUrl)) || (await routeFeatures(req, env, ctx, normUrl)) || (await routeAdmin(req, env, ctx, normUrl));
   if (featured) return featured;

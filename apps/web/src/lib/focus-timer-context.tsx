@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { apiRequest } from './api-client';
 import { useAuth } from './auth-context';
 import { useSettings } from './settings-context';
 import { useStudyTracker } from './study-tracker';
@@ -31,7 +32,23 @@ function unlockFocusAudio() {
   }
 }
 
-function playFocusRing() {
+function playFocusRing(customDataUrl?: string | null) {
+  if (customDataUrl && typeof window !== 'undefined') {
+    try {
+      const audio = new Audio(customDataUrl);
+      audio.volume = 0.9;
+      void audio.play().catch(() => {
+        playDefaultFocusChime();
+      });
+      return;
+    } catch {
+      // Fall back to default chime
+    }
+  }
+  playDefaultFocusChime();
+}
+
+function playDefaultFocusChime() {
   try {
     const ctx = getAudioContext();
     if (!ctx) return;
@@ -119,6 +136,16 @@ export const FocusTimerProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [state, setState] = useState<StoredFocusState>(() => readStored());
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
 
+  const cfgQuery = useQuery({
+    queryKey: ['config'],
+    queryFn: () => apiRequest<{ config: Record<string, unknown> }>('/v1/config'),
+    enabled: !!user,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  const customSoundUrl =
+    (cfgQuery.data?.config?.focus_sound as { dataUrl?: string | null } | undefined)?.dataUrl ?? null;
+
   const running = state.endAt !== null && state.endAt > nowMs;
   const remainingSec = state.endAt !== null
     ? Math.max(0, Math.ceil((state.endAt - nowMs) / 1000))
@@ -168,14 +195,14 @@ export const FocusTimerProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         writeStored(doneState);
         setState(doneState);
         void qc.invalidateQueries({ queryKey: ['progress'] });
-        playFocusRing();
+        playFocusRing(customSoundUrl);
         toast(t('focusDone'));
       }
     };
     tick();
     const id = window.setInterval(tick, 500);
     return () => window.clearInterval(id);
-  }, [state.endAt, state.durationMins, qc, t, toast]);
+  }, [state.endAt, state.durationMins, customSoundUrl, qc, t, toast]);
 
   const setDurationMins = useCallback((mins: number) => {
     const clamped = Math.max(1, Math.min(180, Math.round(mins)));

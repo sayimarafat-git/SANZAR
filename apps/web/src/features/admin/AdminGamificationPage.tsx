@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Flame, Star } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Flame, Star, Volume2 } from 'lucide-react';
 import { apiRequest, errorText } from '../../lib/api-client';
 import { ErrorRetry, LoadingState, useToast } from '../../components/SanzarUI';
 
@@ -33,6 +33,7 @@ const DEFAULT_STREAK: Record<string, number> = {
 };
 
 export const AdminGamificationPage: React.FC = () => {
+  const qc = useQueryClient();
   const toast = useToast();
   const q = useQuery({
     queryKey: ['config'],
@@ -41,6 +42,8 @@ export const AdminGamificationPage: React.FC = () => {
 
   const [xp, setXp] = useState<Record<string, string>>({});
   const [streak, setStreak] = useState<Record<string, string>>({});
+  const [soundDataUrl, setSoundDataUrl] = useState<string>('');
+  const [soundName, setSoundName] = useState<string>('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -51,6 +54,12 @@ export const AdminGamificationPage: React.FC = () => {
 
     const curStreak = { ...DEFAULT_STREAK, ...((q.data.config.streak as Record<string, number>) ?? {}) };
     setStreak(Object.fromEntries(Object.entries(curStreak).map(([k, v]) => [k, String(v)])));
+
+    const curSound = q.data.config.focus_sound as { dataUrl?: string; name?: string } | undefined;
+    if (curSound && typeof curSound === 'object') {
+      setSoundDataUrl(typeof curSound.dataUrl === 'string' ? curSound.dataUrl : '');
+      setSoundName(typeof curSound.name === 'string' ? curSound.name : '');
+    }
   }, [q.data]);
 
   if (q.isLoading) return <LoadingState />;
@@ -88,6 +97,51 @@ export const AdminGamificationPage: React.FC = () => {
     try {
       await apiRequest('/v1/admin/config/streak', { method: 'PUT', bodyJson: { value: vals } });
       toast('Streak rules saved');
+    } catch (e) {
+      setErr(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onAudioFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('audio/')) {
+      setErr('Please choose an audio file (MP3, WAV, OGG, M4A, AAC, WebM, etc.).');
+      return;
+    }
+    if (file.size > 1_400_000) {
+      setErr('Audio file must be under 1.4 MB.');
+      return;
+    }
+    setErr(null);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setSoundDataUrl(String(reader.result || ''));
+      setSoundName(file.name);
+    };
+    reader.onerror = () => setErr('Could not read audio file.');
+    reader.readAsDataURL(file);
+  };
+
+  const saveFocusSound = async (reset = false) => {
+    setErr(null);
+    setBusy(true);
+    try {
+      const value = reset
+        ? { dataUrl: null, name: '' }
+        : { dataUrl: soundDataUrl || null, name: soundName || 'custom-sound' };
+      await apiRequest('/v1/admin/config/focus_sound', { method: 'PUT', bodyJson: { value } });
+      if (reset) {
+        setSoundDataUrl('');
+        setSoundName('');
+        toast('Reset to default focus chime');
+      } else {
+        toast('Focus timer sound replaced');
+      }
+      void qc.invalidateQueries({ queryKey: ['config'] });
     } catch (e) {
       setErr(errorText(e));
     } finally {
@@ -165,6 +219,49 @@ export const AdminGamificationPage: React.FC = () => {
         >
           Save streak rules
         </button>
+      </div>
+
+      {/* Focus Timer Sound Card (replaces config key 'focus_sound' in place) */}
+      <div className="sanzar-card p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <Volume2 className="w-5 h-5 text-sanzar-primary" />
+          <h2 className="text-lg font-bold">Focus timer sound</h2>
+        </div>
+        <p className="text-xs text-sanzar-muted">
+          Upload any audio file (MP3, WAV, OGG, M4A, AAC, WebM — max 1.4 MB). Saving replaces the existing <code>focus_sound</code> entry in place.
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="px-4 py-2 rounded-xl border border-sanzar-border bg-sanzar-surface hover:bg-sanzar-surface2 cursor-pointer text-xs font-semibold transition">
+            Upload audio file
+            <input type="file" accept="audio/*" onChange={onAudioFile} className="hidden" />
+          </label>
+          <span className="text-xs text-sanzar-text2 font-medium">
+            {soundName || (soundDataUrl ? 'Custom audio loaded' : 'Using default built-in chime')}
+          </span>
+        </div>
+        {soundDataUrl && (
+          <audio controls src={soundDataUrl} className="w-full max-w-md h-10" />
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void saveFocusSound(false)}
+            disabled={busy || !soundDataUrl}
+            className="px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold disabled:opacity-50"
+          >
+            Save sound
+          </button>
+          {soundDataUrl && (
+            <button
+              type="button"
+              onClick={() => void saveFocusSound(true)}
+              disabled={busy}
+              className="px-4 py-2 rounded-xl border border-sanzar-border text-sm font-semibold hover:bg-sanzar-surface2 disabled:opacity-50"
+            >
+              Reset to default chime
+            </button>
+          )}
+        </div>
       </div>
 
       {err && <div className="text-sm text-sanzar-danger">{err}</div>}
