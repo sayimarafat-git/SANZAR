@@ -767,7 +767,8 @@ export const DictionaryPage: React.FC = () => {
         <div className="space-y-5">
           {/* Standalone Spotlight Search Card */}
           <section className="sanzar-card p-3.5 sm:p-4 space-y-3 border-sanzar-primary/25">
-            <div className="flex flex-col md:flex-row md:items-center gap-2.5">
+            {/* Row 1: Search Input + Translate CTA (untouched) */}
+            <div className="flex items-center gap-2.5">
               <div className="relative flex-1 flex items-center rounded-2xl bg-sanzar-surface2 border border-sanzar-border focus-within:border-sanzar-primary focus-within:ring-2 focus-within:ring-sanzar-primary/20 transition">
                 <Search className="w-4 h-4 text-sanzar-muted ml-3.5 shrink-0 pointer-events-none" />
                 <input
@@ -797,52 +798,49 @@ export const DictionaryPage: React.FC = () => {
                 )}
               </div>
 
-              {/* Target Language Pill Selector + Translate CTA */}
-              <div className="flex items-center justify-between md:justify-end gap-2 shrink-0">
-                <div className="inline-flex items-center p-0.5 rounded-xl bg-sanzar-surface2 border border-sanzar-border">
-                  {LANG_OPTIONS.map((l) => {
-                    const selected = targetLang === l.code;
-                    return (
-                      <button
-                        key={l.code}
-                        type="button"
-                        onClick={() => {
-                          setTargetLang(l.code);
-                          if (query.trim()) void handleTranslate(query, l.code);
-                        }}
-                        title={`Translate to ${l.label}`}
-                        className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition ${
-                          selected
-                            ? 'bg-sanzar-primarySoft text-sanzar-primary border border-sanzar-primary/30'
-                            : 'text-sanzar-text2 hover:text-sanzar-text'
-                        }`}
-                      >
-                        {l.label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <button
-                  type="button"
-                  disabled={translating || !query.trim()}
-                  onClick={() => void handleTranslate()}
-                  className="px-4 py-2.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-extrabold disabled:opacity-45 transition flex items-center gap-1.5 shadow-sm shrink-0"
-                >
-                  {translating ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Sparkles className="w-3.5 h-3.5" />
-                  )}
-                  Translate
-                </button>
-              </div>
+              <button
+                type="button"
+                disabled={translating || !query.trim()}
+                onClick={() => void handleTranslate()}
+                className="px-4 py-2.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-extrabold disabled:opacity-45 transition flex items-center gap-1.5 shadow-sm shrink-0"
+              >
+                {translating ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5" />
+                )}
+                Translate
+              </button>
             </div>
 
-            {/* Bottom Strip: Live script detection or guest sign-in prompt */}
-            {(detectedClientLang || !user) && (
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                {detectedClientLang ? (
+            {/* Row 2: Target Language Switcher underneath (Web & Mobile) + Live detection */}
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="inline-flex items-center p-0.5 rounded-xl bg-sanzar-surface2 border border-sanzar-border">
+                {LANG_OPTIONS.map((l) => {
+                  const selected = targetLang === l.code;
+                  return (
+                    <button
+                      key={l.code}
+                      type="button"
+                      onClick={() => {
+                        setTargetLang(l.code);
+                        if (query.trim()) void handleTranslate(query, l.code);
+                      }}
+                      title={`Translate to ${l.label}`}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition ${
+                        selected
+                          ? 'bg-sanzar-primarySoft text-sanzar-primary border border-sanzar-primary/30'
+                          : 'text-sanzar-text2 hover:text-sanzar-text'
+                      }`}
+                    >
+                      {l.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                {detectedClientLang && (
                   <div className="flex items-center gap-2 text-sanzar-text2">
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-sanzar-primarySoft text-sanzar-primary text-[11px] font-semibold">
                       <span className="w-1.5 h-1.5 rounded-full bg-sanzar-primary animate-pulse" />
@@ -850,10 +848,7 @@ export const DictionaryPage: React.FC = () => {
                     </span>
                     <ArrowRight className="w-3 h-3 text-sanzar-muted" />
                     <span className="text-[11px] font-bold text-sanzar-text">{langLabel(targetLang)}</span>
-                    <span className="hidden sm:inline text-[11px] text-sanzar-muted">· Press Enter to translate</span>
                   </div>
-                ) : (
-                  <span />
                 )}
 
                 {!user && (
@@ -865,7 +860,7 @@ export const DictionaryPage: React.FC = () => {
                   </Link>
                 )}
               </div>
-            )}
+            </div>
           </section>
           {/* Translation Error Banner */}
           {translateError && (
