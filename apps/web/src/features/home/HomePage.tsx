@@ -182,48 +182,55 @@ export const HomePage: React.FC = () => {
         </div>
       </section>
 
-      {/* Daily Study Goal & Analog Focus Timer (slim widgets under Streak & XP) */}
-      <div className={`grid gap-4 ${prog ? 'md:grid-cols-2 items-stretch' : ''}`}>
+      {/* Daily Study Goal & Analog Focus Timer (matched to Quick Actions height & 2-col mobile grid) */}
+      <div className={`grid gap-3 sm:gap-4 ${prog ? 'grid-cols-2 items-stretch' : ''}`}>
         {prog && (
-          <Link to="/progress" className="sanzar-card px-4 py-2.5 hover:border-sanzar-primary/50 transition flex items-center">
-            <div className="flex items-center gap-3.5 w-full">
-              <div className="relative w-12 h-12 shrink-0 flex items-center justify-center">
-                <svg className="w-full h-full -rotate-90" viewBox="0 0 80 80">
-                  <circle
-                    cx="40"
-                    cy="40"
-                    r="33"
-                    fill="none"
-                    stroke="var(--primary-soft)"
-                    strokeWidth="8"
-                  />
-                  <circle
-                    cx="40"
-                    cy="40"
-                    r="33"
-                    fill="none"
-                    stroke="var(--primary)"
-                    strokeWidth="8"
-                    strokeLinecap="round"
-                    strokeDasharray={2 * Math.PI * 33}
-                    strokeDashoffset={2 * Math.PI * 33 * (1 - goalPct / 100)}
-                  />
-                </svg>
-                <span className="absolute font-extrabold text-xs">{todayMin}′</span>
+          <Link
+            to="/progress"
+            className="sanzar-card p-3 sm:p-5 sm:min-h-[114px] hover:border-sanzar-primary/50 transition flex items-center min-w-0"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 w-full min-w-0">
+              <div className="flex items-center gap-2.5 sm:gap-4 min-w-0">
+                <div className="relative w-10 h-10 sm:w-16 sm:h-16 shrink-0 flex items-center justify-center">
+                  <svg className="w-full h-full -rotate-90" viewBox="0 0 80 80">
+                    <circle
+                      cx="40"
+                      cy="40"
+                      r="33"
+                      fill="none"
+                      stroke="var(--primary-soft)"
+                      strokeWidth="8"
+                    />
+                    <circle
+                      cx="40"
+                      cy="40"
+                      r="33"
+                      fill="none"
+                      stroke="var(--primary)"
+                      strokeWidth="8"
+                      strokeLinecap="round"
+                      strokeDasharray={2 * Math.PI * 33}
+                      strokeDashoffset={2 * Math.PI * 33 * (1 - goalPct / 100)}
+                    />
+                  </svg>
+                  <span className="absolute font-extrabold text-[11px] sm:text-sm">{todayMin}′</span>
+                </div>
+                <div className="sm:hidden flex-1 min-w-0">
+                  <p className="font-bold text-xs truncate">{t('today')}</p>
+                  <p className="text-[11px] font-semibold text-sanzar-primary">{goalPct}%</p>
+                </div>
               </div>
               <div className="flex-1 min-w-0 space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-baseline gap-2 min-w-0">
-                    <span className="font-bold text-sm shrink-0">{t('today')}</span>
-                    <span className="text-xs text-sanzar-text2 truncate">{t('goalOf', { m: todayMin, g: goalMin })}</span>
-                  </div>
+                <div className="hidden sm:flex items-center justify-between gap-2">
+                  <span className="font-bold text-sm truncate">{t('today')}</span>
                   <span className="text-xs font-semibold text-sanzar-primary shrink-0">{goalPct}%</span>
                 </div>
-                <div className="h-1.5 rounded-full bg-sanzar-primarySoft overflow-hidden">
+                <p className="text-[11px] sm:text-xs text-sanzar-text2 truncate">{t('goalOf', { m: todayMin, g: goalMin })}</p>
+                <div className="h-1.5 sm:h-2 rounded-full bg-sanzar-primarySoft overflow-hidden">
                   <div className="h-full bg-brand-grad rounded-full transition-all" style={{ width: `${goalPct}%` }} />
                 </div>
               </div>
-              <ChevronRight className="w-4 h-4 text-sanzar-muted shrink-0" />
+              <ChevronRight className="hidden sm:block w-4 h-4 text-sanzar-muted shrink-0" />
             </div>
           </Link>
         )}
