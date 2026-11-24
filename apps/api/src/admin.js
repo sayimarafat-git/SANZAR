@@ -87,7 +87,7 @@ async function putSubject(env, ctx, id, i) {
   requireRole(ctx.user, 'teacher');
   slug(id, 'Subject');
   const name = str(i.name_en, { min: 2, max: 80, field: 'Name' });
-  const thumb = typeof i.thumbnail_url === 'string' && i.thumbnail_url.trim() ? httpsUrl(i.thumbnail_url.trim(), 'Thumbnail URL') : null;
+  const thumb = validateCoverImage(i.thumbnail_url) ?? null;
   await env.DB.prepare(`INSERT INTO subjects (id, name_en, name_bn, name_zh, icon, color, sort, thumbnail_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET name_en = excluded.name_en, name_bn = excluded.name_bn, name_zh = excluded.name_zh,
       icon = excluded.icon, color = excluded.color, sort = excluded.sort, thumbnail_url = excluded.thumbnail_url`)
@@ -184,7 +184,7 @@ async function putChapter(env, ctx, id, i) {
   if (!(await env.DB.prepare('SELECT 1 FROM books WHERE id = ?').bind(bookId).first())) throw new HttpError(400, 'invalid-argument', 'Unknown book');
   const n = num(i.number, 'Chapter number', 0, 500, 1);
   const isWhole = i.is_whole_chapter ? 1 : 0;
-  const thumb = typeof i.thumbnail_url === 'string' && i.thumbnail_url.trim() ? httpsUrl(i.thumbnail_url.trim(), 'Thumbnail URL') : null;
+  const thumb = validateCoverImage(i.thumbnail_url) ?? null;
   await env.DB.prepare(`INSERT INTO chapters (id, book_id, number, title, sort, status, is_whole_chapter, thumbnail_url, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET book_id = excluded.book_id, number = excluded.number, title = excluded.title, sort = excluded.sort, status = excluded.status, is_whole_chapter = excluded.is_whole_chapter, thumbnail_url = excluded.thumbnail_url, updated_at = excluded.updated_at`)
     .bind(id, bookId, n, str(i.title, { min: 1, max: 200, field: 'Title' }), num(i.sort, 'Order', 0, 100000, n), status(i.status), isWhole, thumb, now()).run();
@@ -276,7 +276,7 @@ async function putResource(env, ctx, id, i) {
     stmts.push(env.DB.prepare('INSERT INTO resource_versions (resource_id, version, url, change_note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)')
       .bind(id, version, url, str(i.change_note ?? '', { max: 300, field: 'Change note' }), ctx.user.uid, t));
   }
-  const resThumb = typeof i.thumbnail_url === 'string' && i.thumbnail_url.trim() ? httpsUrl(i.thumbnail_url.trim(), 'Thumbnail URL') : null;
+  const resThumb = validateCoverImage(i.thumbnail_url) ?? null;
   const res = (env.DB.prepare(`INSERT INTO resources (id, chapter_id, type, title, sort, video_asset_id, current_version, pages, licence, status, thumbnail_url, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET chapter_id = excluded.chapter_id, type = excluded.type, title = excluded.title, sort = excluded.sort, video_asset_id = excluded.video_asset_id,
     current_version = excluded.current_version, pages = excluded.pages, licence = excluded.licence, status = excluded.status, thumbnail_url = excluded.thumbnail_url, updated_at = excluded.updated_at`)
@@ -581,12 +581,12 @@ export async function routeAdmin(req, env, ctx, url) {
   let mm;
   if (path === '/v1/admin/content' && m === 'GET') { requireRole(ctx.user, 'teacher'); return json(await content(env)); }
   if (path === '/v1/admin/stats' && m === 'GET') return json(await stats(env, ctx));
-  if ((mm = path.match(/^\/v1\/admin\/subjects\/([^/]+)$/)) && m === 'PUT') return json(await putSubject(env, ctx, mm[1], await body(req, 5000)));
+  if ((mm = path.match(/^\/v1\/admin\/subjects\/([^/]+)$/)) && m === 'PUT') return json(await putSubject(env, ctx, mm[1], await body(req, 300_000)));
   if ((mm = path.match(/^\/v1\/admin\/subjects\/([^/]+)$/)) && m === 'DELETE') return json(await deleteSubject(env, ctx, mm[1]));
   if ((mm = path.match(/^\/v1\/admin\/books\/([^/]+)\/cover$/)) && m === 'PATCH') return json(await patchBookCover(env, ctx, mm[1], await body(req, 300_000)));
   if ((mm = path.match(/^\/v1\/admin\/books\/([^/]+)$/)) && m === 'PUT') return json(await putBook(env, ctx, mm[1], await body(req, 300_000)));
   if ((mm = path.match(/^\/v1\/admin\/books\/([^/]+)$/)) && m === 'DELETE') return json(await deleteBook(env, ctx, mm[1]));
-  if ((mm = path.match(/^\/v1\/admin\/chapters\/([^/]+)$/)) && m === 'PUT') return json(await putChapter(env, ctx, mm[1], await body(req, 10_000)));
+  if ((mm = path.match(/^\/v1\/admin\/chapters\/([^/]+)$/)) && m === 'PUT') return json(await putChapter(env, ctx, mm[1], await body(req, 300_000)));
   if ((mm = path.match(/^\/v1\/admin\/chapters\/([^/]+)$/)) && m === 'DELETE') return json(await deleteChapter(env, ctx, mm[1]));
   if ((mm = path.match(/^\/v1\/admin\/notes\/([\w.-]{1,64})$/)) && m === 'GET') return json(await getNotes(env, ctx, mm[1]));
   if ((mm = path.match(/^\/v1\/admin\/notes\/([\w.-]{1,64})$/)) && m === 'PUT') return json(await putNotes(env, ctx, mm[1], await body(req, 600_000)));
@@ -594,7 +594,7 @@ export async function routeAdmin(req, env, ctx, url) {
     const key = { notes: 'chapter_id', resources: 'id', questions: 'id' }[mm[1]];
     return json(await rollback(env, ctx, mm[1], key, mm[2], (await body(req, 1000)).version));
   }
-  if ((mm = path.match(/^\/v1\/admin\/resources\/([^/]+)$/)) && m === 'PUT') return json(await putResource(env, ctx, mm[1], await body(req, 10_000)));
+  if ((mm = path.match(/^\/v1\/admin\/resources\/([^/]+)$/)) && m === 'PUT') return json(await putResource(env, ctx, mm[1], await body(req, 300_000)));
   if ((mm = path.match(/^\/v1\/admin\/resources\/([^/]+)$/)) && m === 'DELETE') return json(await deleteResource(env, ctx, mm[1]));
   if (path === '/v1/admin/questions' && m === 'GET') return json(await listQuestions(env, ctx, url));
   if ((mm = path.match(/^\/v1\/admin\/questions\/([^/]+)$/)) && m === 'PUT') return json(await putQuestion(env, ctx, mm[1], await body(req, 20_000)));

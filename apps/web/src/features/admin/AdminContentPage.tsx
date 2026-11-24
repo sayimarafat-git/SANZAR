@@ -132,6 +132,99 @@ const ErrorsBox: React.FC<{ list: string[] }> = ({ list }) =>
     </div>
   ) : null;
 
+const isValidThumbValue = (v: string) => !v || isHttps(v) || v.startsWith('data:image/');
+
+async function compressImageFile(file: File): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Could not read image file'));
+    reader.readAsDataURL(file);
+  });
+  // If already small enough (< 160 KB) or SVG, keep directly
+  if (dataUrl.length < 160_000 || file.type === 'image/svg+xml') return dataUrl;
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error('Unsupported image format'));
+    el.src = dataUrl;
+  });
+  const maxDim = 640;
+  const scale = Math.min(1, maxDim / Math.max(img.width || 1, img.height || 1));
+  const w = Math.max(1, Math.round(img.width * scale));
+  const h = Math.max(1, Math.round(img.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return dataUrl;
+  ctx.drawImage(img, 0, 0, w, h);
+  const webp = canvas.toDataURL('image/webp', 0.82);
+  return webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/jpeg', 0.82);
+}
+
+const ThumbnailField: React.FC<{ value: string; onChange: (val: string) => void; className?: string }> = ({
+  value,
+  onChange,
+  className = '',
+}) => {
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState<string | null>(null);
+
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setUploadErr(null);
+    setUploading(true);
+    try {
+      const compressed = await compressImageFile(file);
+      onChange(compressed);
+    } catch (err) {
+      setUploadErr(errorText(err));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className={`space-y-2 ${className}`}>
+      <span className="block">
+        Thumbnail <small className="font-normal text-sanzar-muted">(optional — upload any image or paste https:// URL)</small>
+      </span>
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="px-3 py-1.5 rounded-xl border border-sanzar-border bg-sanzar-surface hover:bg-sanzar-surface2 cursor-pointer text-xs font-semibold transition shrink-0">
+          {uploading ? 'Processing…' : 'Upload image'}
+          <input type="file" accept="image/*" onChange={(e) => void onFile(e)} className="hidden" />
+        </label>
+        <input
+          value={value.startsWith('data:image/') ? '' : value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={value.startsWith('data:image/') ? 'Uploaded image ready (or paste URL to replace)' : 'https://…'}
+          className="sanzar-input text-xs flex-1 min-w-[160px]"
+        />
+        {value && (
+          <button
+            type="button"
+            onClick={() => onChange('')}
+            className="px-2.5 py-1.5 rounded-xl border border-sanzar-danger/40 text-sanzar-danger text-xs font-semibold hover:bg-sanzar-danger/10 shrink-0"
+          >
+            Remove
+          </button>
+        )}
+      </div>
+      {uploadErr && <p className="text-sanzar-danger text-[11px]">{uploadErr}</p>}
+      {value && isValidThumbValue(value) && (
+        <img
+          src={value}
+          alt="Thumbnail preview"
+          className="h-16 w-24 object-cover rounded-xl border border-sanzar-border bg-sanzar-surface2"
+        />
+      )}
+    </div>
+  );
+};
+
 export const AdminContentPage: React.FC<{ view?: 'books' | 'book' | 'chapter' }> = ({ view = 'books' }) => {
   const { bookId, chapterId } = useParams();
   if (view === 'book' && bookId) return <BookDetailView bookId={bookId} />;
@@ -617,7 +710,7 @@ const SubjectForm: React.FC<{ subject: AdminSubject | null; subjects: AdminSubje
     const errs = [
       !isId(id) && 'ID may use letters, digits, dot, dash and underscore.',
       rawName.length < 2 && 'Name must be at least 2 characters.',
-      thumb && !isHttps(thumb) && 'Thumbnail URL must start with https://',
+      thumb && !isValidThumbValue(thumb) && 'Thumbnail must be an uploaded image or https:// URL',
     ].filter(Boolean) as string[];
     if (errs.length) return setErrors(errs);
     if (isNew && subjects.some((s) => s.id === id)) return setErrors([`A subject with id "${id}" already exists.`]);
@@ -668,10 +761,11 @@ const SubjectForm: React.FC<{ subject: AdminSubject | null; subjects: AdminSubje
           <span>Colour</span>
           <input type="color" value={f.color} onChange={(e) => setF({ ...f, color: e.target.value })} className="w-16 h-9 rounded border border-sanzar-border" />
         </label>
-        <label className="space-y-1 sm:col-span-2">
-          <span>Thumbnail URL <small className="font-normal text-sanzar-muted">(optional, https://)</small></span>
-          <input value={f.thumbnail_url} onChange={(e) => setF({ ...f, thumbnail_url: e.target.value })} placeholder="https://…" className="sanzar-input text-sm" />
-        </label>
+        <ThumbnailField
+          value={f.thumbnail_url}
+          onChange={(val) => setF({ ...f, thumbnail_url: val })}
+          className="sm:col-span-2"
+        />
       </div>
       <ErrorsBox list={errors} />
       <button onClick={submit} disabled={busy} className="px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold">
@@ -879,7 +973,7 @@ const ChapterForm: React.FC<{ bookId: string; chapter: AdminChapter | null; next
     const thumb = thumbnailUrl.trim();
     if (!title.trim()) return setErrors(['Title is required.']);
     if (!isId(id)) return setErrors(['Invalid id.']);
-    if (thumb && !isHttps(thumb)) return setErrors(['Thumbnail URL must start with https://']);
+    if (thumb && !isValidThumbValue(thumb)) return setErrors(['Thumbnail must be an uploaded image or https:// URL']);
     setBusy(true);
     try {
       await apiRequest(`/v1/admin/chapters/${id}`, {
@@ -925,10 +1019,7 @@ const ChapterForm: React.FC<{ bookId: string; chapter: AdminChapter | null; next
           <span>ID</span>
           <input value={id} disabled className="sanzar-input text-sm opacity-60" />
         </label>
-        <label className="space-y-1 sm:col-span-2">
-          <span>Thumbnail URL <small className="font-normal text-sanzar-muted">(optional, https://)</small></span>
-          <input value={thumbnailUrl} onChange={(e) => setThumbnailUrl(e.target.value)} placeholder="https://…" className="sanzar-input text-sm" />
-        </label>
+        <ThumbnailField value={thumbnailUrl} onChange={setThumbnailUrl} className="sm:col-span-2" />
         <label className="flex items-center gap-2 sm:col-span-2 cursor-pointer pt-1">
           <input
             type="checkbox"
@@ -1483,7 +1574,7 @@ const ResourceForm: React.FC<{ chapterId: string; book?: AdminBook; res: AdminRe
       !isId(id) && 'Invalid id.',
       f.type === 'link' && !trimmedUrl && 'Link is required.',
       trimmedUrl && !isHttps(trimmedUrl) && 'Link must start with https://',
-      trimmedThumb && !isHttps(trimmedThumb) && 'Thumbnail URL must start with https://',
+      trimmedThumb && !isValidThumbValue(trimmedThumb) && 'Thumbnail must be an uploaded image or https:// URL',
       f.title.trim().length < 2 && 'Add a title.',
     ].filter(Boolean) as string[];
     if (errs.length) return setErrors(errs);
@@ -1559,12 +1650,7 @@ const ResourceForm: React.FC<{ chapterId: string; book?: AdminBook; res: AdminRe
         </span>
         <input value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} placeholder="https://" className="sanzar-input text-sm" />
       </label>
-      <label className="block space-y-1">
-        <span>
-          Thumbnail URL <small className="font-normal text-sanzar-muted">(optional, https://)</small>
-        </span>
-        <input value={f.thumbnail_url} onChange={(e) => setF({ ...f, thumbnail_url: e.target.value })} placeholder="https://…" className="sanzar-input text-sm" />
-      </label>
+      <ThumbnailField value={f.thumbnail_url} onChange={(val) => setF({ ...f, thumbnail_url: val })} />
       {(f.type === 'pdf' || f.type === 'ppt') && book && (
         <div className="p-3 rounded-xl bg-sanzar-surface2 border border-sanzar-border space-y-2">
           <label className="flex items-center gap-2 cursor-pointer">
