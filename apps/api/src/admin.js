@@ -457,10 +457,48 @@ async function deleteAnnouncement(env, ctx, id) {
   return { deleted: true };
 }
 
-async function listDictionary(env, ctx) {
+async function listDictionary(env, ctx, url) {
   requireRole(ctx.user, 'teacher');
-  const rows = (await env.DB.prepare('SELECT * FROM dictionary_entries ORDER BY updated_at DESC, word ASC LIMIT 300').all()).results;
-  return { entries: rows };
+  const hsk = (url?.searchParams?.get('hsk_level') || '').trim().slice(0, 30);
+  const q = (url?.searchParams?.get('q') || '').trim().toLowerCase().slice(0, 80);
+
+  const where = [];
+  const args = [];
+  if (hsk) {
+    where.push('lower(hsk_level) = lower(?)');
+    args.push(hsk);
+  }
+  if (q) {
+    const like = `%${q}%`;
+    where.push('(lower(word) LIKE ? OR lower(phonetic) LIKE ? OR phonetic_plain LIKE ? OR lower(meaning_en) LIKE ? OR lower(meaning_bn) LIKE ?)');
+    args.push(like, like, like, like, like);
+  }
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+  const [rowsRes, totalRes, hskRes, langRes, statusRes] = await env.DB.batch([
+    env.DB.prepare(`SELECT * FROM dictionary_entries ${whereSql} ORDER BY updated_at DESC, word ASC LIMIT 300`).bind(...args),
+    env.DB.prepare('SELECT COUNT(*) AS n FROM dictionary_entries'),
+    env.DB.prepare("SELECT COALESCE(NULLIF(TRIM(hsk_level), ''), 'Other') AS level, COUNT(*) AS n FROM dictionary_entries GROUP BY level ORDER BY level"),
+    env.DB.prepare('SELECT language, COUNT(*) AS n FROM dictionary_entries GROUP BY language'),
+    env.DB.prepare('SELECT status, COUNT(*) AS n FROM dictionary_entries GROUP BY status'),
+  ]);
+
+  const byHsk = {};
+  for (const r of hskRes.results) byHsk[r.level] = r.n;
+  const byLang = {};
+  for (const r of langRes.results) byLang[r.language] = r.n;
+  const byStatus = {};
+  for (const r of statusRes.results) byStatus[r.status] = r.n;
+
+  return {
+    entries: rowsRes.results,
+    stats: {
+      total: totalRes.results[0]?.n || 0,
+      byHsk,
+      byLang,
+      byStatus,
+    },
+  };
 }
 
 async function putDictionary(env, ctx, id, i) {
@@ -603,7 +641,7 @@ export async function routeAdmin(req, env, ctx, url) {
   if ((mm = path.match(/^\/v1\/admin\/qa\/([^/]+)$/)) && m === 'PUT') return json(await putQa(env, ctx, mm[1], await body(req, 20_000)));
   if ((mm = path.match(/^\/v1\/admin\/qa\/([^/]+)$/)) && m === 'DELETE') return json(await deleteQa(env, ctx, mm[1]));
   if ((mm = path.match(/^\/v1\/admin\/exams\/([^/]+)$/)) && m === 'PUT') return json(await putExam(env, ctx, mm[1], await body(req, 5000)));
-  if (path === '/v1/admin/dictionary' && m === 'GET') return json(await listDictionary(env, ctx));
+  if (path === '/v1/admin/dictionary' && m === 'GET') return json(await listDictionary(env, ctx, url));
   if ((mm = path.match(/^\/v1\/admin\/dictionary\/([^/]+)$/)) && m === 'PUT') return json(await putDictionary(env, ctx, mm[1], await body(req, 10_000)));
   if ((mm = path.match(/^\/v1\/admin\/dictionary\/([^/]+)$/)) && m === 'DELETE') return json(await deleteDictionary(env, ctx, mm[1]));
   if (path === '/v1/admin/fetch-preview' && m === 'GET') return fetchPreview(env, ctx, url);

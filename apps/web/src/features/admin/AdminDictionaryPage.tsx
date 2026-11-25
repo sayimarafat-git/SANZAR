@@ -4,24 +4,39 @@ import { apiRequest, errorText } from '../../lib/api-client';
 import { slugify, isId, type DictionaryEntry } from '../../lib/models';
 import { ErrorRetry, LoadingState, Modal, StatusPill, useToast } from '../../components/SanzarUI';
 
+interface AdminDictionaryStats {
+  total: number;
+  byHsk: Record<string, number>;
+  byLang: Record<string, number>;
+  byStatus: Record<string, number>;
+}
+
+const HSK_LEVELS = ['HSK 1', 'HSK 2', 'HSK 3', 'HSK 4', 'HSK 5', 'HSK 6'];
+
 export const AdminDictionaryPage: React.FC = () => {
   const qc = useQueryClient();
   const toast = useToast();
-  const q = useQuery({
-    queryKey: ['admin', 'dictionary'],
-    queryFn: () => apiRequest<{ entries: DictionaryEntry[] }>('/v1/admin/dictionary'),
-  });
   const [editing, setEditing] = useState<DictionaryEntry | null | undefined>(undefined);
   const [showImport, setShowImport] = useState(false);
   const [search, setSearch] = useState('');
+  const [hskFilter, setHskFilter] = useState('');
 
-  if (q.isLoading) return <LoadingState />;
+  const q = useQuery({
+    queryKey: ['admin', 'dictionary', hskFilter, search.trim()],
+    queryFn: () => {
+      const qs = new URLSearchParams();
+      if (hskFilter) qs.set('hsk_level', hskFilter);
+      if (search.trim()) qs.set('q', search.trim());
+      const suffix = qs.toString() ? `?${qs.toString()}` : '';
+      return apiRequest<{ entries: DictionaryEntry[]; stats?: AdminDictionaryStats }>(`/v1/admin/dictionary${suffix}`);
+    },
+  });
+
+  if (q.isLoading && !q.data) return <LoadingState />;
   if (q.isError || !q.data) return <ErrorRetry message={errorText(q.error)} onRetry={() => q.refetch()} />;
 
-  const entries = q.data.entries.filter((e) => {
-    const k = search.trim().toLowerCase();
-    return !k || [e.word, e.phonetic, e.meaning_en, e.meaning_bn, e.meaning_zh].some((v) => (v || '').toLowerCase().includes(k));
-  });
+  const entries = q.data.entries;
+  const stats = q.data.stats;
 
   const remove = async (id: string) => {
     try {
@@ -53,12 +68,83 @@ export const AdminDictionaryPage: React.FC = () => {
         </div>
       </div>
 
-      <input
-        placeholder="Search dictionary entries…"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="sanzar-input max-w-sm text-sm"
-      />
+      {/* Live Dataset Summary & Clickable Per-Level HSK Breakdown */}
+      {stats && (
+        <div className="sanzar-card p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-extrabold text-sm text-sanzar-text">
+                {stats.total.toLocaleString()} total entries
+              </span>
+              {stats.byStatus?.published != null && (
+                <span className="sanzar-pill published text-[11px]">
+                  {stats.byStatus.published.toLocaleString()} published
+                </span>
+              )}
+              {(stats.byStatus?.draft || 0) > 0 && (
+                <span className="sanzar-pill draft text-[11px]">
+                  {stats.byStatus.draft.toLocaleString()} draft
+                </span>
+              )}
+            </div>
+            {hskFilter && (
+              <button
+                type="button"
+                onClick={() => setHskFilter('')}
+                className="text-xs font-semibold text-sanzar-primary hover:underline"
+              >
+                Show all levels
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
+            <button
+              type="button"
+              onClick={() => setHskFilter('')}
+              className={`p-2.5 rounded-xl border text-left transition ${
+                hskFilter === ''
+                  ? 'bg-sanzar-primarySoft border-sanzar-primary/50 text-sanzar-primary'
+                  : 'bg-sanzar-surface2/70 border-sanzar-border text-sanzar-text2 hover:border-sanzar-primary/40'
+              }`}
+            >
+              <div className="text-[11px] font-bold uppercase tracking-wider opacity-80">All</div>
+              <div className="text-lg font-extrabold">{stats.total.toLocaleString()}</div>
+            </button>
+            {HSK_LEVELS.map((lvl) => {
+              const count = stats.byHsk?.[lvl] || 0;
+              const active = hskFilter === lvl;
+              return (
+                <button
+                  key={lvl}
+                  type="button"
+                  onClick={() => setHskFilter(active ? '' : lvl)}
+                  className={`p-2.5 rounded-xl border text-left transition ${
+                    active
+                      ? 'bg-sanzar-primarySoft border-sanzar-primary/50 text-sanzar-primary'
+                      : 'bg-sanzar-surface2/70 border-sanzar-border text-sanzar-text2 hover:border-sanzar-primary/40'
+                  }`}
+                >
+                  <div className="text-[11px] font-bold uppercase tracking-wider opacity-80">{lvl}</div>
+                  <div className="text-lg font-extrabold">{count.toLocaleString()}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          placeholder="Search dictionary entries…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="sanzar-input max-w-sm text-sm"
+        />
+        <span className="text-xs text-sanzar-muted">
+          Showing {entries.length.toLocaleString()} {hskFilter ? `${hskFilter} ` : ''}entries (up to 300 per view)
+        </span>
+      </div>
 
       {entries.length === 0 ? (
         <div className="sanzar-card p-6 text-xs text-sanzar-muted">
