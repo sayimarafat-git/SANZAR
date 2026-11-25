@@ -1186,24 +1186,44 @@ export const DictionaryPage: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* One-tap "Also translate to..." chip */}
-                    {otherTargetLangs.length > 0 && (
-                      <div className="pt-3 border-t border-sanzar-border/60 flex flex-wrap items-center gap-2">
-                        <span className="text-[11px] font-medium text-sanzar-muted">Also translate to:</span>
-                        {otherTargetLangs.map((l) => (
+                    {/* One-tap "Also translate to..." + "Stroke & Breakdown" for Chinese */}
+                    {(otherTargetLangs.length > 0 || /[\u4e00-\u9fff]/.test(translation.translatedText) || /[\u4e00-\u9fff]/.test(query)) && (
+                      <div className="pt-3 border-t border-sanzar-border/60 flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {otherTargetLangs.length > 0 && (
+                            <>
+                              <span className="text-[11px] font-medium text-sanzar-muted">Also translate to:</span>
+                              {otherTargetLangs.map((l) => (
+                                <button
+                                  key={l.code}
+                                  type="button"
+                                  disabled={translating}
+                                  onClick={() => {
+                                    setTargetLang(l.code);
+                                    void handleTranslate(query, l.code);
+                                  }}
+                                  className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-sanzar-surface2 hover:bg-sanzar-primarySoft hover:text-sanzar-primary border border-sanzar-border transition inline-flex items-center gap-1"
+                                >
+                                  {l.label} <ArrowRight className="w-3 h-3" />
+                                </button>
+                              ))}
+                            </>
+                          )}
+                        </div>
+                        {(/[\u4e00-\u9fff]/.test(translation.translatedText) || /[\u4e00-\u9fff]/.test(query)) && (
                           <button
-                            key={l.code}
                             type="button"
-                            disabled={translating}
                             onClick={() => {
-                              setTargetLang(l.code);
-                              void handleTranslate(query, l.code);
+                              const zhText = /[\u4e00-\u9fff]/.test(translation.translatedText)
+                                ? translation.translatedText.trim()
+                                : query.trim();
+                              jumpToWord(zhText);
                             }}
-                            className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-sanzar-surface2 hover:bg-sanzar-primarySoft hover:text-sanzar-primary border border-sanzar-border transition inline-flex items-center gap-1"
+                            className="px-3 py-1 rounded-full text-[11px] font-bold bg-sanzar-primarySoft text-sanzar-primary border border-sanzar-primary/35 hover:bg-sanzar-primary hover:text-sanzar-onPrimary transition inline-flex items-center gap-1"
                           >
-                            {l.label} <ArrowRight className="w-3 h-3" />
+                            <Sparkles className="w-3 h-3" /> Stroke order &amp; practice
                           </button>
-                        ))}
+                        )}
                       </div>
                     )}
                   </div>
