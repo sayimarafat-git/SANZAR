@@ -33,11 +33,13 @@ import { apiRequest, errorText } from '../../lib/api-client';
 import type {
   DictLangCode,
   DictionaryEntry,
+  LanguageInsights,
   SavedVocabularyItem,
   TranslationHistoryItem,
   TranslationResult,
 } from '../../lib/models';
 import { Modal, useToast } from '../../components/SanzarUI';
+import { LanguageInsightsPanel } from '../../components/LanguageInsightsPanel';
 import {
   addLocalTranslationHistory,
   deleteLocalTranslationHistory,
@@ -778,6 +780,33 @@ export const DictionaryPage: React.FC = () => {
     void syncTranslationHistory(uid).then(setHistoryItems);
   };
 
+  const [insights, setInsights] = useState<LanguageInsights | null>(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insightsError, setInsightsError] = useState<string | null>(null);
+
+  const handleAnalyzeInsights = async (textOverride?: string, langOverride?: DictLangCode | 'auto') => {
+    const clean = (textOverride ?? query).trim();
+    if (!clean) return;
+    if (!uid) {
+      setInsightsError('Sign in to use Grammar Assistance and Advanced Vocabulary.');
+      return;
+    }
+    setInsightsLoading(true);
+    setInsightsError(null);
+    try {
+      const langParam = langOverride ?? (langFilter !== 'all' ? langFilter : 'auto');
+      const res = await apiRequest<LanguageInsights>('/v1/dictionary/insights', {
+        method: 'POST',
+        bodyJson: { text: clean, language: langParam },
+      });
+      setInsights(res);
+    } catch (e) {
+      setInsightsError(errorText(e));
+    } finally {
+      setInsightsLoading(false);
+    }
+  };
+
   const handleTranslate = async (overrideText?: string, overrideTarget?: DictLangCode) => {
     const clean = (overrideText ?? query).trim();
     if (!clean) return;
@@ -1277,21 +1306,71 @@ export const DictionaryPage: React.FC = () => {
                           </>
                         )}
                       </div>
-                      {translation.translatedText.trim().length <= 24 && (
+                      <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => jumpToWord(translation.translatedText.trim(), true)}
-                          className="px-3 py-1 rounded-full text-[11px] font-bold bg-sanzar-primarySoft text-sanzar-primary border border-sanzar-primary/35 hover:bg-sanzar-primary hover:text-sanzar-onPrimary transition inline-flex items-center gap-1"
+                          disabled={insightsLoading}
+                          onClick={() =>
+                            void handleAnalyzeInsights(
+                              translation.translatedText,
+                              translation.targetLanguage
+                            )
+                          }
+                          className="px-3 py-1 rounded-full text-[11px] font-bold bg-sanzar-surface2 text-sanzar-text hover:bg-sanzar-primarySoft hover:text-sanzar-primary border border-sanzar-border transition inline-flex items-center gap-1"
                         >
-                          <Sparkles className="w-3 h-3" /> Stroke order &amp; practice
+                          <Sparkles className="w-3 h-3" /> Grammar &amp; Vocabulary
                         </button>
-                      )}
+                        {translation.translatedText.trim().length <= 24 && (
+                          <button
+                            type="button"
+                            onClick={() => jumpToWord(translation.translatedText.trim(), true)}
+                            className="px-3 py-1 rounded-full text-[11px] font-bold bg-sanzar-primarySoft text-sanzar-primary border border-sanzar-primary/35 hover:bg-sanzar-primary hover:text-sanzar-onPrimary transition inline-flex items-center gap-1"
+                          >
+                            <Sparkles className="w-3 h-3" /> Stroke order &amp; practice
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ) : null}
               </div>
             </div>
           )}
+
+          {/* Direct Grammar & Vocabulary Trigger when user typed text without translating */}
+          {query.trim() && !translation && !translating && !insights && !insightsLoading && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => void handleAnalyzeInsights(query.trim(), langFilter !== 'all' ? langFilter : 'auto')}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-sanzar-primarySoft text-sanzar-primary border border-sanzar-primary/30 hover:bg-sanzar-primary hover:text-sanzar-onPrimary transition inline-flex items-center gap-1.5"
+              >
+                <Sparkles className="w-3.5 h-3.5" /> Grammar &amp; Advanced Vocabulary
+              </button>
+            </div>
+          )}
+
+          {/* Grammar Assistance & Advanced Vocabulary Panel */}
+          <LanguageInsightsPanel
+            insights={insights}
+            loading={insightsLoading}
+            error={insightsError}
+            onClose={() => {
+              setInsights(null);
+              setInsightsError(null);
+            }}
+            onRetry={() => void handleAnalyzeInsights(insights?.text || query.trim(), insights?.language || 'auto')}
+            onPickWord={(w) => {
+              setQuery(w);
+              void handleTranslate(w);
+            }}
+            onApplyCorrection={(corrected) => {
+              setQuery(corrected);
+              setInsights(null);
+              void handleTranslate(corrected);
+            }}
+            onSpeak={(txt, langCode, rate) => speakText(txt, langCode, rate)}
+          />
 
           {/* Compact Filter & Results Bar */}
           <div className="flex flex-wrap items-center justify-between gap-3">

@@ -917,6 +917,326 @@ export async function adminBulkImportDictionary(env, ctx, input) {
   return { imported, skipped, errors };
 }
 
+/* ============================== grammar & advanced vocabulary insights ============================== */
+function buildFallbackGrammar(text, language) {
+  const trimmed = text.trim();
+  const points = [];
+  const tips = [];
+  let correctedText = trimmed;
+  let isCorrect = true;
+
+  if (language === 'zh-Hans') {
+    if (trimmed.includes('了')) {
+      points.push({
+        title: 'Aspect particle 了 (le)',
+        explanation: 'Marks a completed action or a new state/change of situation.',
+        example: '我吃了饭。(Wǒ chī le fàn.)',
+      });
+    }
+    if (/[的得地]/.test(trimmed)) {
+      points.push({
+        title: 'Structural particles 的 / 地 / 得',
+        explanation: '的 links modifiers to nouns, 地 links adverbs to verbs, and 得 links verbs to degree/result complements.',
+        example: '认真地学习 / 说得很好',
+      });
+    }
+    if (/[吗呢吧]/.test(trimmed)) {
+      points.push({
+        title: 'Sentence-final modal particles (吗 / 呢 / 吧)',
+        explanation: '吗 forms yes/no questions, 呢 softens questions or shows ongoing action, and 吧 expresses suggestion or confirmation.',
+      });
+    }
+    if (/[把被]/.test(trimmed)) {
+      points.push({
+        title: '把 / 被 disposal & passive structures',
+        explanation: '把 emphasizes how an object is handled (Subject + 把 + Object + Verb + Result); 被 marks passive voice.',
+      });
+    }
+    if (points.length === 0) {
+      points.push({
+        title: 'Chinese word order (SVO)',
+        explanation: 'Standard Mandarin follows Subject + Time + Place + Verb + Object, with modifiers placed before the noun or verb they describe.',
+        example: '我今天在学校学习中文。',
+      });
+    }
+    tips.push('Pay attention to Pinyin tones — changing a tone changes the meaning of a syllable.');
+    return {
+      isCorrect: true,
+      correctedText: trimmed,
+      summary: 'Analyzed Chinese sentence structure, particles, and usage.',
+      points,
+      tips,
+    };
+  }
+
+  if (language === 'bn') {
+    if (/আপনি|আপনার|আপনাকে/.test(trimmed)) {
+      points.push({
+        title: 'Formal register (আপনি)',
+        explanation: 'Uses respectful/formal pronouns and matching verb endings (e.g., করেন, যান, বলছেন).',
+      });
+    } else if (/তুমি|তোমার|তোমাকে/.test(trimmed)) {
+      points.push({
+        title: 'Familiar register (তুমি)',
+        explanation: 'Uses friendly/familiar pronouns with matching verb endings (e.g., করো, যাও, বলছো).',
+      });
+    }
+    if (/\s(না|নি)$/.test(trimmed) || /(না|নি)[।!?]?$/.test(trimmed)) {
+      points.push({
+        title: 'Negation (না / নি)',
+        explanation: 'না negates present/future/habitual verbs; নি negates completed past actions (present/past perfect).',
+        example: 'আমি যাইনি (I have not gone) / আমি যাই না (I do not go).',
+      });
+    }
+    if (points.length === 0) {
+      points.push({
+        title: 'Bangla SOV word order',
+        explanation: 'Bangla normally places the verb at the end of the clause (Subject + Object + Verb) and uses postpositions after nouns.',
+        example: 'আমি প্রতিদিন বাংলা শিখি।',
+      });
+    }
+    tips.push('Match verb endings with the pronoun formality level (আপনি / তুমি / তুই).');
+    return {
+      isCorrect: true,
+      correctedText: trimmed,
+      summary: 'Analyzed Bangla register, word order, and grammatical particles.',
+      points,
+      tips,
+    };
+  }
+
+  // English deterministic checks
+  if (/^[a-z]/.test(trimmed) && trimmed.includes(' ')) {
+    correctedText = trimmed[0].toUpperCase() + trimmed.slice(1);
+    isCorrect = false;
+    points.push({
+      title: 'Sentence capitalization',
+      explanation: 'Start complete English sentences with a capital letter.',
+      example: correctedText,
+    });
+  }
+  if (/\b(he|she|it)\s+don't\b/i.test(correctedText)) {
+    correctedText = correctedText.replace(/\b(he|she|it)\s+don't\b/gi, '$1 doesn\'t');
+    isCorrect = false;
+    points.push({
+      title: 'Subject–verb agreement (doesn\'t)',
+      explanation: 'Use "doesn\'t" with third-person singular subjects (he, she, it).',
+      example: 'She doesn\'t know yet.',
+    });
+  }
+  if (/\ba\s+[aeiou]\w*/i.test(correctedText)) {
+    points.push({
+      title: 'Indefinite article (a vs. an)',
+      explanation: 'Use "an" before vowel sounds (an apple, an hour) and "a" before consonant sounds (a book, a university).',
+    });
+  }
+  if (points.length === 0) {
+    points.push({
+      title: 'English SVO structure & agreement',
+      explanation: 'Standard English follows Subject + Verb + Object. Ensure tense consistency and subject–verb agreement.',
+    });
+  }
+  tips.push('Check verb tense consistency and articles (a / an / the) for natural phrasing.');
+
+  return {
+    isCorrect,
+    correctedText,
+    summary: isCorrect
+      ? 'No obvious grammar errors detected.'
+      : 'Suggested a quick grammar polish for more natural English.',
+    points,
+    tips,
+  };
+}
+
+function safeParseJsonObject(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start === -1 || end <= start) return null;
+  try {
+    return JSON.parse(raw.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+export async function handleLanguageInsights(env, input) {
+  const text = str(input.text, { min: 1, max: 1200, field: 'Text' });
+  const requested = input.language && input.language !== 'auto' ? normalizeApiLang(input.language) : null;
+  const detected = detectLanguageFromText(text);
+  const language = requested || detected.language;
+  const langFull = language === 'zh-Hans' ? 'Simplified Chinese' : language === 'bn' ? 'Bangla (Bengali)' : 'English';
+
+  const pinyinPromise = language === 'zh-Hans' && hasHanzi(text) ? fetchChinesePinyin(text) : Promise.resolve('');
+
+  // 1. Primary: Cloudflare Workers AI structured JSON insights for all 3 languages
+  if (env.AI && typeof env.AI.run === 'function') {
+    try {
+      const prompt = `Analyze this ${langFull} text for a language learner: "${text.slice(0, 600)}".
+Return ONLY valid JSON with this exact shape:
+{
+  "grammar": {
+    "isCorrect": true,
+    "correctedText": "...",
+    "summary": "1-2 sentence explanation in English",
+    "points": [{"title": "...", "explanation": "...", "example": "..."}],
+    "tips": ["..."]
+  },
+  "vocabulary": {
+    "partOfSpeech": "noun/verb/phrase/etc",
+    "synonyms": [{"word": "...", "pinyin": ""}],
+    "antonyms": [{"word": "...", "pinyin": ""}],
+    "collocations": [{"phrase": "...", "meaning": "...", "pinyin": ""}],
+    "relatedWords": [{"word": "...", "note": "...", "pinyin": ""}]
+  }
+}
+Rules: provide 2-4 grammar points, 3-5 synonyms, 2-4 antonyms, 3-4 natural collocations, and 3-5 related words in ${langFull}. Include tone-marked Pinyin ONLY when ${langFull} is Simplified Chinese.`;
+
+      const aiRes = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', {
+        messages: [
+          { role: 'system', content: 'You are a concise, accurate trilingual (English, Bangla, Simplified Chinese) linguistics tutor. Respond with strict JSON only.' },
+          { role: 'user', content: prompt },
+        ],
+        max_tokens: 700,
+      });
+      const rawOut = typeof aiRes?.response === 'string' ? aiRes.response : '';
+      const parsed = safeParseJsonObject(rawOut);
+      if (parsed && parsed.grammar && parsed.vocabulary) {
+        const pinyin = await pinyinPromise;
+        return {
+          text,
+          language,
+          ...(pinyin ? { pinyin } : {}),
+          grammar: {
+            isCorrect: parsed.grammar.isCorrect !== false,
+            correctedText: String(parsed.grammar.correctedText || text).trim(),
+            summary: String(parsed.grammar.summary || '').trim() || 'Grammar analysis complete.',
+            points: Array.isArray(parsed.grammar.points) ? parsed.grammar.points.slice(0, 5) : [],
+            tips: Array.isArray(parsed.grammar.tips) ? parsed.grammar.tips.slice(0, 4).map(String) : [],
+          },
+          vocabulary: {
+            partOfSpeech: typeof parsed.vocabulary.partOfSpeech === 'string' ? parsed.vocabulary.partOfSpeech : undefined,
+            synonyms: Array.isArray(parsed.vocabulary.synonyms) ? parsed.vocabulary.synonyms.slice(0, 6) : [],
+            antonyms: Array.isArray(parsed.vocabulary.antonyms) ? parsed.vocabulary.antonyms.slice(0, 5) : [],
+            collocations: Array.isArray(parsed.vocabulary.collocations) ? parsed.vocabulary.collocations.slice(0, 5) : [],
+            relatedWords: Array.isArray(parsed.vocabulary.relatedWords) ? parsed.vocabulary.relatedWords.slice(0, 6) : [],
+          },
+          provider: 'cloudflare-ai',
+        };
+      }
+    } catch {
+      // Fall through to zero-config linguistic fallback
+    }
+  }
+
+  // 2. Zero-config fallback: Google public gtx dictionary/synonyms/examples + D1 related entries + deterministic grammar
+  const synonyms = [];
+  const antonyms = [];
+  const collocations = [];
+  const relatedWords = [];
+  let partOfSpeech;
+
+  try {
+    const sl = toProviderLang(language, 'google');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    try {
+      const res = await fetch(
+        `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(sl)}&tl=en&dt=bd&dt=ss&dt=ex&dt=rw&dt=rm&q=${encodeURIComponent(text.slice(0, 300))}`,
+        {
+          headers: { 'user-agent': 'Mozilla/5.0 (compatible; Sanzar/1.0)' },
+          signal: controller.signal,
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        // Part of speech from dt=bd (data[1])
+        if (Array.isArray(data?.[1]) && Array.isArray(data[1][0]) && typeof data[1][0][0] === 'string') {
+          partOfSpeech = data[1][0][0];
+        }
+        // Synonyms from dt=ss (data[11])
+        if (Array.isArray(data?.[11])) {
+          for (const group of data[11]) {
+            if (!Array.isArray(group) || !Array.isArray(group[1])) continue;
+            for (const sub of group[1]) {
+              if (!Array.isArray(sub) || !Array.isArray(sub[0])) continue;
+              for (const w of sub[0]) {
+                if (typeof w === 'string' && w.trim() && synonyms.length < 6 && !synonyms.some((x) => x.word === w.trim())) {
+                  synonyms.push({ word: w.trim() });
+                }
+              }
+            }
+          }
+        }
+        // Examples / collocations from dt=ex (data[13])
+        if (Array.isArray(data?.[13]?.[0])) {
+          for (const ex of data[13][0]) {
+            if (Array.isArray(ex) && typeof ex[0] === 'string' && collocations.length < 4) {
+              const cleanEx = ex[0].replace(/<[^>]+>/g, '').trim();
+              if (cleanEx) collocations.push({ phrase: cleanEx });
+            }
+          }
+        }
+        // Related words from dt=rw (data[14])
+        if (Array.isArray(data?.[14]?.[0])) {
+          for (const rw of data[14][0]) {
+            if (typeof rw === 'string' && rw.trim() && relatedWords.length < 6) {
+              relatedWords.push({ word: rw.trim() });
+            }
+          }
+        }
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    // Non-fatal
+  }
+
+  // Enrich related words from curated D1 dictionary entries in the same language
+  try {
+    const dbLang = toDbLang(language);
+    const like = `%${text.slice(0, 24).toLowerCase()}%`;
+    const dbRows = (
+      await env.DB.prepare(
+        `SELECT word, phonetic, meaning_en FROM dictionary_entries
+         WHERE status = 'published' AND language = ? AND (lower(word) LIKE ? OR lower(meaning_en) LIKE ?)
+         LIMIT 6`
+      )
+        .bind(dbLang, like, like)
+        .all()
+    ).results;
+    for (const r of dbRows) {
+      if (r.word !== text && relatedWords.length < 8 && !relatedWords.some((x) => x.word === r.word)) {
+        relatedWords.push({
+          word: r.word,
+          ...(r.phonetic ? { pinyin: r.phonetic } : {}),
+          ...(r.meaning_en ? { note: r.meaning_en } : {}),
+        });
+      }
+    }
+  } catch {
+    // Non-fatal
+  }
+
+  const pinyin = await pinyinPromise;
+  return {
+    text,
+    language,
+    ...(pinyin ? { pinyin } : {}),
+    grammar: buildFallbackGrammar(text, language),
+    vocabulary: {
+      ...(partOfSpeech ? { partOfSpeech } : {}),
+      synonyms,
+      antonyms,
+      collocations,
+      relatedWords,
+    },
+    provider: 'sanzar-linguistics',
+  };
+}
+
 /* ============================== router ============================== */
 export async function routeDictionaryAuth(req, env, ctx, url) {
   const p = url.pathname;
@@ -928,6 +1248,9 @@ export async function routeDictionaryAuth(req, env, ctx, url) {
   }
   if (p === '/v1/translation/detect' && m === 'POST') {
     return json(handleDetectLanguage(await body(req, 16_000)));
+  }
+  if (p === '/v1/dictionary/insights' && m === 'POST') {
+    return json(await handleLanguageInsights(env, await body(req, 16_000)));
   }
   if (p === '/v1/dictionary/saved' && m === 'GET') {
     return json(await listSavedVocabulary(env, ctx, url));

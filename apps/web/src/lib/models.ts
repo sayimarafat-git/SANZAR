@@ -148,6 +148,45 @@ export interface TranslationResult {
   fromCache?: boolean;
 }
 
+export interface GrammarPoint {
+  title: string;
+  explanation: string;
+  example?: string;
+}
+
+export interface VocabItem {
+  word: string;
+  note?: string;
+  pinyin?: string;
+}
+
+export interface CollocationItem {
+  phrase: string;
+  meaning?: string;
+  pinyin?: string;
+}
+
+export interface LanguageInsights {
+  text: string;
+  language: DictLangCode;
+  pinyin?: string;
+  grammar: {
+    isCorrect: boolean;
+    correctedText: string;
+    summary: string;
+    points: GrammarPoint[];
+    tips: string[];
+  };
+  vocabulary: {
+    partOfSpeech?: string;
+    synonyms: VocabItem[];
+    antonyms: VocabItem[];
+    collocations: CollocationItem[];
+    relatedWords: VocabItem[];
+  };
+  provider: string;
+}
+
 export interface NoteSection {
   heading: string;
   text: string;
