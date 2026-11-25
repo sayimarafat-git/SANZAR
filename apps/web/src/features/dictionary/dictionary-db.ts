@@ -68,8 +68,10 @@ function txPromise<T>(
 }
 
 /* ============================== translation cache (LRU) ============================== */
+const CACHE_KEY_VERSION = 'v2';
+
 export function buildCacheKey(source: DictLangCode, target: DictLangCode, text: string): string {
-  return `${source}::${target}::${text.trim().toLowerCase()}`;
+  return `${CACHE_KEY_VERSION}::${source}::${target}::${text.trim().toLowerCase()}`;
 }
 
 export async function getCachedTranslation(
