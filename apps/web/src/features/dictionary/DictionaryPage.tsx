@@ -365,6 +365,27 @@ function renderClickableChineseExample(example: string, onSelectWord: (w: string
   return example;
 }
 
+function buildAdhocEntry(target: string): DictionaryEntry {
+  const adhocLang: 'zh' | 'bn' | 'en' = /[\u4e00-\u9fff]/.test(target)
+    ? 'zh'
+    : /[\u0980-\u09ff]/.test(target)
+      ? 'bn'
+      : 'en';
+  return {
+    id: `adhoc-${target}`,
+    language: adhocLang,
+    word: target,
+    phonetic: '',
+    part_of_speech: '',
+    meaning_en: '',
+    meaning_bn: '',
+    meaning_zh: '',
+    example: '',
+    example_translation: '',
+    hsk_level: '',
+  };
+}
+
 export const DictionaryPage: React.FC = () => {
   const { user } = useAuth();
   const { t } = useSettings();
@@ -407,12 +428,17 @@ export const DictionaryPage: React.FC = () => {
     (entry: DictionaryEntry) => {
       setForcePractice(false);
       setDetailEntry(entry);
-      const next = new URLSearchParams(searchParams);
-      if (query.trim()) next.set('q', query.trim());
-      next.set('w', entry.word);
-      setSearchParams(next, { replace: true });
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (query.trim()) next.set('q', query.trim());
+          next.set('w', entry.word);
+          return next;
+        },
+        { replace: true }
+      );
     },
-    [query, searchParams, setSearchParams]
+    [query, setSearchParams]
   );
 
   const closeEntryModal = useCallback(() => {
@@ -420,25 +446,41 @@ export const DictionaryPage: React.FC = () => {
     setForcePractice(false);
     setCharEntries([]);
     setRelatedWords([]);
-    const next = new URLSearchParams(searchParams);
-    next.delete('w');
-    setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams]);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('w');
+        return next;
+      },
+      { replace: true }
+    );
+  }, [setSearchParams]);
 
   const jumpToWord = useCallback(
     (targetWord: string, openPractice = false) => {
       const clean = targetWord.trim();
       if (!clean) return;
       setForcePractice(openPractice);
-      setQuery(clean);
-      setDebouncedQuery(clean);
+      // Open modal immediately on the 1st click without waiting for network or URL effects
+      const localMatch = entries.find((e) => e.word.toLowerCase() === clean.toLowerCase());
+      setDetailEntry(localMatch || buildAdhocEntry(clean));
       setActiveTab('dictionary');
-      const next = new URLSearchParams();
-      next.set('q', clean);
-      next.set('w', clean);
-      setSearchParams(next, { replace: true });
+      if (!openPractice) {
+        setQuery(clean);
+        setDebouncedQuery(clean);
+      }
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (!openPractice) next.set('q', clean);
+          else if (query.trim()) next.set('q', query.trim());
+          next.set('w', clean);
+          return next;
+        },
+        { replace: true }
+      );
     },
-    [setSearchParams]
+    [entries, query, setSearchParams]
   );
 
   const handleCopyShareLink = (entry: DictionaryEntry) => {
@@ -451,16 +493,21 @@ export const DictionaryPage: React.FC = () => {
     toast('Word link copied');
   };
 
-  // Sync ?q= to URL as debouncedQuery changes
+  // Sync ?q= to URL as debouncedQuery changes (preserving ?w= via functional updater)
   useEffect(() => {
     if (activeTab !== 'dictionary') return;
-    const curQ = searchParams.get('q') || '';
-    if (curQ === debouncedQuery) return;
-    const next = new URLSearchParams(searchParams);
-    if (debouncedQuery) next.set('q', debouncedQuery);
-    else next.delete('q');
-    setSearchParams(next, { replace: true });
-  }, [debouncedQuery, activeTab]);
+    setSearchParams(
+      (prev) => {
+        const curQ = prev.get('q') || '';
+        if (curQ === debouncedQuery) return prev;
+        const next = new URLSearchParams(prev);
+        if (debouncedQuery) next.set('q', debouncedQuery);
+        else next.delete('q');
+        return next;
+      },
+      { replace: true }
+    );
+  }, [debouncedQuery, activeTab, setSearchParams]);
 
   // Deep-link loader + Chinese character breakdown & related words fetcher (?w=...)
   useEffect(() => {
@@ -470,6 +517,9 @@ export const DictionaryPage: React.FC = () => {
       setRelatedWords([]);
       return;
     }
+    if (!detailEntry && urlWord) {
+      setDetailEntry(buildAdhocEntry(urlWord));
+    }
     let cancelled = false;
     void apiRequest<{
       entry: DictionaryEntry | null;
@@ -478,29 +528,8 @@ export const DictionaryPage: React.FC = () => {
     }>(`/v1/dictionary/entry?w=${encodeURIComponent(target)}`)
       .then((res) => {
         if (cancelled) return;
-        if (!detailEntry || detailEntry.word !== target) {
-          if (res.entry) {
-            setDetailEntry(res.entry);
-          } else {
-            const adhocLang: 'zh' | 'bn' | 'en' = /[\u4e00-\u9fff]/.test(target)
-              ? 'zh'
-              : /[\u0980-\u09ff]/.test(target)
-                ? 'bn'
-                : 'en';
-            setDetailEntry({
-              id: `adhoc-${target}`,
-              language: adhocLang,
-              word: target,
-              phonetic: '',
-              part_of_speech: '',
-              meaning_en: '',
-              meaning_bn: '',
-              meaning_zh: '',
-              example: '',
-              example_translation: '',
-              hsk_level: '',
-            });
-          }
+        if (res.entry) {
+          setDetailEntry(res.entry);
         }
         setCharEntries(res.charEntries || []);
         setRelatedWords(res.relatedWords || []);
