@@ -189,4 +189,251 @@ export const BANGLA_PEN_PATHS: Record<string, string[]> = {
   '৭': ['M 50 24 C 34 24 32 42 46 44 C 60 46 64 62 56 76'],
   '৮': ['M 36 24 L 36 60 C 36 74 66 74 66 56 C 66 44 50 44 44 54 L 66 76'],
   '৯': ['M 62 34 C 52 22 32 28 34 44 C 36 56 52 58 60 48 L 60 76'],
+
+  // Additional Bangla consonants & signs
+  'ড়': [
+    'M 22 26 L 78 26',
+    'M 42 26 L 42 52 C 42 64 60 64 60 50 C 60 42 48 42 46 48',
+    'M 52 74 C 48 74 48 78 52 78 C 56 78 56 74 52 74',
+  ],
+  'ঢ়': [
+    'M 22 26 L 78 26',
+    'M 34 26 L 34 52 C 34 72 64 72 66 52 C 66 44 56 44 54 52',
+    'M 50 74 C 46 74 46 78 50 78 C 54 78 54 74 50 74',
+  ],
+  'য়': [
+    'M 22 26 L 78 26',
+    'M 32 26 L 32 48 C 32 62 48 64 56 52',
+    'M 64 26 L 64 72',
+    'M 48 74 C 44 74 44 78 48 78 C 52 78 52 74 48 74',
+  ],
+  'ৎ': ['M 32 34 C 44 22 68 28 64 46 C 60 62 42 70 30 68'],
+  'ং': ['M 48 36 C 36 36 36 52 48 52 C 60 52 60 36 48 36'],
+  'ঃ': [
+    'M 48 34 C 40 34 40 44 48 44 C 56 44 56 34 48 34',
+    'M 48 56 C 40 56 40 66 48 66 C 56 66 56 56 48 56',
+  ],
+  'ঁ': [
+    'M 34 16 C 42 24 58 24 66 16',
+    'M 50 12 C 47 12 47 16 50 16 C 53 16 53 12 50 12',
+  ],
+  '।': ['M 50 22 L 50 78'],
+
+  // Bangla Vowel Signs (Kars / কার) in 100x100 space
+  'া': ['M 24 26 L 54 26', 'M 40 26 L 40 76'],
+  'ি': [
+    'M 24 26 L 56 26',
+    'M 38 26 L 38 76',
+    'M 38 26 C 38 8 66 6 76 20',
+  ],
+  'ী': [
+    'M 24 26 L 56 26',
+    'M 42 26 L 42 76',
+    'M 42 26 C 42 8 18 6 12 18',
+  ],
+  'ু': ['M 36 78 C 46 92 66 90 62 80 C 58 76 48 80 54 88'],
+  'ূ': ['M 34 80 C 44 74 58 78 52 88 C 46 96 64 94 70 86'],
+  'ৃ': ['M 38 78 C 34 90 50 94 60 84 C 64 80 58 76 54 82'],
+  'ে': ['M 54 26 C 32 26 24 44 28 60 C 32 72 44 74 50 64'],
+  'ৈ': [
+    'M 54 26 C 32 26 24 44 28 60 C 32 72 44 74 50 64',
+    'M 48 24 C 44 10 58 6 66 14',
+  ],
+  'ৗ': ['M 24 26 L 54 26', 'M 40 26 L 40 76', 'M 40 26 C 42 10 56 8 64 16'],
+  '্য': ['M 26 26 L 54 26', 'M 38 26 C 52 38 52 62 34 74'],
+  '্র': ['M 32 78 C 46 72 60 76 70 72'],
+  '্': ['M 44 76 L 62 88'],
 };
+
+export interface BanglaPenStroke {
+  d: string;
+  charIndex: number;
+  strokeInChar: number;
+}
+
+export interface BanglaWordPenLayout {
+  strokes: BanglaPenStroke[];
+  totalWidth: number;
+  viewBoxHeight: number;
+}
+
+/** Shifts all coordinates in an M/L/C/Q SVG path by (dx, dy). */
+function translateSvgPath(d: string, dx: number, dy = 0): string {
+  const tokens = d.match(/[A-Za-z]|-?\d*\.?\d+/g);
+  if (!tokens) return d;
+  const out: string[] = [];
+  let i = 0;
+  while (i < tokens.length) {
+    const cmd = tokens[i++];
+    out.push(cmd);
+    if (cmd === 'M' || cmd === 'L') {
+      const x = parseFloat(tokens[i++]) + dx;
+      const y = parseFloat(tokens[i++]) + dy;
+      out.push(x.toFixed(1), y.toFixed(1));
+    } else if (cmd === 'Q') {
+      for (let p = 0; p < 2; p++) {
+        const x = parseFloat(tokens[i++]) + dx;
+        const y = parseFloat(tokens[i++]) + dy;
+        out.push(x.toFixed(1), y.toFixed(1));
+      }
+    } else if (cmd === 'C') {
+      for (let p = 0; p < 3; p++) {
+        const x = parseFloat(tokens[i++]) + dx;
+        const y = parseFloat(tokens[i++]) + dy;
+        out.push(x.toFixed(1), y.toFixed(1));
+      }
+    }
+  }
+  return out.join(' ');
+}
+
+const PRE_BASE_KARS = new Set(['ি', 'ে', 'ৈ']);
+const BELOW_BASE_KARS = new Set(['ু', 'ূ', 'ৃ', '্']);
+const ABOVE_BASE_MARKS = new Set(['ঁ']);
+const NARROW_POST_KARS = new Set(['া', 'ী', 'ৗ', '্য', 'ং', 'ঃ', '।']);
+
+/**
+ * Builds a unified whole-word SVG pen-stroke layout for Bangla text,
+ * placing pre-base Kars (ি ে ৈ), split Kars (ো ৌ), base consonants,
+ * below-base Kars (ু ূ ৃ), and post-base Kars (া ী) in visual handwriting order.
+ */
+export function buildBanglaPenLayout(text: string): BanglaWordPenLayout {
+  const strokes: BanglaPenStroke[] = [];
+  const chars = Array.from(text.normalize('NFC'));
+  let cursorX = 16;
+
+  // Group into logical visual clusters: [consonant/vowel + trailing marks/conjuncts]
+  let idx = 0;
+  let charSlot = 0;
+
+  while (idx < chars.length) {
+    const ch = chars[idx];
+    if (/\s/.test(ch)) {
+      cursorX += 38;
+      idx++;
+      continue;
+    }
+
+    // Collect a cluster: base + (hasanta + next consonant)* + trailing vowel signs/modifiers
+    const clusterChars: string[] = [ch];
+    idx++;
+    while (idx < chars.length) {
+      const next = chars[idx];
+      if (next === '্' && idx + 1 < chars.length) {
+        clusterChars.push(next, chars[idx + 1]);
+        idx += 2;
+      } else if (/[\u0981-\u0983\u09bc\u09be-\u09cd\u09d7]/.test(next)) {
+        clusterChars.push(next);
+        idx++;
+      } else {
+        break;
+      }
+    }
+
+    // Separate visual parts
+    const preKars: string[] = [];
+    const bases: string[] = [];
+    const belowKars: string[] = [];
+    const aboveMarks: string[] = [];
+    const postKars: string[] = [];
+
+    for (let j = 0; j < clusterChars.length; j++) {
+      const c = clusterChars[j];
+      if (c === 'ো') {
+        preKars.push('ে');
+        postKars.push('া');
+      } else if (c === 'ৌ') {
+        preKars.push('ে');
+        postKars.push('ৗ');
+      } else if (c === '্' && j + 1 < clusterChars.length) {
+        const nextC = clusterChars[j + 1];
+        if (nextC === 'য') {
+          postKars.push('্য');
+          j++;
+        } else if (nextC === 'র') {
+          belowKars.push('্র');
+          j++;
+        } else {
+          // Conjunct: draw second consonant right after first
+          bases.push(nextC);
+          j++;
+        }
+      } else if (PRE_BASE_KARS.has(c)) {
+        preKars.push(c);
+      } else if (BELOW_BASE_KARS.has(c)) {
+        belowKars.push(c);
+      } else if (ABOVE_BASE_MARKS.has(c)) {
+        aboveMarks.push(c);
+      } else if (NARROW_POST_KARS.has(c)) {
+        postKars.push(c);
+      } else {
+        bases.push(c);
+      }
+    }
+
+    let strokeInChar = 0;
+
+    // 1. Pre-base Kars (left of consonant)
+    for (const pk of preKars) {
+      const paths = BANGLA_PEN_PATHS[pk];
+      if (paths) {
+        for (const p of paths) {
+          strokes.push({ d: translateSvgPath(p, cursorX - 16, 0), charIndex: charSlot, strokeInChar: strokeInChar++ });
+        }
+        cursorX += 38;
+      }
+    }
+
+    // 2. Base letter(s)
+    const baseStartX = cursorX;
+    for (const b of bases) {
+      const paths = BANGLA_PEN_PATHS[b];
+      if (paths) {
+        for (const p of paths) {
+          strokes.push({ d: translateSvgPath(p, cursorX - 16, 0), charIndex: charSlot, strokeInChar: strokeInChar++ });
+        }
+        cursorX += 64;
+      }
+    }
+
+    // 3. Above-base marks (centered over base)
+    const baseMidX = bases.length > 0 ? baseStartX : cursorX;
+    for (const am of aboveMarks) {
+      const paths = BANGLA_PEN_PATHS[am];
+      if (paths) {
+        for (const p of paths) {
+          strokes.push({ d: translateSvgPath(p, baseMidX - 16, 0), charIndex: charSlot, strokeInChar: strokeInChar++ });
+        }
+      }
+    }
+
+    // 4. Below-base Kars (under base)
+    for (const bk of belowKars) {
+      const paths = BANGLA_PEN_PATHS[bk];
+      if (paths) {
+        for (const p of paths) {
+          strokes.push({ d: translateSvgPath(p, baseMidX - 16, 0), charIndex: charSlot, strokeInChar: strokeInChar++ });
+        }
+      }
+    }
+
+    // 5. Post-base Kars (right of base)
+    for (const pk of postKars) {
+      const paths = BANGLA_PEN_PATHS[pk];
+      if (paths) {
+        for (const p of paths) {
+          strokes.push({ d: translateSvgPath(p, cursorX - 24, 0), charIndex: charSlot, strokeInChar: strokeInChar++ });
+        }
+        cursorX += 36;
+      }
+    }
+
+    charSlot++;
+  }
+
+  return {
+    strokes,
+    totalWidth: Math.max(120, cursorX + 16),
+    viewBoxHeight: 108,
+  };
+}
