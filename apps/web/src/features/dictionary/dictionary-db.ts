@@ -19,6 +19,8 @@ export interface TranslationCacheEntry {
   targetLanguage: DictLangCode;
   sourceText: string;
   translatedText: string;
+  sourcePinyin?: string;
+  targetPinyin?: string;
   provider: string;
   accessedAt: number;
 }

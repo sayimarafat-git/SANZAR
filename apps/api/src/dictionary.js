@@ -411,7 +411,7 @@ async function callTranslationProvider(env, text, sourceLang, targetLang) {
     const timer = setTimeout(() => controller.abort(), 8000);
     try {
       const res = await fetch(
-        `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(sl)}&tl=${encodeURIComponent(tl)}&dt=t&q=${encodeURIComponent(text)}`,
+        `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(sl)}&tl=${encodeURIComponent(tl)}&dt=t&dt=rm&q=${encodeURIComponent(text)}`,
         {
           headers: { 'user-agent': 'Mozilla/5.0 (compatible; Sanzar/1.0)' },
           signal: controller.signal,
@@ -420,10 +420,11 @@ async function callTranslationProvider(env, text, sourceLang, targetLang) {
       if (res.ok) {
         const data = await res.json();
         const translated = Array.isArray(data?.[0])
-          ? data[0].map((seg) => (Array.isArray(seg) ? seg[0] : '')).join('')
+          ? data[0].map((seg) => (Array.isArray(seg) && typeof seg[0] === 'string' ? seg[0] : '')).join('')
           : '';
         if (translated) {
-          return { translatedText: translated, provider: 'google-gtx' };
+          const { sourcePinyin, targetPinyin } = extractGtxPinyin(data, sourceLang, targetLang);
+          return { translatedText: translated, provider: 'google-gtx', sourcePinyin, targetPinyin };
         }
       }
     } finally {
@@ -460,6 +461,50 @@ async function callTranslationProvider(env, text, sourceLang, targetLang) {
   }
 }
 
+function hasHanzi(text) {
+  return /[\u3400-\u4dbf\u4e00-\u9fff]/.test(String(text || ''));
+}
+
+function extractGtxPinyin(data, sourceLang, targetLang) {
+  if (!Array.isArray(data?.[0])) return { sourcePinyin: '', targetPinyin: '' };
+  let sourcePinyin = '';
+  let targetPinyin = '';
+  for (const seg of data[0]) {
+    if (Array.isArray(seg) && seg[0] == null && seg[1] == null) {
+      if (targetLang === 'zh-Hans' && typeof seg[2] === 'string' && seg[2].trim()) {
+        targetPinyin = seg[2].trim();
+      }
+      if (sourceLang === 'zh-Hans' && typeof seg[3] === 'string' && seg[3].trim()) {
+        sourcePinyin = seg[3].trim();
+      }
+    }
+  }
+  return { sourcePinyin, targetPinyin };
+}
+
+async function fetchChinesePinyin(text) {
+  const clean = String(text || '').trim().slice(0, 500);
+  if (!clean || !hasHanzi(clean)) return '';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3500);
+  try {
+    const res = await fetch(
+      `https://translate.googleapis.com/translate_a/single?client=gtx&sl=zh-CN&tl=en&dt=rm&q=${encodeURIComponent(clean)}`,
+      {
+        headers: { 'user-agent': 'Mozilla/5.0 (compatible; Sanzar/1.0)' },
+        signal: controller.signal,
+      }
+    );
+    if (!res.ok) return '';
+    const data = await res.json();
+    return extractGtxPinyin(data, 'zh-Hans', 'en').sourcePinyin;
+  } catch {
+    return '';
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function handleTranslate(env, input) {
   const text = str(input.text, { min: 1, max: 2000, field: 'Text' });
   const targetLang = normalizeApiLang(input.targetLanguage || input.target_language);
@@ -476,6 +521,7 @@ export async function handleTranslate(env, input) {
   }
 
   if (sourceLang === targetLang) {
+    const samePinyin = sourceLang === 'zh-Hans' && hasHanzi(text) ? await fetchChinesePinyin(text) : '';
     return {
       translatedText: text,
       sourceLanguage: sourceLang,
@@ -483,6 +529,7 @@ export async function handleTranslate(env, input) {
       detectedSourceLanguage: detected.language,
       confidence: detected.confidence,
       provider: 'identity',
+      ...(samePinyin ? { sourcePinyin: samePinyin, targetPinyin: samePinyin } : {}),
       matchedEntries: [],
     };
   }
@@ -514,6 +561,15 @@ export async function handleTranslate(env, input) {
 
   const result = await callTranslationProvider(env, textToTranslate, sourceLang, targetLang);
 
+  let sourcePinyin = sourceLang === 'zh-Hans' ? (result.sourcePinyin || matchedEntries[0]?.phonetic || '') : '';
+  let targetPinyin = targetLang === 'zh-Hans' ? (result.targetPinyin || '') : '';
+  if (sourceLang === 'zh-Hans' && !sourcePinyin && hasHanzi(textToTranslate)) {
+    sourcePinyin = await fetchChinesePinyin(textToTranslate);
+  }
+  if (targetLang === 'zh-Hans' && !targetPinyin && hasHanzi(result.translatedText)) {
+    targetPinyin = await fetchChinesePinyin(result.translatedText);
+  }
+
   return {
     translatedText: result.translatedText,
     sourceLanguage: sourceLang,
@@ -522,6 +578,8 @@ export async function handleTranslate(env, input) {
     isPinyin: Boolean(detected.isPinyin),
     confidence: detected.confidence,
     provider: result.provider,
+    ...(sourcePinyin ? { sourcePinyin } : {}),
+    ...(targetPinyin ? { targetPinyin } : {}),
     matchedEntries,
   };
 }

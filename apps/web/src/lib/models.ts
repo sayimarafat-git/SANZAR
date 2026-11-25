@@ -142,6 +142,8 @@ export interface TranslationResult {
   detectedSourceLanguage: DictLangCode;
   confidence: number;
   provider: string;
+  sourcePinyin?: string;
+  targetPinyin?: string;
   matchedEntries?: DictionaryEntry[];
   fromCache?: boolean;
 }

@@ -744,12 +744,14 @@ export const DictionaryPage: React.FC = () => {
     }
     const key = `${sLang}:${tLang}:${word}`;
     const nowMs = Date.now();
+    const phonetic = (translation?.sourcePinyin || translation?.targetPinyin || '').trim();
     const newItem: SavedVocabularyItem = {
       id: `sv_tr_${nowMs}_${Math.random().toString(36).slice(2, 7)}`,
       dictionary_entry_id: null,
       source_language: sLang,
       target_language: tLang,
       word: word.slice(0, 200),
+      ...(phonetic ? { phonetic: phonetic.slice(0, 200) } : {}),
       meaning: meaning.slice(0, 1000),
       created_at: nowMs,
       updated_at: nowMs,
@@ -794,7 +796,11 @@ export const DictionaryPage: React.FC = () => {
       const cacheSource = sourceParam !== 'auto' ? sourceParam : detectClientLang(clean)?.lang ?? null;
       if (cacheSource) {
         const cached = await getCachedTranslation(cacheSource, tgt, clean);
-        if (cached) {
+        const missingPinyin =
+          cached &&
+          ((cached.sourceLanguage === 'zh-Hans' && !cached.sourcePinyin) ||
+            (cached.targetLanguage === 'zh-Hans' && !cached.targetPinyin));
+        if (cached && !missingPinyin) {
           setTranslation({
             translatedText: cached.translatedText,
             sourceLanguage: cached.sourceLanguage,
@@ -802,6 +808,8 @@ export const DictionaryPage: React.FC = () => {
             detectedSourceLanguage: cached.sourceLanguage,
             confidence: 1,
             provider: cached.provider,
+            sourcePinyin: cached.sourcePinyin,
+            targetPinyin: cached.targetPinyin,
             fromCache: true,
           });
           // Bump existing history entry to the top (deduplicated in-place, never creates a duplicate)
@@ -847,6 +855,8 @@ export const DictionaryPage: React.FC = () => {
         targetLanguage: res.targetLanguage,
         sourceText: clean,
         translatedText: res.translatedText,
+        sourcePinyin: res.sourcePinyin,
+        targetPinyin: res.targetPinyin,
         provider: res.provider,
       });
 
@@ -1218,8 +1228,21 @@ export const DictionaryPage: React.FC = () => {
                       <p className="text-2xl sm:text-3xl font-extrabold tracking-tight text-sanzar-text leading-snug whitespace-pre-wrap">
                         {translation.translatedText}
                       </p>
-                      <div className="flex items-center gap-2 text-xs text-sanzar-muted">
+                      {translation.targetPinyin && (
+                        <p className="text-sm sm:text-base font-semibold tracking-wide flex items-center gap-2 flex-wrap">
+                          <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-bold">
+                            Pinyin
+                          </span>
+                          <span>{renderPinyin(translation.targetPinyin, true)}</span>
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2 text-xs text-sanzar-muted flex-wrap">
                         <span className="truncate">{query.trim()}</span>
+                        {translation.sourcePinyin && (
+                          <span className="font-semibold">
+                            · {renderPinyin(translation.sourcePinyin, true)}
+                          </span>
+                        )}
                         <button
                           type="button"
                           onClick={() => speakText(query.trim(), translation.sourceLanguage, 1.0)}
