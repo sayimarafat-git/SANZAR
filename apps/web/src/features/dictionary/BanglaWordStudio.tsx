@@ -354,7 +354,7 @@ export const BanglaWordStudio: React.FC<Props> = ({ word, defaultCollapsed = fal
             {/* Reference text in Kalpurush */}
             <div className="flex items-center justify-between text-xs text-sanzar-muted">
               <span>
-                Handwriting style:{' '}
+                Kalpurush:{' '}
                 <strong
                   className="text-lg text-sanzar-ink font-semibold ml-1"
                   style={{ fontFamily: BANGLA_DEFAULT_FONT }}
