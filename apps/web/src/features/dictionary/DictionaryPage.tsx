@@ -1434,10 +1434,10 @@ export const DictionaryPage: React.FC = () => {
             <div className="sanzar-card p-4 flex flex-wrap items-center gap-4">
               <div className="space-y-1.5">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-sanzar-muted">
-                  {langFilter === 'en' ? 'CEFR Level' : langFilter === 'zh-Hans' ? 'HSK Level' : 'Level (HSK / CEFR)'}
+                  {langFilter === 'en' || langFilter === 'bn' ? 'CEFR Level' : langFilter === 'zh-Hans' ? 'HSK Level' : 'Level (HSK / CEFR)'}
                 </p>
                 <div className="flex flex-wrap gap-1.5">
-                  {(langFilter === 'en' ? CEFR_OPTIONS : langFilter === 'zh-Hans' ? HSK_OPTIONS : ALL_LEVEL_OPTIONS).map((h) => (
+                  {(langFilter === 'en' || langFilter === 'bn' ? CEFR_OPTIONS : langFilter === 'zh-Hans' ? HSK_OPTIONS : ALL_LEVEL_OPTIONS).map((h) => (
                     <button
                       key={h || 'all'}
                       type="button"
