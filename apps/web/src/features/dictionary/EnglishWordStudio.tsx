@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, ChevronDown, ChevronUp, Eye, EyeOff, Gauge, PencilLine, Play, RotateCcw } from 'lucide-react';
 import { layoutEnglishWord } from './latin-pen-paths';
 
@@ -34,6 +34,7 @@ export const EnglishWordStudio: React.FC<Props> = ({ word, defaultCollapsed = fa
   const [hintFlash, setHintFlash] = useState(false);
   const [userPts, setUserPts] = useState<{ x: number; y: number }[]>([]);
 
+  const maskId = useId();
   const svgRef = useRef<SVGSVGElement>(null);
   const pathRefs = useRef<(SVGPathElement | null)[]>([]);
   const rafRef = useRef<number | null>(null);
@@ -318,7 +319,51 @@ export const EnglishWordStudio: React.FC<Props> = ({ word, defaultCollapsed = fa
               <line x1="0" y1="74" x2={viewWidth} y2="74" stroke="#ef4444" strokeOpacity="0.45" strokeWidth="0.75" />
               <line x1="0" y1="92" x2={viewWidth} y2="92" stroke="#64748b" strokeOpacity="0.32" strokeWidth="0.6" />
 
-              {/* Ghost Outline Layer */}
+              {/* Real Caveat Font Stroke-Reveal Mask */}
+              <defs>
+                <mask id={maskId}>
+                  {!practiceMode && !(animating && animState) ? (
+                    <rect x="0" y="0" width={viewWidth} height="100" fill="white" />
+                  ) : (
+                    strokes.map((st, idx) => {
+                      const len = pathRefs.current[idx]?.getTotalLength() || 100;
+                      if (animating && animState) {
+                        if (idx > animState.strokeIdx) return null;
+                        const dashOffset = idx === animState.strokeIdx ? len * (1 - animState.progress) : 0;
+                        return (
+                          <path
+                            key={`mask-anim-${st.id}`}
+                            d={st.d}
+                            fill="none"
+                            stroke="white"
+                            strokeWidth="20"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeDasharray={len}
+                            strokeDashoffset={dashOffset}
+                          />
+                        );
+                      }
+                      if (practiceMode && idx < completedCount) {
+                        return (
+                          <path
+                            key={`mask-done-${st.id}`}
+                            d={st.d}
+                            fill="none"
+                            stroke="white"
+                            strokeWidth="20"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        );
+                      }
+                      return null;
+                    })
+                  )}
+                </mask>
+              </defs>
+
+              {/* Invisible pen-path geometry layer for 60fps nib & practice hit-testing */}
               {strokes.map((st, idx) => (
                 <path
                   key={`ghost-${st.id}`}
@@ -327,86 +372,57 @@ export const EnglishWordStudio: React.FC<Props> = ({ word, defaultCollapsed = fa
                   }}
                   d={st.d}
                   fill="none"
-                  stroke="currentColor"
-                  strokeWidth="4.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className={
-                    showOutline
-                      ? 'text-emerald-950/[0.13] dark:text-white/[0.15]'
-                      : 'text-transparent'
-                  }
+                  stroke="none"
                 />
               ))}
 
-              {/* Active Ink Layer (Static / 60fps Flowing Animation / Practice Completed Strokes) */}
-              {strokes.map((st, idx) => {
-                const len = pathRefs.current[idx]?.getTotalLength() || 100;
+              {/* Faint Caveat Font Guide Layer */}
+              {showOutline && (
+                <text
+                  x={viewWidth / 2}
+                  y={74}
+                  textAnchor="middle"
+                  fontSize={74}
+                  fontWeight={600}
+                  style={{ fontFamily: '"Caveat", cursive, system-ui, sans-serif' }}
+                  className="fill-emerald-950/[0.13] dark:fill-white/[0.15]"
+                >
+                  {activeWord}
+                </text>
+              )}
 
-                if (animating && animState) {
-                  if (idx > animState.strokeIdx) return null;
-                  const dashOffset = idx === animState.strokeIdx ? len * (1 - animState.progress) : 0;
-                  return (
-                    <path
-                      key={`anim-${st.id}`}
-                      d={st.d}
-                      fill="none"
-                      stroke={idx === animState.strokeIdx ? '#19B46B' : 'currentColor'}
-                      strokeWidth="4.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeDasharray={len}
-                      strokeDashoffset={dashOffset}
-                      className="text-sanzar-text"
-                    />
-                  );
+              {/* Revealed Caveat Font Ink Layer */}
+              <text
+                x={viewWidth / 2}
+                y={74}
+                textAnchor="middle"
+                fontSize={74}
+                fontWeight={600}
+                style={{ fontFamily: '"Caveat", cursive, system-ui, sans-serif' }}
+                mask={`url(#${maskId})`}
+                className={
+                  practiceMode
+                    ? 'fill-emerald-600 dark:fill-emerald-400'
+                    : animating
+                      ? 'fill-emerald-700 dark:fill-emerald-400'
+                      : 'fill-slate-800 dark:fill-slate-100'
                 }
+              >
+                {activeWord}
+              </text>
 
-                if (practiceMode) {
-                  if (idx < completedCount) {
-                    return (
-                      <path
-                        key={`done-${st.id}`}
-                        d={st.d}
-                        fill="none"
-                        stroke="#19B46B"
-                        strokeWidth="4.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    );
-                  }
-                  if (idx === completedCount && hintFlash) {
-                    return (
-                      <path
-                        key={`hint-${st.id}`}
-                        d={st.d}
-                        fill="none"
-                        stroke="#f59e0b"
-                        strokeWidth="5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeDasharray="4 3"
-                      />
-                    );
-                  }
-                  return null;
-                }
-
-                // Idle state: crisp full word rendered in pen ink
-                return (
-                  <path
-                    key={`idle-${st.id}`}
-                    d={st.d}
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="4.6"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="text-sanzar-text"
-                  />
-                );
-              })}
+              {/* Practice hint flash on current stroke */}
+              {practiceMode && hintFlash && completedCount < strokes.length && (
+                <path
+                  d={strokes[completedCount].d}
+                  fill="none"
+                  stroke="#f59e0b"
+                  strokeWidth="5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeDasharray="4 3"
+                />
+              )}
 
               {/* Glowing Pen-Tip Nib during 60fps Animation */}
               {animating && animState?.nib && (

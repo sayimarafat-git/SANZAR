@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle2,
   ChevronDown,
@@ -44,6 +44,7 @@ export const BanglaWordStudio: React.FC<Props> = ({ word, defaultCollapsed = fal
   const [hintFlash, setHintFlash] = useState(false);
   const [userPts, setUserPts] = useState<{ x: number; y: number }[]>([]);
 
+  const maskId = useId();
   const svgRef = useRef<SVGSVGElement>(null);
   const pathRefs = useRef<(SVGPathElement | null)[]>([]);
   const rafRef = useRef<number | null>(null);
@@ -414,75 +415,112 @@ export const BanglaWordStudio: React.FC<Props> = ({ word, defaultCollapsed = fal
                   strokeWidth={0.8}
                 />
 
-                {/* Faint guide outline */}
-                {showOutline &&
-                  layout.strokes.map((st, idx) => (
-                    <path
-                      key={`bg-${idx}`}
-                      d={st.d}
-                      fill="none"
-                      stroke="currentColor"
-                      className="text-slate-200 dark:text-slate-800"
-                      strokeWidth={4.8}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  ))}
+                {/* Real Atma Font Stroke-Reveal Mask */}
+                <defs>
+                  <mask id={maskId}>
+                    {!practiceMode && !animating && animIdx < 0 ? (
+                      <rect x={0} y={0} width={layout.totalWidth} height={layout.viewBoxHeight} fill="white" />
+                    ) : (
+                      layout.strokes.map((st, idx) => {
+                        const pathEl = pathRefs.current[idx];
+                        const len = pathEl ? Math.max(1, pathEl.getTotalLength()) : 200;
+                        let dashOffset = 0;
+                        let visible = false;
 
-                {/* Active strokes (animated or practiced) */}
-                {layout.strokes.map((st, idx) => {
-                  const pathEl = pathRefs.current[idx];
-                  const len = pathEl ? Math.max(1, pathEl.getTotalLength()) : 200;
+                        if (practiceMode) {
+                          if (idx < completedCount) {
+                            visible = true;
+                            dashOffset = 0;
+                          }
+                        } else if (animating || animIdx >= 0) {
+                          if (idx < animIdx) {
+                            visible = true;
+                            dashOffset = 0;
+                          } else if (idx === animIdx) {
+                            visible = true;
+                            dashOffset = len * (1 - animProgress);
+                          }
+                        }
 
-                  let dashOffset = 0;
-                  let visible = true;
-                  let strokeClass = 'text-slate-800 dark:text-slate-100';
+                        if (!visible) return null;
+                        return (
+                          <path
+                            key={`mask-${idx}`}
+                            d={st.d}
+                            fill="none"
+                            stroke="white"
+                            strokeWidth={24}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeDasharray={len}
+                            strokeDashoffset={dashOffset}
+                          />
+                        );
+                      })
+                    )}
+                  </mask>
+                </defs>
 
-                  if (practiceMode) {
-                    if (idx < completedCount) {
-                      visible = true;
-                      dashOffset = 0;
-                      strokeClass = 'text-emerald-600 dark:text-emerald-400';
-                    } else if (idx === completedCount && hintFlash) {
-                      visible = true;
-                      dashOffset = 0;
-                      strokeClass = 'text-amber-500/80 animate-pulse';
-                    } else {
-                      visible = false;
-                    }
-                  } else if (animating || animIdx >= 0) {
-                    if (idx < animIdx) {
-                      visible = true;
-                      dashOffset = 0;
-                      strokeClass = 'text-emerald-700 dark:text-emerald-400';
-                    } else if (idx === animIdx) {
-                      visible = true;
-                      dashOffset = len * (1 - animProgress);
-                      strokeClass = 'text-emerald-600 dark:text-emerald-300';
-                    } else {
-                      visible = false;
-                    }
+                {/* Invisible pen-path geometry layer for 60fps nib & practice hit-testing */}
+                {layout.strokes.map((st, idx) => (
+                  <path
+                    key={`geom-${idx}`}
+                    ref={(el) => {
+                      pathRefs.current[idx] = el;
+                    }}
+                    d={st.d}
+                    fill="none"
+                    stroke="none"
+                  />
+                ))}
+
+                {/* Faint Atma Font Guide Layer */}
+                {showOutline && (
+                  <text
+                    x={layout.totalWidth / 2}
+                    y={74}
+                    textAnchor="middle"
+                    fontSize={64}
+                    fontWeight={600}
+                    style={{ fontFamily: BANGLA_DEFAULT_FONT }}
+                    className="fill-slate-200 dark:fill-slate-800"
+                  >
+                    {activeText}
+                  </text>
+                )}
+
+                {/* Revealed Atma Font Ink Layer (animated & practiced stroke-by-stroke) */}
+                <text
+                  x={layout.totalWidth / 2}
+                  y={74}
+                  textAnchor="middle"
+                  fontSize={64}
+                  fontWeight={600}
+                  style={{ fontFamily: BANGLA_DEFAULT_FONT }}
+                  mask={`url(#${maskId})`}
+                  className={
+                    practiceMode
+                      ? 'fill-emerald-600 dark:fill-emerald-400'
+                      : animating || animIdx >= 0
+                        ? 'fill-emerald-700 dark:fill-emerald-400'
+                        : 'fill-slate-800 dark:fill-slate-100'
                   }
+                >
+                  {activeText}
+                </text>
 
-                  return (
-                    <path
-                      key={`fg-${idx}`}
-                      ref={(el) => {
-                        pathRefs.current[idx] = el;
-                      }}
-                      d={st.d}
-                      fill="none"
-                      stroke="currentColor"
-                      className={strokeClass}
-                      strokeWidth={4.6}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeDasharray={len}
-                      strokeDashoffset={visible ? dashOffset : len}
-                      style={{ opacity: visible ? 1 : 0 }}
-                    />
-                  );
-                })}
+                {/* Practice hint flash on current stroke */}
+                {practiceMode && hintFlash && completedCount < totalStrokes && (
+                  <path
+                    d={layout.strokes[completedCount].d}
+                    fill="none"
+                    stroke="currentColor"
+                    className="text-amber-500/80 animate-pulse"
+                    strokeWidth={4.6}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                )}
 
                 {/* Practice mode: starting dot on current stroke */}
                 {practiceMode &&
