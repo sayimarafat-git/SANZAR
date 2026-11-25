@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeftRight,
   ArrowRight,
@@ -15,6 +15,7 @@ import {
   Filter,
   Globe,
   Layers,
+  Link2,
   Loader2,
   RotateCcw,
   Search,
@@ -24,6 +25,8 @@ import {
   Volume2,
   X,
 } from 'lucide-react';
+
+const HanziStrokeStudio = lazy(() => import('./HanziStrokeStudio'));
 import { useAuth } from '../../lib/auth-context';
 import { useSettings } from '../../lib/settings-context';
 import { apiRequest, errorText } from '../../lib/api-client';
@@ -313,18 +316,68 @@ const DictionarySkeletonGrid: React.FC = () => (
   </div>
 );
 
+function pinyinToneClass(syllable: string): string {
+  if (/[āēīōūǖ]|1$/.test(syllable)) return 'text-rose-600 dark:text-rose-400';
+  if (/[áéíóúǘ]|2$/.test(syllable)) return 'text-amber-600 dark:text-amber-400';
+  if (/[ǎěǐǒǔǚ]|3$/.test(syllable)) return 'text-emerald-600 dark:text-emerald-400';
+  if (/[àèìòùǜ]|4$/.test(syllable)) return 'text-sky-600 dark:text-sky-400';
+  return 'text-sanzar-muted';
+}
+
+function renderPinyin(phonetic: string, isChinese: boolean, query = ''): React.ReactNode {
+  if (!isChinese) return highlightMatch(phonetic, query);
+  const tokens = phonetic.split(/(\s+)/);
+  return tokens.map((tok, i) => {
+    if (!tok || /^\s+$/.test(tok)) return <React.Fragment key={i}>{tok}</React.Fragment>;
+    return (
+      <span key={i} className={pinyinToneClass(tok)}>
+        {highlightMatch(tok, query)}
+      </span>
+    );
+  });
+}
+
+interface SegmenterLike {
+  segment(input: string): Iterable<{ segment: string; isWordLike?: boolean }>;
+}
+
+function renderClickableChineseExample(example: string, onSelectWord: (w: string) => void): React.ReactNode {
+  const IntlWithSeg = typeof Intl !== 'undefined' ? (Intl as unknown as { Segmenter?: new (locale: string, opts: { granularity: string }) => SegmenterLike }) : null;
+  if (IntlWithSeg?.Segmenter) {
+    const seg = new IntlWithSeg.Segmenter('zh', { granularity: 'word' });
+    const parts = Array.from(seg.segment(example));
+    return parts.map((p, idx) =>
+      p.isWordLike && /[\u4e00-\u9fff]/.test(p.segment) ? (
+        <button
+          key={idx}
+          type="button"
+          onClick={() => onSelectWord(p.segment)}
+          title={`Look up "${p.segment}"`}
+          className="hover:text-sanzar-primary hover:underline underline-offset-4 decoration-sanzar-primary/50 rounded px-0.5 transition"
+        >
+          {p.segment}
+        </button>
+      ) : (
+        <React.Fragment key={idx}>{p.segment}</React.Fragment>
+      )
+    );
+  }
+  return example;
+}
+
 export const DictionaryPage: React.FC = () => {
   const { user } = useAuth();
   const { t } = useSettings();
   const toast = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
   const uid = user?.uid || '';
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const [activeTab, setActiveTab] = useState<'dictionary' | 'saved' | 'history'>('dictionary');
 
-  // Unified search + inline translation state
-  const [query, setQuery] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
+  // Unified search + inline translation state (initialized from URL ?q=...)
+  const [query, setQuery] = useState(() => searchParams.get('q') || '');
+  const [debouncedQuery, setDebouncedQuery] = useState(() => (searchParams.get('q') || '').trim());
   const [targetLang, setTargetLang] = useState<DictLangCode>('bn');
   const [translation, setTranslation] = useState<TranslationResult | null>(null);
   const [translating, setTranslating] = useState(false);
@@ -344,6 +397,111 @@ export const DictionaryPage: React.FC = () => {
   const [loadingMore, setLoadingMore] = useState(false);
   const [dictError, setDictError] = useState<string | null>(null);
   const [detailEntry, setDetailEntry] = useState<DictionaryEntry | null>(null);
+  const [charEntries, setCharEntries] = useState<DictionaryEntry[]>([]);
+  const [relatedWords, setRelatedWords] = useState<DictionaryEntry[]>([]);
+
+  const urlWord = (searchParams.get('w') || '').trim();
+
+  const openEntryModal = useCallback(
+    (entry: DictionaryEntry) => {
+      setDetailEntry(entry);
+      const next = new URLSearchParams(searchParams);
+      if (query.trim()) next.set('q', query.trim());
+      next.set('w', entry.word);
+      setSearchParams(next, { replace: true });
+    },
+    [query, searchParams, setSearchParams]
+  );
+
+  const closeEntryModal = useCallback(() => {
+    setDetailEntry(null);
+    setCharEntries([]);
+    setRelatedWords([]);
+    const next = new URLSearchParams(searchParams);
+    next.delete('w');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  const jumpToWord = useCallback(
+    (targetWord: string) => {
+      const clean = targetWord.trim();
+      if (!clean) return;
+      setQuery(clean);
+      setDebouncedQuery(clean);
+      setActiveTab('dictionary');
+      const next = new URLSearchParams();
+      next.set('q', clean);
+      next.set('w', clean);
+      setSearchParams(next, { replace: true });
+    },
+    [setSearchParams]
+  );
+
+  const handleCopyShareLink = (entry: DictionaryEntry) => {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    url.search = '';
+    url.searchParams.set('q', query.trim() || entry.word);
+    url.searchParams.set('w', entry.word);
+    void navigator.clipboard?.writeText(url.toString());
+    toast('Word link copied');
+  };
+
+  // Sync ?q= to URL as debouncedQuery changes
+  useEffect(() => {
+    if (activeTab !== 'dictionary') return;
+    const curQ = searchParams.get('q') || '';
+    if (curQ === debouncedQuery) return;
+    const next = new URLSearchParams(searchParams);
+    if (debouncedQuery) next.set('q', debouncedQuery);
+    else next.delete('q');
+    setSearchParams(next, { replace: true });
+  }, [debouncedQuery, activeTab]);
+
+  // Deep-link loader + Chinese character breakdown & related words fetcher (?w=...)
+  useEffect(() => {
+    const target = detailEntry?.word || urlWord;
+    if (!target) {
+      setCharEntries([]);
+      setRelatedWords([]);
+      return;
+    }
+    let cancelled = false;
+    void apiRequest<{
+      entry: DictionaryEntry | null;
+      charEntries: DictionaryEntry[];
+      relatedWords: DictionaryEntry[];
+    }>(`/v1/dictionary/entry?w=${encodeURIComponent(target)}`)
+      .then((res) => {
+        if (cancelled) return;
+        if (!detailEntry || detailEntry.word !== target) {
+          if (res.entry) {
+            setDetailEntry(res.entry);
+          } else if (/[\u4e00-\u9fff]/.test(target)) {
+            // Allow inspecting stroke order even for an uncurated Chinese word shared via ?w=...
+            setDetailEntry({
+              id: `adhoc-${target}`,
+              language: 'zh',
+              word: target,
+              phonetic: '',
+              part_of_speech: '',
+              meaning_en: '',
+              meaning_bn: '',
+              meaning_zh: '',
+              example: '',
+              example_translation: '',
+              hsk_level: '',
+            });
+          }
+        }
+        setCharEntries(res.charEntries || []);
+        setRelatedWords(res.relatedWords || []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [urlWord, detailEntry?.word]);
 
   // Saved vocabulary, Saved search & Flashcard review mode
   const [savedItems, setSavedItems] = useState<SavedVocabularyItem[]>([]);
@@ -1206,7 +1364,7 @@ export const DictionaryPage: React.FC = () => {
                   return (
                     <article
                       key={entry.id}
-                      onClick={() => setDetailEntry(entry)}
+                      onClick={() => openEntryModal(entry)}
                       className="group sanzar-card p-5 flex flex-col justify-between gap-3.5 cursor-pointer hover:-translate-y-0.5 hover:border-sanzar-primary/45 transition-all"
                     >
                       <div className="space-y-3">
@@ -1218,8 +1376,8 @@ export const DictionaryPage: React.FC = () => {
                                 {highlightMatch(entry.word, debouncedQuery)}
                               </h2>
                               {entry.phonetic && (
-                                <span className="text-xs font-semibold text-sanzar-primary">
-                                  {highlightMatch(entry.phonetic, debouncedQuery)}
+                                <span className="text-xs font-bold text-sanzar-primary">
+                                  {renderPinyin(entry.phonetic, entry.language === 'zh', debouncedQuery)}
                                 </span>
                               )}
                             </div>
@@ -1633,7 +1791,7 @@ export const DictionaryPage: React.FC = () => {
 
       {/* ==================== ENHANCED VOCABULARY DETAIL MODAL ==================== */}
       {detailEntry && (
-        <Modal title="Vocabulary Details" onClose={() => setDetailEntry(null)}>
+        <Modal title="Vocabulary Details" onClose={closeEntryModal}>
           <div className="space-y-5">
             {/* Headword Hero Banner */}
             <div className="rounded-2xl bg-sanzar-surface2 p-5 border border-sanzar-border space-y-3">
@@ -1641,7 +1799,9 @@ export const DictionaryPage: React.FC = () => {
                 <div className="space-y-1">
                   <h3 className="text-3xl font-black tracking-tight text-sanzar-text">{detailEntry.word}</h3>
                   {detailEntry.phonetic && (
-                    <p className="text-base font-semibold text-sanzar-primary">{detailEntry.phonetic}</p>
+                    <p className="text-base font-bold text-sanzar-primary">
+                      {renderPinyin(detailEntry.phonetic, detailEntry.language === 'zh')}
+                    </p>
                   )}
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -1674,7 +1834,15 @@ export const DictionaryPage: React.FC = () => {
                 >
                   <Copy className="w-3.5 h-3.5" /> Copy
                 </button>
-                {uid && (
+                <button
+                  type="button"
+                  onClick={() => handleCopyShareLink(detailEntry)}
+                  title="Copy direct link to this word"
+                  className="px-3 py-2 rounded-xl border border-sanzar-border bg-sanzar-surface hover:bg-sanzar-surface2 text-xs font-semibold inline-flex items-center gap-1.5"
+                >
+                  <Link2 className="w-3.5 h-3.5" /> Share link
+                </button>
+                {uid && !detailEntry.id.startsWith('adhoc-') && (
                   <button
                     type="button"
                     onClick={() => void handleToggleSaveEntry(detailEntry)}
@@ -1699,39 +1867,45 @@ export const DictionaryPage: React.FC = () => {
             </div>
 
             {/* Trilingual Meaning Cards */}
-            <div className="space-y-2.5">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-sanzar-muted">
-                Meanings {detailEntry.part_of_speech ? `· ${detailEntry.part_of_speech}` : ''}
-              </p>
-              <div className="grid gap-2">
-                {detailEntry.meaning_en && (
-                  <div className="p-3.5 rounded-xl bg-sanzar-surface2/70 border border-sanzar-border flex items-baseline gap-3">
-                    <span className="text-xs font-extrabold text-sky-600 dark:text-sky-400 w-10 shrink-0">EN</span>
-                    <span className="text-sm font-medium text-sanzar-text">{detailEntry.meaning_en}</span>
-                  </div>
-                )}
-                {detailEntry.meaning_bn && (
-                  <div className="p-3.5 rounded-xl bg-sanzar-surface2/70 border border-sanzar-border flex items-baseline gap-3">
-                    <span className="text-xs font-extrabold text-amber-600 dark:text-amber-400 w-10 shrink-0">BN</span>
-                    <span className="text-sm font-medium text-sanzar-text">{detailEntry.meaning_bn}</span>
-                  </div>
-                )}
-                {detailEntry.meaning_zh && (
-                  <div className="p-3.5 rounded-xl bg-sanzar-surface2/70 border border-sanzar-border flex items-baseline gap-3">
-                    <span className="text-xs font-extrabold text-emerald-600 dark:text-emerald-400 w-10 shrink-0">中文</span>
-                    <span className="text-sm font-medium text-sanzar-text">{detailEntry.meaning_zh}</span>
-                  </div>
-                )}
+            {(detailEntry.meaning_en || detailEntry.meaning_bn || detailEntry.meaning_zh) && (
+              <div className="space-y-2.5">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-sanzar-muted">
+                  Meanings {detailEntry.part_of_speech ? `· ${detailEntry.part_of_speech}` : ''}
+                </p>
+                <div className="grid gap-2">
+                  {detailEntry.meaning_en && (
+                    <div className="p-3.5 rounded-xl bg-sanzar-surface2/70 border border-sanzar-border flex items-baseline gap-3">
+                      <span className="text-xs font-extrabold text-sky-600 dark:text-sky-400 w-10 shrink-0">EN</span>
+                      <span className="text-sm font-medium text-sanzar-text">{detailEntry.meaning_en}</span>
+                    </div>
+                  )}
+                  {detailEntry.meaning_bn && (
+                    <div className="p-3.5 rounded-xl bg-sanzar-surface2/70 border border-sanzar-border flex items-baseline gap-3">
+                      <span className="text-xs font-extrabold text-amber-600 dark:text-amber-400 w-10 shrink-0">BN</span>
+                      <span className="text-sm font-medium text-sanzar-text">{detailEntry.meaning_bn}</span>
+                    </div>
+                  )}
+                  {detailEntry.meaning_zh && (
+                    <div className="p-3.5 rounded-xl bg-sanzar-surface2/70 border border-sanzar-border flex items-baseline gap-3">
+                      <span className="text-xs font-extrabold text-emerald-600 dark:text-emerald-400 w-10 shrink-0">中文</span>
+                      <span className="text-sm font-medium text-sanzar-text">{detailEntry.meaning_zh}</span>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Example Sentence with Audio */}
+            {/* Example Sentence with Audio & Clickable Segmented Chinese Words */}
             {detailEntry.example && (
               <div className="space-y-2">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-sanzar-muted">Example in Context</p>
                 <div className="p-4 rounded-xl bg-sanzar-surface2/70 border-l-4 border-sanzar-primary flex items-start justify-between gap-3">
                   <div className="space-y-1">
-                    <p className="text-sm font-bold text-sanzar-text leading-relaxed">{detailEntry.example}</p>
+                    <p className="text-sm font-bold text-sanzar-text leading-relaxed">
+                      {detailEntry.language === 'zh'
+                        ? renderClickableChineseExample(detailEntry.example, jumpToWord)
+                        : detailEntry.example}
+                    </p>
                     {detailEntry.example_translation && (
                       <p className="text-xs text-sanzar-muted leading-relaxed">{detailEntry.example_translation}</p>
                     )}
@@ -1746,6 +1920,25 @@ export const DictionaryPage: React.FC = () => {
                   </button>
                 </div>
               </div>
+            )}
+
+            {/* On-Demand Hanzi Character Breakdown, Stroke Animation & Interactive Practice */}
+            {/[\u4e00-\u9fff]/.test(detailEntry.word) && (
+              <Suspense
+                fallback={
+                  <div className="py-6 flex items-center justify-center gap-2 text-xs text-sanzar-muted">
+                    <Loader2 className="w-4 h-4 animate-spin text-sanzar-primary" /> Loading stroke studio…
+                  </div>
+                }
+              >
+                <HanziStrokeStudio
+                  word={detailEntry.word}
+                  phonetic={detailEntry.phonetic}
+                  charEntries={charEntries}
+                  relatedWords={relatedWords}
+                  onSelectWord={jumpToWord}
+                />
+              </Suspense>
             )}
           </div>
         </Modal>

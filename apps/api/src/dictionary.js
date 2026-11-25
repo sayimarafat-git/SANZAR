@@ -249,6 +249,67 @@ export async function searchDictionary(env, url) {
   };
 }
 
+/** Public single-entry lookup + Chinese character breakdown & related compound words for deep-linking (?w=...). */
+export async function getDictionaryEntryDetails(env, url) {
+  const id = (url.searchParams.get('id') || '').trim().slice(0, 80);
+  const w = (url.searchParams.get('w') || '').trim().slice(0, 120);
+  if (!id && !w) throw new HttpError(400, 'invalid-argument', 'Provide w or id');
+
+  const row = id
+    ? await env.DB.prepare(
+        `SELECT id, language, word, phonetic, part_of_speech, meaning_en, meaning_bn, meaning_zh, example, example_translation, hsk_level, updated_at
+         FROM dictionary_entries WHERE status = 'published' AND id = ? LIMIT 1`
+      )
+        .bind(id)
+        .first()
+    : await env.DB.prepare(
+        `SELECT id, language, word, phonetic, part_of_speech, meaning_en, meaning_bn, meaning_zh, example, example_translation, hsk_level, updated_at
+         FROM dictionary_entries WHERE status = 'published' AND lower(word) = lower(?) ORDER BY CASE WHEN language = 'zh' THEN 0 ELSE 1 END LIMIT 1`
+      )
+        .bind(w)
+        .first();
+
+  const targetWord = row?.word || w;
+  const hanziChars = [...new Set(Array.from(targetWord).filter((ch) => /[\u4e00-\u9fff]/.test(ch)))].slice(0, 8);
+
+  let charEntries = [];
+  let relatedWords = [];
+
+  if (hanziChars.length > 0) {
+    const placeholders = hanziChars.map(() => '?').join(', ');
+    const charRows = (
+      await env.DB.prepare(
+        `SELECT id, language, word, phonetic, part_of_speech, meaning_en, meaning_bn, meaning_zh, hsk_level
+         FROM dictionary_entries
+         WHERE status = 'published' AND language = 'zh' AND word IN (${placeholders})`
+      )
+        .bind(...hanziChars)
+        .all()
+    ).results;
+    charEntries = charRows.map(shapeDictionaryRow);
+
+    const likeClauses = hanziChars.map(() => 'word LIKE ?').join(' OR ');
+    const likeArgs = hanziChars.map((ch) => `%${ch}%`);
+    const relRows = (
+      await env.DB.prepare(
+        `SELECT id, language, word, phonetic, part_of_speech, meaning_en, meaning_bn, meaning_zh, hsk_level
+         FROM dictionary_entries
+         WHERE status = 'published' AND language = 'zh' AND word != ? AND (${likeClauses})
+         ORDER BY length(word) ASC, word ASC LIMIT 8`
+      )
+        .bind(targetWord, ...likeArgs)
+        .all()
+    ).results;
+    relatedWords = relRows.map(shapeDictionaryRow);
+  }
+
+  return {
+    entry: row ? shapeDictionaryRow(row) : null,
+    charEntries,
+    relatedWords,
+  };
+}
+
 /* ============================== online translation service ============================== */
 function toProviderLang(code, provider) {
   if (provider === 'mymemory') {
