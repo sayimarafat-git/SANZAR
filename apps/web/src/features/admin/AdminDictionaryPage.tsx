@@ -304,8 +304,10 @@ function parseCsvOrJson(raw: string): ImportRow[] {
 const BulkImportForm: React.FC<{ existingWords: Set<string>; onDone: () => void }> = ({ existingWords, onDone }) => {
   const toast = useToast();
   const [raw, setRaw] = useState('');
-  const [defaultStatus, setDefaultStatus] = useState<'draft' | 'published'>('draft');
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [defaultStatus, setDefaultStatus] = useState<'draft' | 'published'>('published');
   const [busy, setBusy] = useState(false);
+  const [progressText, setProgressText] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   let parsed: ImportRow[] = [];
@@ -328,33 +330,95 @@ const BulkImportForm: React.FC<{ existingWords: Set<string>; onDone: () => void 
   const validCount = preview.filter((p) => p.valid).length;
   const dupCount = preview.filter((p) => p.isDuplicate).length;
 
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setErr(null);
+    try {
+      const text = await file.text();
+      setRaw(text);
+      setFileName(file.name);
+    } catch (ex) {
+      setErr(errorText(ex));
+    } finally {
+      e.target.value = '';
+    }
+  };
+
   const submit = async () => {
     if (validCount === 0) return setErr('No valid rows to import.');
     setBusy(true);
     setErr(null);
+    const BATCH_SIZE = 350;
+    const totalBatches = Math.ceil(parsed.length / BATCH_SIZE);
+    let totalImported = 0;
+    let totalSkipped = 0;
+
     try {
-      const res = await apiRequest<{ imported: number; skipped: number }>('/v1/admin/dictionary/import', {
-        method: 'POST',
-        bodyJson: { entries: parsed, defaultStatus },
-      });
-      toast(`Imported ${res.imported} words (${res.skipped} skipped)`);
+      for (let b = 0; b < totalBatches; b++) {
+        const chunk = parsed.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
+        setProgressText(
+          totalBatches > 1 ? `Importing batch ${b + 1} / ${totalBatches} (${chunk.length} rows)…` : 'Importing…'
+        );
+        const res = await apiRequest<{ imported: number; skipped: number }>('/v1/admin/dictionary/import', {
+          method: 'POST',
+          bodyJson: { entries: chunk, defaultStatus },
+        });
+        totalImported += res.imported;
+        totalSkipped += res.skipped;
+      }
+      toast(`Imported ${totalImported} words (${totalSkipped} skipped)`);
       onDone();
     } catch (e) {
-      setErr(errorText(e));
+      setErr(
+        totalImported > 0
+          ? `Imported ${totalImported} words before error: ${errorText(e)}`
+          : errorText(e)
+      );
     } finally {
       setBusy(false);
+      setProgressText(null);
     }
   };
 
   return (
     <div className="space-y-3 text-xs">
-      <p className="text-sanzar-muted">
-        Paste JSON array or CSV with headers: <code>language,word,phonetic,part_of_speech,meaning_en,meaning_bn,meaning_zh,hsk_level</code>
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sanzar-muted">
+          Upload a <code>.json</code> / <code>.csv</code> file or paste directly below (large files auto-split into 350-row batches).
+        </p>
+        <div className="flex items-center gap-2">
+          <label className="cursor-pointer px-3 py-1.5 rounded-xl border border-sanzar-primary/40 bg-sanzar-primarySoft text-sanzar-primary font-semibold hover:opacity-90 transition">
+            Choose JSON / CSV file
+            <input
+              type="file"
+              accept=".json,.csv,.txt,application/json,text/csv"
+              onChange={(e) => void handleFileChange(e)}
+              className="hidden"
+            />
+          </label>
+          {fileName && (
+            <button
+              type="button"
+              onClick={() => {
+                setFileName(null);
+                setRaw('');
+              }}
+              className="text-sanzar-muted hover:text-sanzar-danger underline"
+            >
+              Clear ({fileName})
+            </button>
+          )}
+        </div>
+      </div>
       <textarea
         rows={6}
-        value={raw}
-        onChange={(e) => setRaw(e.target.value)}
+        value={raw.length > 25000 ? `${raw.slice(0, 25000)}\n... (${parsed.length} rows loaded from ${fileName || 'input'})` : raw}
+        readOnly={raw.length > 25000}
+        onChange={(e) => {
+          setFileName(null);
+          setRaw(e.target.value);
+        }}
         placeholder={'language,word,phonetic,part_of_speech,meaning_en,meaning_bn,hsk_level\nzh,你好,nǐ hǎo,phrase,hello,হ্যালো,HSK 1'}
         className="sanzar-input font-mono text-xs"
       />
@@ -366,8 +430,8 @@ const BulkImportForm: React.FC<{ existingWords: Set<string>; onDone: () => void 
             onChange={(e) => setDefaultStatus(e.target.value as 'draft' | 'published')}
             className="sanzar-input py-1 w-auto text-xs"
           >
-            <option value="draft">Draft (review first)</option>
             <option value="published">Published immediately</option>
+            <option value="draft">Draft (review first)</option>
           </select>
         </label>
         {parsed.length > 0 && (
@@ -384,7 +448,7 @@ const BulkImportForm: React.FC<{ existingWords: Set<string>; onDone: () => void 
         onClick={() => void submit()}
         className="px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold disabled:opacity-50"
       >
-        {busy ? 'Importing…' : `Import ${validCount} valid rows`}
+        {progressText || (busy ? 'Importing…' : `Import ${validCount} valid rows`)}
       </button>
     </div>
   );
