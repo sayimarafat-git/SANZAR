@@ -384,26 +384,7 @@ async function callTranslationProvider(env, text, sourceLang, targetLang) {
     }
   }
 
-  // 2.5. Cloudflare Workers AI native translation (@cf/meta/m2m100-1.2b) — zero API key, never IP-blocked
-  if (env.AI && typeof env.AI.run === 'function') {
-    try {
-      const cfSrc = sourceLang === 'zh-Hans' ? 'zh' : sourceLang;
-      const cfTgt = targetLang === 'zh-Hans' ? 'zh' : targetLang;
-      const aiRes = await env.AI.run('@cf/meta/m2m100-1.2b', {
-        text,
-        source_lang: cfSrc,
-        target_lang: cfTgt,
-      });
-      const translated = aiRes?.translated_text;
-      if (translated && String(translated).trim()) {
-        return { translatedText: String(translated).trim(), provider: 'cloudflare-ai' };
-      }
-    } catch {
-      // Fall through to external fallbacks
-    }
-  }
-
-  // 3. Default zero-config provider #1: Google public gtx endpoint (reliable on Cloudflare Workers, supports en/bn/zh-CN)
+  // 2.5. Primary zero-config provider: Google public gtx endpoint (Google Translate quality + instant Pinyin, supports en/bn/zh-CN)
   try {
     const sl = toProviderLang(sourceLang, 'google');
     const tl = toProviderLang(targetLang, 'google');
@@ -431,7 +412,26 @@ async function callTranslationProvider(env, text, sourceLang, targetLang) {
       clearTimeout(timer);
     }
   } catch {
-    // Fall through to MyMemory
+    // Fall through to Cloudflare Workers AI
+  }
+
+  // 3. Fallback #1: Cloudflare Workers AI native translation (@cf/meta/m2m100-1.2b) — zero API key, never IP-blocked
+  if (env.AI && typeof env.AI.run === 'function') {
+    try {
+      const cfSrc = sourceLang === 'zh-Hans' ? 'zh' : sourceLang;
+      const cfTgt = targetLang === 'zh-Hans' ? 'zh' : targetLang;
+      const aiRes = await env.AI.run('@cf/meta/m2m100-1.2b', {
+        text,
+        source_lang: cfSrc,
+        target_lang: cfTgt,
+      });
+      const translated = aiRes?.translated_text;
+      if (translated && String(translated).trim()) {
+        return { translatedText: String(translated).trim(), provider: 'cloudflare-ai' };
+      }
+    } catch {
+      // Fall through to MyMemory
+    }
   }
 
   // 4. Default zero-config provider #2: MyMemory fallback (supports en, bn, zh-CN)
@@ -1093,15 +1093,27 @@ Return ONLY valid JSON with this exact shape:
 }
 Rules: provide 2-4 grammar points, 3-5 synonyms, 2-4 antonyms, 3-4 natural collocations, and 3-5 related words in ${langFull}. Include tone-marked Pinyin ONLY when ${langFull} is Simplified Chinese.`;
 
-      const aiRes = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', {
-        messages: [
-          { role: 'system', content: 'You are a concise, accurate trilingual (English, Bangla, Simplified Chinese) linguistics tutor. Respond with strict JSON only.' },
-          { role: 'user', content: prompt },
-        ],
-        max_tokens: 700,
-      });
-      const rawOut = typeof aiRes?.response === 'string' ? aiRes.response : '';
-      const parsed = safeParseJsonObject(rawOut);
+      const aiModels = ['@cf/meta/llama-3.1-8b-instruct-fast', '@cf/meta/llama-3.1-8b-instruct'];
+      let parsed = null;
+      for (const model of aiModels) {
+        try {
+          const aiRes = await env.AI.run(model, {
+            messages: [
+              { role: 'system', content: 'You are a concise, accurate trilingual (English, Bangla, Simplified Chinese) linguistics tutor. Respond with strict JSON only.' },
+              { role: 'user', content: prompt },
+            ],
+            max_tokens: 700,
+          });
+          const rawOut = aiRes?.response;
+          parsed =
+            rawOut && typeof rawOut === 'object'
+              ? rawOut
+              : safeParseJsonObject(typeof rawOut === 'string' ? rawOut : '');
+          if (parsed && parsed.grammar && parsed.vocabulary) break;
+        } catch {
+          // Try next model
+        }
+      }
       if (parsed && parsed.grammar && parsed.vocabulary) {
         const pinyin = await pinyinPromise;
         return {
