@@ -423,9 +423,11 @@ export const DictionaryPage: React.FC = () => {
   const [relatedWords, setRelatedWords] = useState<DictionaryEntry[]>([]);
 
   const urlWord = (searchParams.get('w') || '').trim();
+  const dismissedUrlWordRef = useRef('');
 
   const openEntryModal = useCallback(
     (entry: DictionaryEntry) => {
+      dismissedUrlWordRef.current = '';
       setForcePractice(false);
       setDetailEntry(entry);
       setSearchParams(
@@ -442,6 +444,7 @@ export const DictionaryPage: React.FC = () => {
   );
 
   const closeEntryModal = useCallback(() => {
+    dismissedUrlWordRef.current = detailEntry?.word || urlWord || '__closing__';
     setDetailEntry(null);
     setForcePractice(false);
     setCharEntries([]);
@@ -454,12 +457,13 @@ export const DictionaryPage: React.FC = () => {
       },
       { replace: true }
     );
-  }, [setSearchParams]);
+  }, [detailEntry?.word, urlWord, setSearchParams]);
 
   const jumpToWord = useCallback(
     (targetWord: string, openPractice = false) => {
       const clean = targetWord.trim();
       if (!clean) return;
+      dismissedUrlWordRef.current = '';
       setForcePractice(openPractice);
       // Open modal immediately on the 1st click without waiting for network or URL effects
       const localMatch = entries.find((e) => e.word.toLowerCase() === clean.toLowerCase());
@@ -511,7 +515,11 @@ export const DictionaryPage: React.FC = () => {
 
   // Deep-link loader + Chinese character breakdown & related words fetcher (?w=...)
   useEffect(() => {
-    const target = detailEntry?.word || urlWord;
+    if (!urlWord) {
+      dismissedUrlWordRef.current = '';
+    }
+    const isDismissed = !detailEntry && !!urlWord && urlWord === dismissedUrlWordRef.current;
+    const target = isDismissed ? '' : detailEntry?.word || urlWord;
     if (!target) {
       setCharEntries([]);
       setRelatedWords([]);
