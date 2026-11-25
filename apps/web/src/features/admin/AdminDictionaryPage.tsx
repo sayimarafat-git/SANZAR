@@ -12,6 +12,7 @@ interface AdminDictionaryStats {
 }
 
 const HSK_LEVELS = ['HSK 1', 'HSK 2', 'HSK 3', 'HSK 4', 'HSK 5', 'HSK 6'];
+const CEFR_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1'];
 
 export const AdminDictionaryPage: React.FC = () => {
   const qc = useQueryClient();
@@ -126,6 +127,28 @@ export const AdminDictionaryPage: React.FC = () => {
                   }`}
                 >
                   <div className="text-[11px] font-bold uppercase tracking-wider opacity-80">{lvl}</div>
+                  <div className="text-lg font-extrabold">{count.toLocaleString()}</div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+            {CEFR_LEVELS.map((lvl) => {
+              const count = stats.byHsk?.[lvl] || 0;
+              const active = hskFilter === lvl;
+              return (
+                <button
+                  key={lvl}
+                  type="button"
+                  onClick={() => setHskFilter(active ? '' : lvl)}
+                  className={`p-2.5 rounded-xl border text-left transition ${
+                    active
+                      ? 'bg-sanzar-primarySoft border-sanzar-primary/50 text-sanzar-primary'
+                      : 'bg-sanzar-surface2/70 border-sanzar-border text-sanzar-text2 hover:border-sanzar-primary/40'
+                  }`}
+                >
+                  <div className="text-[11px] font-bold uppercase tracking-wider opacity-80">CEFR {lvl}</div>
                   <div className="text-lg font-extrabold">{count.toLocaleString()}</div>
                 </button>
               );

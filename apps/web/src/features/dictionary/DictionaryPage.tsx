@@ -67,6 +67,8 @@ const QUICK_SAMPLES: { text: string; hint: string; target: DictLangCode }[] = [
 ];
 
 const HSK_OPTIONS = ['', 'HSK 1', 'HSK 2', 'HSK 3', 'HSK 4', 'HSK 5', 'HSK 6'];
+const CEFR_OPTIONS = ['', 'A1', 'A2', 'B1', 'B2', 'C1'];
+const ALL_LEVEL_OPTIONS = ['', 'HSK 1', 'HSK 2', 'HSK 3', 'HSK 4', 'HSK 5', 'HSK 6', 'A1', 'A2', 'B1', 'B2', 'C1'];
 const POS_OPTIONS = ['', 'noun', 'verb', 'adjective', 'adverb', 'phrase'];
 
 function langLabel(code: string): string {
@@ -1431,9 +1433,11 @@ export const DictionaryPage: React.FC = () => {
           {showFilters && (
             <div className="sanzar-card p-4 flex flex-wrap items-center gap-4">
               <div className="space-y-1.5">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-sanzar-muted">HSK Level</p>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-sanzar-muted">
+                  {langFilter === 'en' ? 'CEFR Level' : langFilter === 'zh-Hans' ? 'HSK Level' : 'Level (HSK / CEFR)'}
+                </p>
                 <div className="flex flex-wrap gap-1.5">
-                  {HSK_OPTIONS.map((h) => (
+                  {(langFilter === 'en' ? CEFR_OPTIONS : langFilter === 'zh-Hans' ? HSK_OPTIONS : ALL_LEVEL_OPTIONS).map((h) => (
                     <button
                       key={h || 'all'}
                       type="button"
