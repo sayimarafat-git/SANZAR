@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import HanziWriter from 'hanzi-writer';
 import { CheckCircle2, Eye, EyeOff, PencilLine, Play, Sparkles } from 'lucide-react';
 import type { DictionaryEntry } from '../../lib/models';
+import { CanvasTracePad } from './CanvasTracePad';
 
 export function detectSyllableTone(syllable: string): 1 | 2 | 3 | 4 | 5 {
   if (/[āēīōūǖ]|1$/.test(syllable)) return 1;
@@ -28,13 +29,31 @@ export function toneColorClass(tone: 1 | 2 | 3 | 4 | 5): string {
 
 interface Props {
   word: string;
+  language?: 'zh' | 'bn' | 'en';
   phonetic?: string;
   charEntries: DictionaryEntry[];
   relatedWords: DictionaryEntry[];
   onSelectWord: (word: string) => void;
+  defaultCollapsed?: boolean;
 }
 
-export const HanziStrokeStudio: React.FC<Props> = ({
+export const HanziStrokeStudio: React.FC<Props> = (props) => {
+  const { word, language, defaultCollapsed = false } = props;
+  const effectiveLang: 'zh' | 'bn' | 'en' = /[\u4e00-\u9fff]/.test(word)
+    ? 'zh'
+    : /[\u0980-\u09ff]/.test(word)
+      ? 'bn'
+      : language === 'zh' || language === 'bn' || language === 'en'
+        ? language
+        : 'en';
+
+  if (effectiveLang === 'bn' || effectiveLang === 'en') {
+    return <CanvasTracePad word={word} lang={effectiveLang} defaultCollapsed={defaultCollapsed} />;
+  }
+  return <ChineseHanziStudio {...props} />;
+};
+
+const ChineseHanziStudio: React.FC<Props> = ({
   word,
   phonetic = '',
   charEntries,

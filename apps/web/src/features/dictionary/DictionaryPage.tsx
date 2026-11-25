@@ -397,6 +397,7 @@ export const DictionaryPage: React.FC = () => {
   const [loadingMore, setLoadingMore] = useState(false);
   const [dictError, setDictError] = useState<string | null>(null);
   const [detailEntry, setDetailEntry] = useState<DictionaryEntry | null>(null);
+  const [forcePractice, setForcePractice] = useState(false);
   const [charEntries, setCharEntries] = useState<DictionaryEntry[]>([]);
   const [relatedWords, setRelatedWords] = useState<DictionaryEntry[]>([]);
 
@@ -404,6 +405,7 @@ export const DictionaryPage: React.FC = () => {
 
   const openEntryModal = useCallback(
     (entry: DictionaryEntry) => {
+      setForcePractice(false);
       setDetailEntry(entry);
       const next = new URLSearchParams(searchParams);
       if (query.trim()) next.set('q', query.trim());
@@ -415,6 +417,7 @@ export const DictionaryPage: React.FC = () => {
 
   const closeEntryModal = useCallback(() => {
     setDetailEntry(null);
+    setForcePractice(false);
     setCharEntries([]);
     setRelatedWords([]);
     const next = new URLSearchParams(searchParams);
@@ -423,9 +426,10 @@ export const DictionaryPage: React.FC = () => {
   }, [searchParams, setSearchParams]);
 
   const jumpToWord = useCallback(
-    (targetWord: string) => {
+    (targetWord: string, openPractice = false) => {
       const clean = targetWord.trim();
       if (!clean) return;
+      setForcePractice(openPractice);
       setQuery(clean);
       setDebouncedQuery(clean);
       setActiveTab('dictionary');
@@ -477,11 +481,15 @@ export const DictionaryPage: React.FC = () => {
         if (!detailEntry || detailEntry.word !== target) {
           if (res.entry) {
             setDetailEntry(res.entry);
-          } else if (/[\u4e00-\u9fff]/.test(target)) {
-            // Allow inspecting stroke order even for an uncurated Chinese word shared via ?w=...
+          } else {
+            const adhocLang: 'zh' | 'bn' | 'en' = /[\u4e00-\u9fff]/.test(target)
+              ? 'zh'
+              : /[\u0980-\u09ff]/.test(target)
+                ? 'bn'
+                : 'en';
             setDetailEntry({
               id: `adhoc-${target}`,
-              language: 'zh',
+              language: adhocLang,
               word: target,
               phonetic: '',
               part_of_speech: '',
@@ -1186,46 +1194,39 @@ export const DictionaryPage: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* One-tap "Also translate to..." + "Stroke & Breakdown" for Chinese */}
-                    {(otherTargetLangs.length > 0 || /[\u4e00-\u9fff]/.test(translation.translatedText) || /[\u4e00-\u9fff]/.test(query)) && (
-                      <div className="pt-3 border-t border-sanzar-border/60 flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          {otherTargetLangs.length > 0 && (
-                            <>
-                              <span className="text-[11px] font-medium text-sanzar-muted">Also translate to:</span>
-                              {otherTargetLangs.map((l) => (
-                                <button
-                                  key={l.code}
-                                  type="button"
-                                  disabled={translating}
-                                  onClick={() => {
-                                    setTargetLang(l.code);
-                                    void handleTranslate(query, l.code);
-                                  }}
-                                  className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-sanzar-surface2 hover:bg-sanzar-primarySoft hover:text-sanzar-primary border border-sanzar-border transition inline-flex items-center gap-1"
-                                >
-                                  {l.label} <ArrowRight className="w-3 h-3" />
-                                </button>
-                              ))}
-                            </>
-                          )}
-                        </div>
-                        {(/[\u4e00-\u9fff]/.test(translation.translatedText) || /[\u4e00-\u9fff]/.test(query)) && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const zhText = /[\u4e00-\u9fff]/.test(translation.translatedText)
-                                ? translation.translatedText.trim()
-                                : query.trim();
-                              jumpToWord(zhText);
-                            }}
-                            className="px-3 py-1 rounded-full text-[11px] font-bold bg-sanzar-primarySoft text-sanzar-primary border border-sanzar-primary/35 hover:bg-sanzar-primary hover:text-sanzar-onPrimary transition inline-flex items-center gap-1"
-                          >
-                            <Sparkles className="w-3 h-3" /> Stroke order &amp; practice
-                          </button>
+                    {/* One-tap "Also translate to..." + Trilingual "Stroke order & practice" */}
+                    <div className="pt-3 border-t border-sanzar-border/60 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {otherTargetLangs.length > 0 && (
+                          <>
+                            <span className="text-[11px] font-medium text-sanzar-muted">Also translate to:</span>
+                            {otherTargetLangs.map((l) => (
+                              <button
+                                key={l.code}
+                                type="button"
+                                disabled={translating}
+                                onClick={() => {
+                                  setTargetLang(l.code);
+                                  void handleTranslate(query, l.code);
+                                }}
+                                className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-sanzar-surface2 hover:bg-sanzar-primarySoft hover:text-sanzar-primary border border-sanzar-border transition inline-flex items-center gap-1"
+                              >
+                                {l.label} <ArrowRight className="w-3 h-3" />
+                              </button>
+                            ))}
+                          </>
                         )}
                       </div>
-                    )}
+                      {translation.translatedText.trim().length <= 24 && (
+                        <button
+                          type="button"
+                          onClick={() => jumpToWord(translation.translatedText.trim(), true)}
+                          className="px-3 py-1 rounded-full text-[11px] font-bold bg-sanzar-primarySoft text-sanzar-primary border border-sanzar-primary/35 hover:bg-sanzar-primary hover:text-sanzar-onPrimary transition inline-flex items-center gap-1"
+                        >
+                          <Sparkles className="w-3 h-3" /> Stroke order &amp; practice
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ) : null}
               </div>
@@ -1942,21 +1943,23 @@ export const DictionaryPage: React.FC = () => {
               </div>
             )}
 
-            {/* On-Demand Hanzi Character Breakdown, Stroke Animation & Interactive Practice */}
-            {/[\u4e00-\u9fff]/.test(detailEntry.word) && (
+            {/* On-Demand Hybrid Writing Studio (Chinese Mìzìgé + Bangla Matra-grid + English 4-line grid) */}
+            {detailEntry.word.trim().length <= 24 && (
               <Suspense
                 fallback={
                   <div className="py-6 flex items-center justify-center gap-2 text-xs text-sanzar-muted">
-                    <Loader2 className="w-4 h-4 animate-spin text-sanzar-primary" /> Loading stroke studio…
+                    <Loader2 className="w-4 h-4 animate-spin text-sanzar-primary" /> Loading writing studio…
                   </div>
                 }
               >
                 <HanziStrokeStudio
                   word={detailEntry.word}
+                  language={detailEntry.language}
                   phonetic={detailEntry.phonetic}
                   charEntries={charEntries}
                   relatedWords={relatedWords}
-                  onSelectWord={jumpToWord}
+                  onSelectWord={(w) => jumpToWord(w, false)}
+                  defaultCollapsed={detailEntry.language === 'en' && !forcePractice}
                 />
               </Suspense>
             )}
