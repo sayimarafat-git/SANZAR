@@ -257,31 +257,73 @@ export interface BanglaWordPenLayout {
   viewBoxHeight: number;
 }
 
-/** Shifts all coordinates in an M/L/C/Q SVG path by (dx, dy). */
+/**
+ * Shifts coordinates by (dx, dy) and adds a soft Atma-style organic handwritten feel
+ * (gentle hand slant + slight natural bow on Matras and vertical stems so strokes never look stiff).
+ */
 function translateSvgPath(d: string, dx: number, dy = 0): string {
   const tokens = d.match(/[A-Za-z]|-?\d*\.?\d+/g);
   if (!tokens) return d;
   const out: string[] = [];
+  const handX = (x: number, y: number) => +(x + dx + (76 - (y + dy)) * 0.042).toFixed(1);
+  let curX = 0;
+  let curY = 26;
   let i = 0;
+
   while (i < tokens.length) {
     const cmd = tokens[i++];
-    out.push(cmd);
-    if (cmd === 'M' || cmd === 'L') {
-      const x = parseFloat(tokens[i++]) + dx;
-      const y = parseFloat(tokens[i++]) + dy;
-      out.push(x.toFixed(1), y.toFixed(1));
+    if (cmd === 'M') {
+      const rx = parseFloat(tokens[i++]);
+      const ry = parseFloat(tokens[i++]) + dy;
+      curX = handX(rx, ry);
+      curY = +ry.toFixed(1);
+      out.push('M', String(curX), String(curY));
+    } else if (cmd === 'L') {
+      const rx = parseFloat(tokens[i++]);
+      const ry = parseFloat(tokens[i++]) + dy;
+      const nx = handX(rx, ry);
+      const ny = +ry.toFixed(1);
+      const len = Math.hypot(nx - curX, ny - curY);
+      if (len > 14) {
+        const isHoriz = Math.abs(nx - curX) > Math.abs(ny - curY);
+        const mx = +((curX + nx) / 2 + (isHoriz ? 0 : -1.1)).toFixed(1);
+        const my = +((curY + ny) / 2 + (isHoriz ? -1.2 : 0.5)).toFixed(1);
+        out.push('Q', String(mx), String(my), String(nx), String(ny));
+      } else {
+        out.push('L', String(nx), String(ny));
+      }
+      curX = nx;
+      curY = ny;
     } else if (cmd === 'Q') {
-      for (let p = 0; p < 2; p++) {
-        const x = parseFloat(tokens[i++]) + dx;
-        const y = parseFloat(tokens[i++]) + dy;
-        out.push(x.toFixed(1), y.toFixed(1));
-      }
+      const rx1 = parseFloat(tokens[i++]);
+      const ry1 = parseFloat(tokens[i++]) + dy;
+      const rx = parseFloat(tokens[i++]);
+      const ry = parseFloat(tokens[i++]) + dy;
+      const x1 = handX(rx1, ry1);
+      const y1 = +ry1.toFixed(1);
+      const x = handX(rx, ry);
+      const y = +ry.toFixed(1);
+      out.push('Q', String(x1), String(y1), String(x), String(y));
+      curX = x;
+      curY = y;
     } else if (cmd === 'C') {
-      for (let p = 0; p < 3; p++) {
-        const x = parseFloat(tokens[i++]) + dx;
-        const y = parseFloat(tokens[i++]) + dy;
-        out.push(x.toFixed(1), y.toFixed(1));
-      }
+      const rx1 = parseFloat(tokens[i++]);
+      const ry1 = parseFloat(tokens[i++]) + dy;
+      const rx2 = parseFloat(tokens[i++]);
+      const ry2 = parseFloat(tokens[i++]) + dy;
+      const rx = parseFloat(tokens[i++]);
+      const ry = parseFloat(tokens[i++]) + dy;
+      const x1 = handX(rx1, ry1);
+      const y1 = +ry1.toFixed(1);
+      const x2 = handX(rx2, ry2);
+      const y2 = +ry2.toFixed(1);
+      const x = handX(rx, ry);
+      const y = +ry.toFixed(1);
+      out.push('C', String(x1), String(y1), String(x2), String(y2), String(x), String(y));
+      curX = x;
+      curY = y;
+    } else {
+      out.push(cmd);
     }
   }
   return out.join(' ');

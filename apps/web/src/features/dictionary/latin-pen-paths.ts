@@ -208,36 +208,67 @@ export interface LaidOutStroke {
   offsetX: number;
 }
 
-/** Shifts all X coordinates in an SVG path string by offsetX (keeps Y intact). */
-function translatePathX(d: string, dx: number): string {
-  if (dx === 0) return d;
+export const ENGLISH_HANDWRITING_FONT = '"Patrick Hand", "Comic Sans MS", cursive, system-ui, sans-serif';
+
+/**
+ * Shifts X by dx and applies a subtle natural right-hand penmanship slant (~5° anchored at y=74)
+ * plus a gentle organic micro-bow on straight L segments so strokes look genuinely handwritten
+ * (matching Patrick Hand) rather than stiff CAD lines.
+ */
+function toHandwrittenLatinPath(d: string, dx: number): string {
   const tokens = d.trim().split(/\s+/);
   const out: string[] = [];
+  const slantX = (x: number, y: number) => +(x + dx + (74 - y) * 0.088).toFixed(2);
+  let curX = 0;
+  let curY = 74;
   let i = 0;
+
   while (i < tokens.length) {
     const cmd = tokens[i];
-    if (cmd === 'M' || cmd === 'L') {
-      out.push(cmd, String(Number(tokens[i + 1]) + dx), tokens[i + 2]);
+    if (cmd === 'M') {
+      const rx = Number(tokens[i + 1]);
+      const ry = Number(tokens[i + 2]);
+      curX = slantX(rx, ry);
+      curY = ry;
+      out.push('M', String(curX), String(curY));
+      i += 3;
+    } else if (cmd === 'L') {
+      const rx = Number(tokens[i + 1]);
+      const ry = Number(tokens[i + 2]);
+      const nx = slantX(rx, ry);
+      const ny = ry;
+      const len = Math.hypot(nx - curX, ny - curY);
+      if (len > 10) {
+        // Gentle organic hand bow (slight leftward curve on downstrokes, slight upward arc on crossbars)
+        const isHoriz = Math.abs(nx - curX) > Math.abs(ny - curY);
+        const mx = +((curX + nx) / 2 + (isHoriz ? 0 : -0.9)).toFixed(2);
+        const my = +((curY + ny) / 2 + (isHoriz ? -0.8 : 0.4)).toFixed(2);
+        out.push('Q', String(mx), String(my), String(nx), String(ny));
+      } else {
+        out.push('L', String(nx), String(ny));
+      }
+      curX = nx;
+      curY = ny;
       i += 3;
     } else if (cmd === 'C') {
-      out.push(
-        cmd,
-        String(Number(tokens[i + 1]) + dx),
-        tokens[i + 2],
-        String(Number(tokens[i + 3]) + dx),
-        tokens[i + 4],
-        String(Number(tokens[i + 5]) + dx),
-        tokens[i + 6]
-      );
+      const x1 = slantX(Number(tokens[i + 1]), Number(tokens[i + 2]));
+      const y1 = Number(tokens[i + 2]);
+      const x2 = slantX(Number(tokens[i + 3]), Number(tokens[i + 4]));
+      const y2 = Number(tokens[i + 4]);
+      const x = slantX(Number(tokens[i + 5]), Number(tokens[i + 6]));
+      const y = Number(tokens[i + 6]);
+      out.push('C', String(x1), String(y1), String(x2), String(y2), String(x), String(y));
+      curX = x;
+      curY = y;
       i += 7;
     } else if (cmd === 'Q') {
-      out.push(
-        cmd,
-        String(Number(tokens[i + 1]) + dx),
-        tokens[i + 2],
-        String(Number(tokens[i + 3]) + dx),
-        tokens[i + 4]
-      );
+      const x1 = slantX(Number(tokens[i + 1]), Number(tokens[i + 2]));
+      const y1 = Number(tokens[i + 2]);
+      const x = slantX(Number(tokens[i + 3]), Number(tokens[i + 4]));
+      const y = Number(tokens[i + 4]);
+      out.push('Q', String(x1), String(y1), String(x), String(y));
+      curX = x;
+      curY = y;
       i += 5;
     } else {
       out.push(cmd);
@@ -269,7 +300,7 @@ export function layoutEnglishWord(word: string): {
     glyph.strokes.forEach((rawD, strokeIdx) => {
       strokes.push({
         id: `${charIdx}-${strokeIdx}`,
-        d: translatePathX(rawD, cursorX),
+        d: toHandwrittenLatinPath(rawD, cursorX),
         char: ch,
         charIdx,
         strokeIdx,
@@ -281,6 +312,6 @@ export function layoutEnglishWord(word: string): {
 
   return {
     strokes,
-    viewWidth: Math.max(240, cursorX + paddingX),
+    viewWidth: Math.max(240, cursorX + paddingX + 6),
   };
 }
