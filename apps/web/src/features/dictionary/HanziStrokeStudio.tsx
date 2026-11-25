@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import HanziWriter from 'hanzi-writer';
 import { CheckCircle2, Eye, EyeOff, PencilLine, Play, Sparkles } from 'lucide-react';
 import type { DictionaryEntry } from '../../lib/models';
-import { CanvasTracePad } from './CanvasTracePad';
+import { BanglaWordStudio } from './BanglaWordStudio';
 import { EnglishWordStudio } from './EnglishWordStudio';
 
 export function detectSyllableTone(syllable: string): 1 | 2 | 3 | 4 | 5 {
@@ -49,7 +49,7 @@ export const HanziStrokeStudio: React.FC<Props> = (props) => {
         : 'en';
 
   if (effectiveLang === 'bn') {
-    return <CanvasTracePad word={word} lang="bn" defaultCollapsed={defaultCollapsed} />;
+    return <BanglaWordStudio word={word} defaultCollapsed={defaultCollapsed} />;
   }
   if (effectiveLang === 'en') {
     return <EnglishWordStudio word={word} defaultCollapsed={defaultCollapsed} />;
