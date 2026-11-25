@@ -285,7 +285,18 @@ export const EnglishWordStudio: React.FC<Props> = ({ word, defaultCollapsed = fa
             </div>
           )}
 
-          {/* Wide 4-Line Ruled Penmanship Strip */}
+          {/* Reference preview in Caveat + Wide 4-Line Ruled Penmanship Strip */}
+          <div className="flex items-center justify-between text-xs text-sanzar-muted px-0.5">
+            <span>
+              Reference (Caveat):{' '}
+              <strong
+                className="text-xl text-sanzar-text font-semibold ml-1 tracking-wide"
+                style={{ fontFamily: '"Caveat", cursive, system-ui, sans-serif' }}
+              >
+                {activeWord}
+              </strong>
+            </span>
+          </div>
           <div className="rounded-2xl bg-white dark:bg-black/35 border-2 border-emerald-900/25 dark:border-white/20 shadow-inner overflow-x-auto select-none">
             <svg
               ref={svgRef}

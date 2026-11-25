@@ -1,10 +1,10 @@
 /**
  * Smooth cubic-Bézier SVG pen paths for Bangla base letters & digits (0..100 coordinate space).
  * Matra (headline) at y = 26, baseline at y = 76.
- * Font default: Kalpurush (with traditional Bengali serif/sans fallbacks).
+ * Font default: Atma (Google Fonts, with Hind Siliguri fallback).
  */
 
-export const BANGLA_DEFAULT_FONT = '"Kalpurush", "Noto Serif Bengali", "Hind Siliguri", system-ui, sans-serif';
+export const BANGLA_DEFAULT_FONT = '"Atma", "Hind Siliguri", system-ui, sans-serif';
 
 export const BANGLA_PEN_PATHS: Record<string, string[]> = {
   // Swaravarna (Vowels)
