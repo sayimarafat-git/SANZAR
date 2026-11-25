@@ -3,6 +3,7 @@ import HanziWriter from 'hanzi-writer';
 import { CheckCircle2, Eye, EyeOff, PencilLine, Play, Sparkles } from 'lucide-react';
 import type { DictionaryEntry } from '../../lib/models';
 import { CanvasTracePad } from './CanvasTracePad';
+import { EnglishWordStudio } from './EnglishWordStudio';
 
 export function detectSyllableTone(syllable: string): 1 | 2 | 3 | 4 | 5 {
   if (/[āēīōūǖ]|1$/.test(syllable)) return 1;
@@ -47,8 +48,11 @@ export const HanziStrokeStudio: React.FC<Props> = (props) => {
         ? language
         : 'en';
 
-  if (effectiveLang === 'bn' || effectiveLang === 'en') {
-    return <CanvasTracePad word={word} lang={effectiveLang} defaultCollapsed={defaultCollapsed} />;
+  if (effectiveLang === 'bn') {
+    return <CanvasTracePad word={word} lang="bn" defaultCollapsed={defaultCollapsed} />;
+  }
+  if (effectiveLang === 'en') {
+    return <EnglishWordStudio word={word} defaultCollapsed={defaultCollapsed} />;
   }
   return <ChineseHanziStudio {...props} />;
 };
