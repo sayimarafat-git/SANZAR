@@ -1,13 +1,8 @@
 import React, { useState } from 'react';
 import {
-  AlertCircle,
   BookMarked,
-  Check,
-  CheckCircle2,
-  Copy,
   Loader2,
   Volume2,
-  Wand2,
 } from 'lucide-react';
 import type { DictLangCode, LanguageInsights } from '../lib/models';
 
@@ -17,7 +12,6 @@ interface LanguageInsightsPanelProps {
   error: string | null;
   onRetry: () => void;
   onPickWord: (word: string) => void;
-  onApplyCorrection?: (corrected: string) => void;
   onSpeak: (text: string, lang: DictLangCode, rate?: number) => void;
 }
 
@@ -33,25 +27,17 @@ export const LanguageInsightsPanel: React.FC<LanguageInsightsPanelProps> = ({
   error,
   onRetry,
   onPickWord,
-  onApplyCorrection,
   onSpeak,
 }) => {
-  const [copied, setCopied] = useState(false);
   const [selectedSegIdx, setSelectedSegIdx] = useState<number | null>(null);
 
   if (!loading && !error && !insights) return null;
-
-  const copyCorrected = (val: string) => {
-    void navigator.clipboard?.writeText(val);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
-  };
 
   if (loading && !insights) {
     return (
       <div className="sanzar-card p-4 sm:p-5 flex items-center gap-3 text-sm text-sanzar-muted">
         <Loader2 className="w-4 h-4 animate-spin text-sanzar-primary shrink-0" />
-        <span>Loading grammar assistance &amp; advanced vocabulary…</span>
+        <span>Loading vocabulary insights…</span>
       </div>
     );
   }
@@ -178,119 +164,7 @@ export const LanguageInsightsPanel: React.FC<LanguageInsightsPanelProps> = ({
         </section>
       )}
 
-      {/* Card 1: Grammar Assistance */}
-      <section className="sanzar-card overflow-hidden border-sanzar-primary/25">
-        <div className="px-4 sm:px-5 py-3 border-b border-sanzar-border/70 flex items-center justify-between gap-2 bg-sanzar-surface2/50">
-          <div className="flex items-center gap-2 min-w-0">
-            <Wand2 className="w-4 h-4 text-sanzar-primary shrink-0" />
-            <h3 className="font-bold text-sm truncate">Grammar Assistance</h3>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sanzar-primarySoft text-sanzar-primary">
-              {langName(insights.language)}
-            </span>
-          </div>
-          {loading && <Loader2 className="w-3.5 h-3.5 animate-spin text-sanzar-primary shrink-0" />}
-        </div>
-
-        <div className="p-4 sm:p-5 space-y-4">
-          <div
-            className={`p-3.5 rounded-2xl border space-y-2 ${
-              insights.grammar.isCorrect
-                ? 'bg-emerald-500/10 border-emerald-500/25'
-                : 'bg-amber-500/10 border-amber-500/30'
-            }`}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-xs font-bold">
-                {insights.grammar.isCorrect ? (
-                  <>
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                    <span className="text-emerald-700 dark:text-emerald-300">Looks grammatically natural</span>
-                  </>
-                ) : (
-                  <>
-                    <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                    <span className="text-amber-700 dark:text-amber-300">Suggested correction</span>
-                  </>
-                )}
-              </div>
-              {insights.grammar.correctedText && insights.grammar.correctedText !== insights.text && (
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => onSpeak(insights.grammar.correctedText, insights.language, 1.0)}
-                    title="Listen"
-                    className="p-1.5 rounded-lg border border-sanzar-border bg-sanzar-surface text-sanzar-primary hover:bg-sanzar-surface2 transition"
-                  >
-                    <Volume2 className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => copyCorrected(insights.grammar.correctedText)}
-                    title="Copy"
-                    className="p-1.5 rounded-lg border border-sanzar-border bg-sanzar-surface text-sanzar-text2 hover:bg-sanzar-surface2 transition"
-                  >
-                    {copied ? <Check className="w-3.5 h-3.5 text-sanzar-primary" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
-                  {onApplyCorrection && (
-                    <button
-                      type="button"
-                      onClick={() => onApplyCorrection(insights.grammar.correctedText)}
-                      className="px-2.5 py-1 rounded-lg bg-sanzar-primary text-sanzar-onPrimary text-[11px] font-bold"
-                    >
-                      Use corrected
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {insights.grammar.correctedText && insights.grammar.correctedText !== insights.text && (
-              <p className="text-base font-bold text-sanzar-text">{insights.grammar.correctedText}</p>
-            )}
-            {insights.pinyin && (
-              <p className="text-xs font-semibold text-sanzar-primary">Pinyin: {insights.pinyin}</p>
-            )}
-            <p className="text-xs sm:text-sm text-sanzar-text2 leading-relaxed">{insights.grammar.summary}</p>
-          </div>
-
-          {insights.grammar.points.length > 0 && (
-            <div className="grid sm:grid-cols-2 gap-3">
-              {insights.grammar.points.map((pt, idx) => (
-                <div key={idx} className="p-3.5 rounded-2xl bg-sanzar-surface2/70 border border-sanzar-border space-y-1.5">
-                  <p className="font-bold text-xs sm:text-sm text-sanzar-text">{pt.title}</p>
-                  <p className="text-xs text-sanzar-text2 leading-relaxed">{pt.explanation}</p>
-                  {pt.example && (
-                    <div className="pt-1 flex items-center justify-between gap-2 text-xs font-medium text-sanzar-primary">
-                      <span className="truncate">{pt.example}</span>
-                      <button
-                        type="button"
-                        onClick={() => onSpeak(pt.example!, insights.language, 1.0)}
-                        className="p-1 rounded-md hover:bg-sanzar-surface shrink-0"
-                        title="Listen to example"
-                      >
-                        <Volume2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {insights.grammar.tips.length > 0 && (
-            <div className="space-y-1.5">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-sanzar-muted">Tips</p>
-              <ul className="space-y-1 text-xs text-sanzar-text2 list-disc pl-4">
-                {insights.grammar.tips.map((tip, i) => (
-                  <li key={i}>{tip}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* Card 2: Advanced Vocabulary */}
+      {/* Advanced Vocabulary */}
       <section className="sanzar-card overflow-hidden border-sanzar-primary/25">
         <div className="px-4 sm:px-5 py-3 border-b border-sanzar-border/70 flex items-center justify-between gap-2 bg-sanzar-surface2/50">
           <div className="flex items-center gap-2 min-w-0">

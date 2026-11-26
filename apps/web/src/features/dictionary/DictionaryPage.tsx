@@ -15,6 +15,7 @@ import {
   Filter,
   Flag,
   Globe,
+  Languages,
   Layers,
   Link2,
   Loader2,
@@ -1178,12 +1179,15 @@ export const DictionaryPage: React.FC = () => {
                 type="button"
                 disabled={translating || !query.trim()}
                 onClick={() => void handleTranslate()}
-                className="hidden sm:flex px-4 py-2.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-extrabold disabled:opacity-45 transition items-center gap-1.5 shadow-sm shrink-0"
+                className="hidden sm:flex px-4 py-2.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-extrabold disabled:opacity-45 transition items-center gap-2 shadow-sm shrink-0 hover:opacity-95"
               >
                 {translating ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
-                  <Sparkles className="w-3.5 h-3.5" />
+                  <span className="relative inline-flex items-center">
+                    <Languages className="w-4 h-4" />
+                    <Search className="w-2.5 h-2.5 -ml-1 mt-1.5 stroke-[2.75]" />
+                  </span>
                 )}
                 Translate
               </button>
@@ -1220,12 +1224,15 @@ export const DictionaryPage: React.FC = () => {
                 type="button"
                 disabled={translating || !query.trim()}
                 onClick={() => void handleTranslate()}
-                className="sm:hidden px-3.5 py-2.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-extrabold disabled:opacity-45 transition inline-flex items-center gap-1.5 shadow-sm shrink-0"
+                className="sm:hidden px-3.5 py-2.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-extrabold disabled:opacity-45 transition inline-flex items-center gap-2 shadow-sm shrink-0 hover:opacity-95"
               >
                 {translating ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
-                  <Sparkles className="w-3.5 h-3.5" />
+                  <span className="relative inline-flex items-center">
+                    <Languages className="w-4 h-4" />
+                    <Search className="w-2.5 h-2.5 -ml-1 mt-1.5 stroke-[2.75]" />
+                  </span>
                 )}
                 Translate
               </button>
@@ -1411,46 +1418,58 @@ export const DictionaryPage: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* One-tap "Also translate to..." + Trilingual "Stroke order & practice" */}
-                    <div className="pt-3 border-t border-sanzar-border/60 flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {otherTargetLangs.length > 0 && (
-                          <>
-                            <span className="text-[11px] font-medium text-sanzar-muted">Also translate to:</span>
-                            {otherTargetLangs.map((l) => (
-                              <button
-                                key={l.code}
-                                type="button"
-                                disabled={translating}
-                                onClick={() => {
-                                  setTargetLang(l.code);
-                                  void handleTranslate(query, l.code);
-                                }}
-                                className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-sanzar-surface2 hover:bg-sanzar-primarySoft hover:text-sanzar-primary border border-sanzar-border transition inline-flex items-center gap-1"
-                              >
-                                {l.label} <ArrowRight className="w-3 h-3" />
-                              </button>
-                            ))}
-                          </>
-                        )}
+                    {/* One-tap "Also translate to..." */}
+                    {otherTargetLangs.length > 0 && (
+                      <div className="pt-3 border-t border-sanzar-border/60 flex flex-wrap items-center gap-2">
+                        <span className="text-[11px] font-medium text-sanzar-muted">Also translate to:</span>
+                        {otherTargetLangs.map((l) => (
+                          <button
+                            key={l.code}
+                            type="button"
+                            disabled={translating}
+                            onClick={() => {
+                              setTargetLang(l.code);
+                              void handleTranslate(query, l.code);
+                            }}
+                            className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-sanzar-surface2 hover:bg-sanzar-primarySoft hover:text-sanzar-primary border border-sanzar-border transition inline-flex items-center gap-1"
+                          >
+                            {l.label} <ArrowRight className="w-3 h-3" />
+                          </button>
+                        ))}
                       </div>
-                      {translation.translatedText.trim().length <= 24 && (
-                        <button
-                          type="button"
-                          onClick={() => jumpToWord(translation.translatedText.trim(), true)}
-                          className="px-3 py-1 rounded-full text-[11px] font-bold bg-sanzar-primarySoft text-sanzar-primary border border-sanzar-primary/35 hover:bg-sanzar-primary hover:text-sanzar-onPrimary transition inline-flex items-center gap-1"
-                        >
-                          <Sparkles className="w-3 h-3" /> Stroke order &amp; practice
-                        </button>
-                      )}
-                    </div>
+                    )}
                   </div>
                 ) : null}
               </div>
             </div>
           )}
 
-          {/* Auto-displayed Grammar Assistance & Advanced Vocabulary Cards */}
+          {/* Auto-displayed Writing & Stroke Studio (synced with Translate button) */}
+          {translation?.translatedText?.trim() && translation.translatedText.trim().length <= 24 && (
+            <div className="sanzar-card p-4 sm:p-5 border-sanzar-primary/25">
+              <Suspense
+                fallback={
+                  <div className="py-6 flex items-center justify-center gap-2 text-xs text-sanzar-muted">
+                    <Loader2 className="w-4 h-4 animate-spin text-sanzar-primary" /> Loading writing &amp; stroke studio…
+                  </div>
+                }
+              >
+                <HanziStrokeStudio
+                  word={translation.translatedText.trim()}
+                  language={translation.targetLanguage === 'zh-Hans' ? 'zh' : translation.targetLanguage}
+                  phonetic={translation.targetPinyin || ''}
+                  charEntries={[]}
+                  relatedWords={[]}
+                  onSelectWord={(w) => {
+                    setQuery(w);
+                    void handleTranslate(w);
+                  }}
+                />
+              </Suspense>
+            </div>
+          )}
+
+          {/* Auto-displayed Vocabulary & Word-by-Word Breakdown Cards */}
           <LanguageInsightsPanel
             insights={insights}
             loading={insightsLoading}
@@ -1464,11 +1483,6 @@ export const DictionaryPage: React.FC = () => {
             onPickWord={(w) => {
               setQuery(w);
               void handleTranslate(w);
-            }}
-            onApplyCorrection={(corrected) => {
-              setQuery(corrected);
-              setInsights(null);
-              void handleTranslate(corrected);
             }}
             onSpeak={(txt, langCode, rate) => speakText(txt, langCode, rate)}
           />
