@@ -650,6 +650,50 @@ async function lookupChineseSegments(env, text) {
 }
 
 /** 100% D1-backed Chinese Pinyin segmenter & lookup — zero AI cost, zero external API calls. */
+/** High-frequency polyphone phrase disambiguation (zero-AI, <1ms). */
+const POLYPHONE_PHRASES = {
+  银行: 'yín háng', 行业: 'háng yè', 排行: 'pái háng', 同行: 'tóng háng',
+  不行: 'bù xíng', 旅行: 'lǚ xíng', 步行: 'bù xíng', 行李: 'xíng li', 行动: 'xíng dòng', 举行: 'jǔ xíng',
+  了解: 'liǎo jiě', 不得了: 'bù dé liǎo', 受不了: 'shòu bù liǎo', 来不了: 'lái bù liǎo',
+  长大: 'zhǎng dà', 校长: 'xiào zhǎng', 家长: 'jiā zhǎng', 生长: 'shēng zhǎng', 成长: 'chéng zhǎng',
+  很长: 'hěn cháng', 长期: 'cháng qī', 长城: 'cháng chéng', 长度: 'cháng dù',
+  音乐: 'yīn yuè', 乐器: 'yuè qì', 快乐: 'kuài lè', 乐观: 'lè guān', 可乐: 'kě lè',
+  头发: 'tóu fa', 理发: 'lǐ fà', 发现: 'fā xiàn', 发展: 'fā zhǎn', 发烧: 'fā shāo', 出发: 'chū fā',
+  还是: 'hái shì', 还有: 'hái yǒu', 还没: 'hái méi', 还书: 'huán shū', 归还: 'guī huán', 还钱: 'huán qián',
+  睡觉: 'shuì jiào', 午觉: 'wǔ jiào', 觉得: 'jué de', 感觉: 'gǎn jué', 决定: 'jué dìng',
+  重要: 'zhòng yào', 严重: 'yán zhòng', 尊重: 'zūn zhòng', 重新: 'chóng xīn', 重复: 'chóng fù',
+  首都: 'shǒu dū', 都市: 'dū shì', 都是: 'dōu shì', 都有: 'dōu yǒu',
+  因为: 'yīn wèi', 为什么: 'wèi shén me', 为了: 'wèi le', 成为: 'chéng wéi', 认为: 'rèn wéi', 以为: 'yǐ wéi', 行为: 'xíng wéi',
+  着急: 'zháo jí', 睡着: 'shuì zháo', 看着: 'kàn zhe', 拿着: 'ná zhe', 坐着: 'zuò zhe',
+  得到: 'dé dào', 不得不: 'bù dé bù', 跑得快: 'pǎo de kuài', 说得好: 'shuō de hǎo',
+  地方: 'dì fāng', 地图: 'dì tú', 地铁: 'dì tiě', 慢慢地: 'màn màn de', 认真地: 'rèn zhēn de',
+  爱好: 'ài hào', 好奇: 'hào qí', 很好: 'hěn hǎo', 好吃: 'hǎo chī',
+  少年: 'shào nián', 多少: 'duō shao', 很少: 'hěn shǎo',
+  应该: 'yīng gāi', 答应: 'dā ying', 适应: 'shì yìng',
+  教室: 'jiào shì', 教育: 'jiào yù', 教书: 'jiāo shū',
+  空气: 'kōng qì', 有空: 'yǒu kòng', 空闲: 'kòng xián',
+  困难: 'kùn nan', 灾难: 'zāi nàn', 数学: 'shù xué', 数字: 'shù zì', 数一数: 'shǔ yī shǔ',
+  种类: 'zhǒng lèi', 种树: 'zhòng shù', 便宜: 'pián yi', 方便: 'fāng biàn',
+  漂亮: 'piào liang', 干净: 'gān jìng', 干活: 'gàn huó', 饼干: 'bǐng gān',
+  差不多: 'chà bù duō', 出差: 'chū chāi', 空调: 'kōng tiáo', 调查: 'diào chá',
+};
+
+/** Fallback single-character pinyin for high-frequency characters & polyphone default readings. */
+const COMMON_CHAR_PINYIN = {
+  的: 'de', 了: 'le', 地: 'de', 得: 'de', 着: 'zhe', 过: 'guò', 吗: 'ma', 呢: 'ne', 吧: 'ba', 啊: 'a',
+  我: 'wǒ', 你: 'nǐ', 他: 'tā', 她: 'tā', 它: 'tā', 们: 'men', 这: 'zhè', 那: 'nà', 哪: 'nǎ', 谁: 'shuí',
+  是: 'shì', 有: 'yǒu', 在: 'zài', 不: 'bù', 没: 'méi', 很: 'hěn', 太: 'tài', 都: 'dōu', 也: 'yě', 还: 'hái',
+  就: 'jiù', 才: 'cái', 只: 'zhǐ', 把: 'bǎ', 被: 'bèi', 比: 'bǐ', 给: 'gěi', 对: 'duì', 跟: 'gēn', 和: 'hé',
+  一: 'yī', 二: 'èr', 两: 'liǎng', 三: 'sān', 四: 'sì', 五: 'wǔ', 六: 'liù', 七: 'qī', 八: 'bā', 九: 'jiǔ', 十: 'shí',
+  个: 'gè', 本: 'běn', 张: 'zhāng', 辆: 'liàng', 件: 'jiàn', 条: 'tiáo', 杯: 'bēi', 双: 'shuāng', 首: 'shǒu', 位: 'wèi',
+  行: 'xíng', 长: 'cháng', 乐: 'lè', 发: 'fā', 觉: 'jué', 重: 'zhòng', 为: 'wèi', 好: 'hǎo', 少: 'shǎo', 干: 'gàn',
+  去: 'qù', 来: 'lái', 做: 'zuò', 说: 'shuō', 看: 'kàn', 听: 'tīng', 吃: 'chī', 喝: 'hē', 买: 'mǎi', 写: 'xiě',
+  读: 'dú', 学: 'xué', 想: 'xiǎng', 要: 'yào', 会: 'huì', 能: 'néng', 爱: 'ài', 跑: 'pǎo', 走: 'zǒu', 住: 'zhù',
+  人: 'rén', 家: 'jiā', 书: 'shū', 钱: 'qián', 车: 'chē', 狗: 'gǒu', 猫: 'māo', 饭: 'fàn', 水: 'shuǐ', 茶: 'chá',
+  大: 'dà', 小: 'xiǎo', 多: 'duō', 高: 'gāo', 快: 'kuài', 慢: 'màn', 新: 'xīn', 老: 'lǎo', 热: 'rè', 冷: 'lěng',
+  天: 'tiān', 年: 'nián', 月: 'yuè', 日: 'rì', 今: 'jīn', 明: 'míng', 昨: 'zuó', 上: 'shàng', 下: 'xià', 中: 'zhōng',
+};
+
 async function lookupPinyinFromDb(env, text) {
   const clean = String(text || '').trim().slice(0, 300);
   if (!clean || !hasHanzi(clean)) return '';
@@ -669,6 +713,9 @@ async function lookupPinyinFromDb(env, text) {
   const map = new Map();
   for (const r of rows) {
     if (!map.has(r.word)) map.set(r.word, r.phonetic);
+  }
+  for (const [phrase, py] of Object.entries(POLYPHONE_PHRASES)) {
+    map.set(phrase, py);
   }
 
   const chars = Array.from(clean);
@@ -698,6 +745,9 @@ async function lookupPinyinFromDb(env, text) {
     if (matchedLen > 0) {
       out.push(matchedPy);
       i += matchedLen;
+    } else if (COMMON_CHAR_PINYIN[ch]) {
+      out.push(COMMON_CHAR_PINYIN[ch]);
+      i++;
     } else {
       out.push(ch);
       i++;
@@ -1291,13 +1341,67 @@ function buildFallbackGrammar(text, language) {
         example: '我没有时间。(Wǒ méiyǒu shíjiān.)',
       });
     }
-    if (/二个/.test(correctedText)) {
-      correctedText = correctedText.replace(/二个/g, '两个');
+    if (/二([个本张辆只件杯条把双首封位])/.test(correctedText)) {
+      correctedText = correctedText.replace(/二([个本张辆只件杯条把双首封位])/g, '两$1');
       isCorrect = false;
       points.push({
         title: 'Use 两 (liǎng) before measure words',
-        explanation: 'Before a measure word like 个, use 两 instead of 二.',
-        example: '我有两个朋友。',
+        explanation: 'Before a measure word (个, 本, 张, 辆, 杯, etc.), use 两 instead of 二.',
+        example: '我有两个朋友 / 两本书。',
+      });
+    }
+    if (/是(很|非常|太)(好|高|大|小|忙|累|热|冷|漂亮|高兴|开心)/.test(correctedText)) {
+      correctedText = correctedText.replace(/是(很|非常|太)(好|高|大|小|忙|累|热|冷|漂亮|高兴|开心)/g, '$1$2');
+      isCorrect = false;
+      points.push({
+        title: 'Do not use 是 before 很 + Adjective',
+        explanation: 'In Mandarin, adjectives link directly to the subject with 很 (e.g., 我很好), not 是.',
+        example: '我今天很忙。(Not 我今天是很忙)',
+      });
+    }
+    if (/没有?([^，。！？]{1,6})了/.test(correctedText) && !/没有.*了$/.test(correctedText.replace(/没有钱了|没有时间了/, ''))) {
+      correctedText = correctedText.replace(/(没有?[^，。！？]{1,4})了/g, '$1');
+      isCorrect = false;
+      points.push({
+        title: 'Do not combine 没/没有 with 了 for negated actions',
+        explanation: 'When negating a past action with 没/没有, omit the completed-action particle 了.',
+        example: '我昨天没去学校。(Not 我昨天没去了学校)',
+      });
+    }
+    if (/正在([^，。！？]{1,8})了/.test(correctedText)) {
+      correctedText = correctedText.replace(/(正在[^，。！？]{1,8})了/g, '$1');
+      isCorrect = false;
+      points.push({
+        title: 'Do not combine 正在 (ongoing) with 了 (completed)',
+        explanation: '正在 marks an action in progress; pair it with 呢 instead of 了.',
+        example: '我正在吃饭呢。',
+      });
+    }
+    if (/(跑|说|写|唱|跳|学|做)的(很好|很快|很慢|不错|快|好)/.test(correctedText)) {
+      correctedText = correctedText.replace(/(跑|说|写|唱|跳|学|做)的(很好|很快|很慢|不错|快|好)/g, '$1得$2');
+      isCorrect = false;
+      points.push({
+        title: 'Use 得 (de) for verb degree complements',
+        explanation: 'After a verb describing how well/fast an action is done, use 得 instead of 的.',
+        example: '他说得很好 / 跑得很快。',
+      });
+    }
+    if (/(认真|高兴|慢慢|仔细)的(学习|说|走|看|工作)/.test(correctedText)) {
+      correctedText = correctedText.replace(/(认真|高兴|慢慢|仔细)的(学习|说|走|看|工作)/g, '$1地$2');
+      isCorrect = false;
+      points.push({
+        title: 'Use 地 (de) between adverbs and verbs',
+        explanation: 'When an adverb modifies a verb, link them with 地 instead of 的.',
+        example: '他认真地学习中文。',
+      });
+    }
+    if (/(学习|工作|吃饭|看书)(在[\u4e00-\u9fff]{1,5})/.test(correctedText)) {
+      correctedText = correctedText.replace(/(学习|工作|吃饭|看书)(在[\u4e00-\u9fff]{1,5})/g, '$2$1');
+      isCorrect = false;
+      points.push({
+        title: 'Place phrase (在 + Place) goes before the verb',
+        explanation: 'Standard Mandarin word order is Subject + 在 + Place + Verb.',
+        example: '我在学校学习中文。',
       });
     }
     if (/很(非常|特别|极了)/.test(correctedText)) {
@@ -1315,6 +1419,11 @@ function buildFallbackGrammar(text, language) {
       { re: /([一两三四五六七八九十几这那])个(桌子|床|纸|票)/g, mw: '张', label: 'flat objects: 张 (zhāng)' },
       { re: /([一两三四五六七八九十几这那])个(衣服|衬衫|外套)/g, mw: '件', label: 'clothing: 件 (jiàn)' },
       { re: /([一两三四五六七八九十几这那])个(电影|手机)/g, mw: '部', label: 'movies/phones: 部 (bù)' },
+      { re: /([一两三四五六七八九十几这那])个(水|茶|咖啡|牛奶)/g, mw: '杯', label: 'drinks: 杯 (bēi)' },
+      { re: /([一两三四五六七八九十几这那])个(鱼|裤子|路|河)/g, mw: '条', label: 'long/flexible things: 条 (tiáo)' },
+      { re: /([一两三四五六七八九十几这那])个(椅子|伞|刀)/g, mw: '把', label: 'objects with handles: 把 (bǎ)' },
+      { re: /([一两三四五六七八九十几这那])个(鞋|鞋子|筷子|袜子)/g, mw: '双', label: 'pairs: 双 (shuāng)' },
+      { re: /([一两三四五六七八九十几这那])个(歌|诗)/g, mw: '首', label: 'songs/poems: 首 (shǒu)' },
     ];
     for (const rule of zhMeasureMap) {
       if (rule.re.test(correctedText)) {
@@ -1428,6 +1537,60 @@ function buildFallbackGrammar(text, language) {
         title: 'Future tense with আগামীকাল (tomorrow)',
         explanation: 'আগামীকাল refers to tomorrow, so use future tense (-ব) instead of past tense.',
         example: 'আমি আগামীকাল ঢাকা যাব।',
+      });
+    }
+    if (/তিনি\s/.test(correctedText) && /(করে|যায়|খায়|বলে|পড়ে|আছে)([।!?]?)$/.test(correctedText)) {
+      const hon3Map = { করে: 'করেন', যায়: 'যান', খায়: 'খান', বলে: 'বলেন', পড়ে: 'পড়েন', আছে: 'আছেন' };
+      correctedText = correctedText.replace(/(করে|যায়|খায়|বলে|পড়ে|আছে)([।!?]?)$/, (_, v, p) => `${hon3Map[v] || v}${p}`);
+      isCorrect = false;
+      points.push({
+        title: 'Honorific third-person agreement (তিনি)',
+        explanation: 'With respectful তিনি, use formal verb endings (-এন: করেন, যান, আছেন) instead of casual সে endings.',
+        example: 'তিনি বাংলা পড়ান।',
+      });
+    }
+    if (/এখন/.test(correctedText) && /(গিয়েছিলাম|করেছিলাম|খেয়েছিলাম)([।!?]?)$/.test(correctedText)) {
+      const nowMap = { গিয়েছিলাম: 'যাচ্ছি', করেছিলাম: 'করছি', খেয়েছিলাম: 'খাচ্ছি' };
+      correctedText = correctedText.replace(/(গিয়েছিলাম|করেছিলাম|খেয়েছিলাম)([।!?]?)$/, (_, v, p) => `${nowMap[v] || v}${p}`);
+      isCorrect = false;
+      points.push({
+        title: 'Present continuous with এখন (now)',
+        explanation: 'এখন refers to right now; use present continuous (-ছি) instead of past tense.',
+        example: 'আমি এখন বই পড়ছি।',
+      });
+    }
+    if (/\sনা\s+(যাই|খাই|করি|জানি|পড়ি|বলি)([।!?]?)$/.test(correctedText)) {
+      correctedText = correctedText.replace(/\sনা\s+(যাই|খাই|করি|জানি|পড়ি|বলি)([।!?]?)$/, ' $1 না$2');
+      isCorrect = false;
+      points.push({
+        title: 'Negation word order (Verb + না)',
+        explanation: 'In declarative Bangla sentences, না comes after the verb (e.g., আমি জানি না, not আমি না জানি).',
+        example: 'আমি জানি না।',
+      });
+    }
+    if (/(যাব|করব|খাব|পড়ব)\s*নি([।!?]?)$/.test(correctedText)) {
+      correctedText = correctedText.replace(/(যাব|করব|খাব|পড়ব)\s*নি([।!?]?)$/, '$1 না$2');
+      isCorrect = false;
+      points.push({
+        title: 'Use না (not নি) with future tense',
+        explanation: 'নি only negates completed past actions; use না for future tense (যাব না, করব না).',
+        example: 'আমি কাল যাব না।',
+      });
+    }
+    if (/একটা\s+(মানুষ|শিক্ষক|বন্ধু|ছাত্র|ছাত্রী|ডাক্তার|ছেলে|মেয়ে)/.test(correctedText)) {
+      correctedText = correctedText.replace(/একটা\s+(মানুষ|শিক্ষক|বন্ধু|ছাত্র|ছাত্রী|ডাক্তার|ছেলে|মেয়ে)/g, 'একজন $1');
+      isCorrect = false;
+      points.push({
+        title: 'Classifier for people: একজন',
+        explanation: 'Use একজন (not একটা) when counting people.',
+        example: 'তিনি একজন ভালো শিক্ষক।',
+      });
+    }
+    if (/(সব|অনেক)\s+\S+(রা|গুলো)\b/.test(correctedText)) {
+      points.push({
+        title: 'Avoid double plural in Bangla',
+        explanation: 'After quantifiers like সব (all) or অনেক (many), Bangla usually omits plural suffixes (-রা / -গুলো).',
+        example: 'অনেক মানুষ (instead of অনেক মানুষগুলো).',
       });
     }
     if (/আপনি|আপনার|আপনাকে/.test(trimmed)) {

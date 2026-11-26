@@ -521,3 +521,30 @@ test('normalized cache keys, D1 LanguageTool grammar cache, report & admin cache
     globalThis.fetch = realFetch;
   }
 });
+
+test('polyphone pinyin disambiguation and expanded ZH/BN grammar rules', async () => {
+  const testTok = await token('grammar-tester', 'tester@example.test');
+  // Polyphone pinyin via identity translation (zh-Hans -> zh-Hans)
+  const py1 = await call('POST', '/v1/translation', {
+    auth: testTok,
+    body: { text: '我去银行了解音乐', sourceLanguage: 'zh-Hans', targetLanguage: 'zh-Hans' },
+  });
+  assert.equal(py1.response.status, 200);
+  assert.equal(py1.data.sourcePinyin, 'wǒ qù yín háng liǎo jiě yīn yuè');
+
+  // Expanded Chinese grammar checks
+  const zh1 = await call('POST', '/v1/dictionary/insights', { auth: testTok, body: { text: '我是很好', language: 'zh-Hans' } });
+  assert.equal(zh1.data.grammar.correctedText, '我很好');
+  const zh2 = await call('POST', '/v1/dictionary/insights', { auth: testTok, body: { text: '他跑的很快', language: 'zh-Hans' } });
+  assert.equal(zh2.data.grammar.correctedText, '他跑得很快');
+  const zh3 = await call('POST', '/v1/dictionary/insights', { auth: testTok, body: { text: '我学习在学校', language: 'zh-Hans' } });
+  assert.equal(zh3.data.grammar.correctedText, '我在学校学习');
+
+  // Expanded Bangla grammar checks
+  const bn1 = await call('POST', '/v1/dictionary/insights', { auth: testTok, body: { text: 'আমি না জানি।', language: 'bn' } });
+  assert.equal(bn1.data.grammar.correctedText, 'আমি জানি না।');
+  const bn2 = await call('POST', '/v1/dictionary/insights', { auth: testTok, body: { text: 'তিনি ভালো আছে।', language: 'bn' } });
+  assert.equal(bn2.data.grammar.correctedText, 'তিনি ভালো আছেন।');
+  const bn3 = await call('POST', '/v1/dictionary/insights', { auth: testTok, body: { text: 'একটা শিক্ষক', language: 'bn' } });
+  assert.equal(bn3.data.grammar.correctedText, 'একজন শিক্ষক');
+});
