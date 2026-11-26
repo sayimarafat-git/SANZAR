@@ -13,6 +13,7 @@ import {
   Clock,
   Copy,
   Filter,
+  Flag,
   Globe,
   Layers,
   Link2,
@@ -409,6 +410,8 @@ export const DictionaryPage: React.FC = () => {
   const [translateError, setTranslateError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [savedTranslationKey, setSavedTranslationKey] = useState<string | null>(null);
+  const [reportedTranslationKey, setReportedTranslationKey] = useState<string | null>(null);
+  const [reportingTranslation, setReportingTranslation] = useState(false);
 
   // Dictionary filters & pagination
   const [langFilter, setLangFilter] = useState<'all' | DictLangCode>('all');
@@ -767,6 +770,32 @@ export const DictionaryPage: React.FC = () => {
     void syncSavedVocabulary(uid).then(setSavedItems);
   };
 
+  const handleReportTranslationResult = async () => {
+    const sourceText = query.trim();
+    if (!translation || !sourceText || reportingTranslation) return;
+    const key = `${translation.sourceLanguage}:${translation.targetLanguage}:${sourceText}:${translation.translatedText}`;
+    if (reportedTranslationKey === key) return;
+    setReportingTranslation(true);
+    try {
+      await apiRequest('/v1/translation/report', {
+        method: 'POST',
+        bodyJson: {
+          sourceLanguage: translation.sourceLanguage,
+          targetLanguage: translation.targetLanguage,
+          sourceText,
+          translatedText: translation.translatedText,
+          note: 'Reported from dictionary page',
+        },
+      });
+      setReportedTranslationKey(key);
+      toast('Reported for admin review');
+    } catch (e) {
+      toast(errorText(e));
+    } finally {
+      setReportingTranslation(false);
+    }
+  };
+
   const handleDeleteSaved = async (id: string) => {
     if (!uid) return;
     await deleteLocalVocabularyItem(uid, id);
@@ -840,6 +869,7 @@ export const DictionaryPage: React.FC = () => {
     setTranslating(true);
     setTranslateError(null);
     setSavedTranslationKey(null);
+    setReportedTranslationKey(null);
 
     try {
       const sourceParam = langFilter !== 'all' ? langFilter : 'auto';
@@ -983,6 +1013,10 @@ export const DictionaryPage: React.FC = () => {
     ? `${translation.sourceLanguage}:${translation.targetLanguage}:${query.trim()}`
     : null;
   const isCurrentTranslationSaved = Boolean(currentTranslationKey && savedTranslationKey === currentTranslationKey);
+  const currentReportKey = translation
+    ? `${translation.sourceLanguage}:${translation.targetLanguage}:${query.trim()}:${translation.translatedText}`
+    : null;
+  const isCurrentTranslationReported = Boolean(currentReportKey && reportedTranslationKey === currentReportKey);
 
   const safeCardIndex = filteredSaved.length > 0 ? Math.min(cardIndex, filteredSaved.length - 1) : 0;
   const activeCard = filteredSaved[safeCardIndex];
@@ -1270,6 +1304,20 @@ export const DictionaryPage: React.FC = () => {
                             )}
                           </button>
                         )}
+                        <button
+                          type="button"
+                          disabled={reportingTranslation || isCurrentTranslationReported}
+                          onClick={() => void handleReportTranslationResult()}
+                          title="Report translation issue"
+                          className={`px-2.5 py-2 rounded-xl border text-xs font-semibold transition inline-flex items-center gap-1 ${
+                            isCurrentTranslationReported
+                              ? 'border-sanzar-danger/30 bg-sanzar-danger/10 text-sanzar-danger'
+                              : 'border-sanzar-border hover:bg-sanzar-surface2 text-sanzar-muted hover:text-sanzar-text'
+                          } disabled:opacity-70`}
+                        >
+                          <Flag className="w-3.5 h-3.5" />
+                          <span>{isCurrentTranslationReported ? 'Reported' : 'Report'}</span>
+                        </button>
                       </div>
                     </div>
 

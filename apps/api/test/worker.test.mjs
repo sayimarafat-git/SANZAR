@@ -83,7 +83,7 @@ before(async () => {
     APP_ENV: 'test',
   };
   const migration = await migrate(env);
-  assert.deepEqual(migration.applied, ['0001_init', '0002_existing_profiles', '0003_sync_and_resources', '0004_learning_languages', '0005_admin_enhancements', '0006_book_thumbnails', '0007_dictionary', '0008_exam_targeting_and_timezone', '0009_dictionary_translator_sync', '0010_teacher_role', '0011_content_enhancements', '0012_dictionary_insights_columns', '0013_translation_cache_and_quota']);
+  assert.deepEqual(migration.applied, ['0001_init', '0002_existing_profiles', '0003_sync_and_resources', '0004_learning_languages', '0005_admin_enhancements', '0006_book_thumbnails', '0007_dictionary', '0008_exam_targeting_and_timezone', '0009_dictionary_translator_sync', '0010_teacher_role', '0011_content_enhancements', '0012_dictionary_insights_columns', '0013_translation_cache_and_quota', '0014_grammar_cache_and_reports']);
   const preserved = await DB.prepare('SELECT uid, email, display_name, created_at FROM users WHERE uid = ?').bind('preserved-profile').first();
   assert.equal(preserved.uid, 'preserved-profile');
   assert.equal(preserved.email, 'preserved@example.test');
@@ -95,7 +95,7 @@ before(async () => {
 test('health reports completed schema migrations', async () => {
   const { response, data } = await call('GET', '/v1/health');
   assert.equal(response.status, 200);
-  assert.equal(data.schema, '13/13');
+  assert.equal(data.schema, '14/14');
 });
 
 test('catalog starts with platform levels and no imported course data', async () => {
@@ -466,5 +466,58 @@ test('translation QA: Google once, shared cache hit after, quota route reports u
   } finally {
     globalThis.fetch = realFetch;
     delete env.GOOGLE_TRANSLATE_API_KEY;
+  }
+});
+
+test('normalized cache keys, D1 LanguageTool grammar cache, report & admin cache CRUD, and expanded ZH/BN rules', async () => {
+  const realFetch = globalThis.fetch;
+  let ltCalls = 0;
+  globalThis.fetch = async (u, init) => {
+    if (String(u).startsWith('https://api.languagetool.org/')) {
+      ltCalls += 1;
+      return new Response(JSON.stringify({
+        matches: [{ offset: 3, length: 4, message: 'Use does not', shortMessage: 'Verb agreement', replacements: [{ value: "doesn't" }] }],
+      }));
+    }
+    return realFetch(u, init);
+  };
+  try {
+    // 1. LanguageTool called once, 2nd call with extra spaces hits D1 grammar_cache
+    const g1 = await call('POST', '/v1/dictionary/insights', { auth: ownerToken, body: { text: 'He dont know this.', language: 'en' } });
+    assert.equal(g1.response.status, 200);
+    assert.equal(ltCalls, 1);
+    const g2 = await call('POST', '/v1/dictionary/insights', { auth: ownerToken, body: { text: '  he   dont know this.. ', language: 'en' } });
+    assert.equal(g2.response.status, 200);
+    assert.equal(ltCalls, 1, 'second grammar check must be served from D1 grammar_cache');
+
+    // 2. Expanded ZH & BN deterministic rules
+    const zh = await call('POST', '/v1/dictionary/insights', { auth: ownerToken, body: { text: '我不有钱', language: 'zh-Hans' } });
+    assert.equal(zh.data.grammar.isCorrect, false);
+    assert.equal(zh.data.grammar.correctedText, '我没有钱');
+    const bn = await call('POST', '/v1/dictionary/insights', { auth: ownerToken, body: { text: 'আমি গতকাল বাজারে যাব।', language: 'bn' } });
+    assert.equal(bn.data.grammar.isCorrect, false);
+    assert.equal(bn.data.grammar.correctedText, 'আমি গতকাল বাজারে গিয়েছিলাম।');
+
+    // 3. Report translation + admin list/edit/delete
+    const rep = await call('POST', '/v1/translation/report', {
+      auth: ownerToken,
+      body: { sourceLanguage: 'en', targetLanguage: 'bn', sourceText: 'I study   Chinese every single day with my friends..', note: 'Typo' },
+    });
+    assert.equal(rep.response.status, 200);
+    const list = await call('GET', '/v1/admin/translation-cache?reported=1', { auth: ownerToken });
+    assert.equal(list.response.status, 200);
+    assert.ok(list.data.items.length >= 1);
+    const key = list.data.items[0].cacheKey;
+
+    const upd = await call('PATCH', '/v1/admin/translation-cache', {
+      auth: ownerToken,
+      body: { cacheKey: key, translatedText: 'আমি প্রতিদিন বন্ধুদের সাথে চাইনিজ শিখি।' },
+    });
+    assert.equal(upd.response.status, 200);
+
+    const del = await call('DELETE', `/v1/admin/translation-cache?cacheKey=${encodeURIComponent(key)}`, { auth: ownerToken });
+    assert.equal(del.response.status, 200);
+  } finally {
+    globalThis.fetch = realFetch;
   }
 });

@@ -342,6 +342,23 @@ function toProviderLang(code, provider) {
 
 const GOOGLE_TRANSLATE_MONTHLY_CHAR_CAP = 480000;
 
+/** Normalize text before building a shared cache key (trim, collapse spaces, standardize quotes/punctuation). */
+export function normalizeCacheText(text) {
+  return String(text || '')
+    .trim()
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u3000\s]+/g, ' ')
+    .replace(/\s*([,.!?;:，。！？；：।])\s*/g, '$1')
+    .replace(/([,.!?;:，。！？；：।])+$/g, '$1')
+    .toLowerCase()
+    .slice(0, 400);
+}
+
+export function buildTranslationCacheKey(sourceLang, targetLang, text) {
+  return `${sourceLang}::${targetLang}::${normalizeCacheText(text)}`;
+}
+
 function currentMonthKey() {
   const d = new Date();
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
@@ -802,7 +819,7 @@ export async function handleTranslate(env, input) {
   }
 
   // Layer 2: Shared D1 translation_cache (instant <10ms for any repeated sentence across all students)
-  const sharedCacheKey = `${sourceLang}::${targetLang}::${textToTranslate.trim().toLowerCase().slice(0, 400)}`;
+  const sharedCacheKey = buildTranslationCacheKey(sourceLang, targetLang, textToTranslate);
   try {
     const cached = await env.DB.prepare(
       `SELECT translated_text, source_pinyin, target_pinyin, provider FROM translation_cache WHERE cache_key = ? LIMIT 1`
@@ -1265,6 +1282,50 @@ function buildFallbackGrammar(text, language) {
         example: '我买了一本书。',
       });
     }
+    if (/不有/.test(correctedText)) {
+      correctedText = correctedText.replace(/不有/g, '没有');
+      isCorrect = false;
+      points.push({
+        title: 'Negate 有 with 没 (没有)',
+        explanation: 'Always negate 有 (to have / exist) with 没, never 不.',
+        example: '我没有时间。(Wǒ méiyǒu shíjiān.)',
+      });
+    }
+    if (/二个/.test(correctedText)) {
+      correctedText = correctedText.replace(/二个/g, '两个');
+      isCorrect = false;
+      points.push({
+        title: 'Use 两 (liǎng) before measure words',
+        explanation: 'Before a measure word like 个, use 两 instead of 二.',
+        example: '我有两个朋友。',
+      });
+    }
+    if (/很(非常|特别|极了)/.test(correctedText)) {
+      correctedText = correctedText.replace(/很(非常|特别)/g, '$1');
+      isCorrect = false;
+      points.push({
+        title: 'Avoid stacking degree adverbs',
+        explanation: 'Do not combine 很 with 非常 or 特别; pick one degree adverb.',
+        example: '这里非常漂亮。',
+      });
+    }
+    const zhMeasureMap = [
+      { re: /([一两三四五六七八九十几这那])个(车|汽车|自行车)/g, mw: '辆', label: 'vehicles: 辆 (liàng)' },
+      { re: /([一两三四五六七八九十几这那])个(猫|狗|鸟)/g, mw: '只', label: 'small animals: 只 (zhī)' },
+      { re: /([一两三四五六七八九十几这那])个(桌子|床|纸|票)/g, mw: '张', label: 'flat objects: 张 (zhāng)' },
+      { re: /([一两三四五六七八九十几这那])个(衣服|衬衫|外套)/g, mw: '件', label: 'clothing: 件 (jiàn)' },
+      { re: /([一两三四五六七八九十几这那])个(电影|手机)/g, mw: '部', label: 'movies/phones: 部 (bù)' },
+    ];
+    for (const rule of zhMeasureMap) {
+      if (rule.re.test(correctedText)) {
+        correctedText = correctedText.replace(rule.re, `$1${rule.mw}$2`);
+        isCorrect = false;
+        points.push({
+          title: `Measure word for ${rule.label}`,
+          explanation: `Use the specific classifier ${rule.mw} instead of the general classifier 个.`,
+        });
+      }
+    }
     if (trimmed.includes('了')) {
       points.push({
         title: 'Aspect particle 了 (le)',
@@ -1329,6 +1390,44 @@ function buildFallbackGrammar(text, language) {
         title: 'Familiar verb agreement (তুমি)',
         explanation: 'With familiar তুমি, use familiar verb endings (-ও: করো, যাও, আছো) instead of formal আপনি endings (-এন).',
         example: 'তুমি কেমন আছো?',
+      });
+    } else if (/তুই\b/.test(correctedText) && /(করেন|করো|যান|যাও|খান|খাও|আছেন|আছো)([।!?]?)$/.test(correctedText)) {
+      const intMap = { করেন: 'করিস', করো: 'করিস', যান: 'যাস', যাও: 'যাস', খান: 'খাস', খাও: 'খাস', আছেন: 'আছিস', আছো: 'আছিস' };
+      correctedText = correctedText.replace(/(করেন|করো|যান|যাও|খান|খাও|আছেন|আছো)([।!?]?)$/, (_, v, p) => `${intMap[v] || v}${p}`);
+      isCorrect = false;
+      points.push({
+        title: 'Intimate verb agreement (তুই)',
+        explanation: 'With intimate তুই, use -ইস/-স verb endings (করিস, যাস, আছিস).',
+        example: 'তুই কেমন আছিস?',
+      });
+    } else if (/^আমি\s/.test(correctedText) && /(করো|করেন|যাও|যান|খাও|খান|আছো|আছেন)([।!?]?)$/.test(correctedText)) {
+      const firstMap = { করো: 'করি', করেন: 'করি', যাও: 'যাই', যান: 'যাই', খাও: 'খাই', খান: 'খাই', আছো: 'আছি', আছেন: 'আছি' };
+      correctedText = correctedText.replace(/(করো|করেন|যাও|যান|খাও|খান|আছো|আছেন)([।!?]?)$/, (_, v, p) => `${firstMap[v] || v}${p}`);
+      isCorrect = false;
+      points.push({
+        title: 'First-person verb agreement (আমি)',
+        explanation: 'With আমি, use first-person verb endings (-ই: করি, যাই, আছি).',
+        example: 'আমি ভালো আছি।',
+      });
+    }
+    if (/গতকাল/.test(correctedText) && /(যাব|করব|খাব|পড়ব)([।!?]?)$/.test(correctedText)) {
+      const pastMap = { যাব: 'গিয়েছিলাম', করব: 'করেছিলাম', খাব: 'খেয়েছিলাম', পড়ব: 'পড়েছিলাম' };
+      correctedText = correctedText.replace(/(যাব|করব|খাব|পড়ব)([।!?]?)$/, (_, v, p) => `${pastMap[v] || v}${p}`);
+      isCorrect = false;
+      points.push({
+        title: 'Past tense with গতকাল (yesterday)',
+        explanation: 'গতকাল refers to yesterday, so use a past-tense verb instead of future tense (-ব).',
+        example: 'আমি গতকাল বাজারে গিয়েছিলাম।',
+      });
+    }
+    if (/আগামীকাল/.test(correctedText) && /(গিয়েছিলাম|করেছিলাম|খেয়েছিলাম|পড়েছিলাম)([।!?]?)$/.test(correctedText)) {
+      const futMap = { গিয়েছিলাম: 'যাব', করেছিলাম: 'করব', খেয়েছিলাম: 'খাব', পড়েছিলাম: 'পড়ব' };
+      correctedText = correctedText.replace(/(গিয়েছিলাম|করেছিলাম|খেয়েছিলাম|পড়েছিলাম)([।!?]?)$/, (_, v, p) => `${futMap[v] || v}${p}`);
+      isCorrect = false;
+      points.push({
+        title: 'Future tense with আগামীকাল (tomorrow)',
+        explanation: 'আগামীকাল refers to tomorrow, so use future tense (-ব) instead of past tense.',
+        example: 'আমি আগামীকাল ঢাকা যাব।',
       });
     }
     if (/আপনি|আপনার|আপনাকে/.test(trimmed)) {
@@ -1437,10 +1536,30 @@ function scoreGrammarPattern(text, pattern) {
   return (matchedCount >= 2 ? 20 : 0) + maxLen * 3 + matchedCount;
 }
 
-/** Optional free rule-based English grammar check via LanguageTool public API (non-AI, fail-silent, 2.5s timeout). */
-async function checkEnglishWithLanguageTool(text) {
+/** Optional free rule-based English grammar check via LanguageTool public API, cached in D1 so repeated sentences never hit the API. */
+async function checkEnglishWithLanguageTool(env, text) {
   const clean = String(text || '').trim();
   if (!clean || clean.length > 300 || !/\s/.test(clean)) return null;
+
+  const cacheKey = `lt::en::${normalizeCacheText(clean)}`;
+  try {
+    const cached = await env.DB.prepare(
+      `SELECT corrected_text, points_json FROM grammar_cache WHERE cache_key = ? LIMIT 1`
+    )
+      .bind(cacheKey)
+      .first();
+    if (cached) {
+      env.DB.prepare(`UPDATE grammar_cache SET hits = hits + 1, updated_at = ? WHERE cache_key = ?`)
+        .bind(now(), cacheKey)
+        .run()
+        .catch(() => {});
+      const points = safeParseArray(cached.points_json);
+      return points.length > 0 ? { correctedText: cached.corrected_text || clean, points, cached: true } : null;
+    }
+  } catch {
+    // Table not yet migrated or non-fatal cache miss
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 2500);
   try {
@@ -1453,7 +1572,6 @@ async function checkEnglishWithLanguageTool(text) {
     if (!res.ok) return null;
     const data = await res.json();
     const matches = Array.isArray(data?.matches) ? data.matches.slice(0, 3) : [];
-    if (matches.length === 0) return null;
 
     // Apply non-overlapping top replacements from right to left to build correctedText
     let corrected = clean;
@@ -1474,7 +1592,26 @@ async function checkEnglishWithLanguageTool(text) {
         });
       }
     }
-    return { correctedText: corrected, points };
+
+    // Persist in D1 grammar_cache (including empty matches) so 1000+ students checking the same sentence never re-call LanguageTool
+    try {
+      const t = now();
+      await env.DB.prepare(
+        `INSERT INTO grammar_cache (cache_key, language, source_text, corrected_text, points_json, hits, created_at, updated_at)
+         VALUES (?, 'en', ?, ?, ?, 1, ?, ?)
+         ON CONFLICT(cache_key) DO UPDATE SET
+           corrected_text = excluded.corrected_text,
+           points_json = excluded.points_json,
+           hits = grammar_cache.hits + 1,
+           updated_at = excluded.updated_at`
+      )
+        .bind(cacheKey, clean.slice(0, 500), corrected.slice(0, 500), JSON.stringify(points), t, t)
+        .run();
+    } catch {
+      // Non-fatal cache write error
+    }
+
+    return points.length > 0 ? { correctedText: corrected, points } : null;
   } catch {
     return null;
   } finally {
@@ -1628,7 +1765,7 @@ export async function handleLanguageInsights(env, input) {
   // 2. Match curated D1 grammar_rules (specificity-ranked) + deterministic checks + optional LanguageTool (EN)
   const baseGrammar = buildFallbackGrammar(text, language);
   if (language === 'en' && text.trim().includes(' ')) {
-    const lt = await checkEnglishWithLanguageTool(text);
+    const lt = await checkEnglishWithLanguageTool(env, text);
     if (lt && lt.points.length > 0) {
       baseGrammar.isCorrect = false;
       if (lt.correctedText && lt.correctedText !== text.trim()) {
@@ -1743,6 +1880,100 @@ export async function adminBulkImportGrammarRules(env, ctx, input) {
 }
 
 /* ============================== router ============================== */
+export async function reportTranslation(env, ctx, input) {
+  const sourceLang = normalizeApiLang(input.sourceLanguage || input.source_language);
+  const targetLang = normalizeApiLang(input.targetLanguage || input.target_language);
+  const sourceText = str(input.sourceText || input.source_text || input.text, { min: 1, max: 500, field: 'Source text' });
+  const note = String(input.note || '').trim().slice(0, 300);
+  if (!sourceLang || !targetLang) {
+    throw new HttpError(400, 'unsupported-language', 'Source and target languages must be en, bn, or zh-Hans');
+  }
+  const cacheKey = buildTranslationCacheKey(sourceLang, targetLang, sourceText);
+  const t = now();
+  const existing = await env.DB.prepare('SELECT cache_key FROM translation_cache WHERE cache_key = ? LIMIT 1')
+    .bind(cacheKey)
+    .first();
+  if (existing) {
+    await env.DB.prepare(
+      `UPDATE translation_cache SET reported = reported + 1, report_note = CASE WHEN ? != '' THEN ? ELSE report_note END, updated_at = ? WHERE cache_key = ?`
+    )
+      .bind(note, note, t, cacheKey)
+      .run();
+  } else {
+    const translatedText = String(input.translatedText || input.translated_text || '').trim().slice(0, 500);
+    await env.DB.prepare(
+      `INSERT INTO translation_cache (cache_key, source_language, target_language, source_text, translated_text, source_pinyin, target_pinyin, provider, hits, reported, report_note, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, '', '', 'reported', 1, 1, ?, ?, ?)`
+    )
+      .bind(cacheKey, sourceLang, targetLang, sourceText, translatedText, note, t, t)
+      .run();
+  }
+  return { ok: true, cacheKey };
+}
+
+export async function adminListTranslationCache(env, ctx, url) {
+  requireRole(ctx.user, 'teacher');
+  const q = (url.searchParams.get('q') || '').trim().toLowerCase();
+  const reportedOnly = url.searchParams.get('reported') === '1';
+  const limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit') || 100)));
+  const where = [];
+  const binds = [];
+  if (reportedOnly) where.push('reported > 0');
+  if (q) {
+    where.push('(lower(source_text) LIKE ? OR lower(translated_text) LIKE ?)');
+    binds.push(`%${q}%`, `%${q}%`);
+  }
+  const sql = `SELECT cache_key, source_language, target_language, source_text, translated_text, source_pinyin, target_pinyin, provider, hits, reported, report_note, updated_at
+               FROM translation_cache
+               ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+               ORDER BY reported DESC, hits DESC, updated_at DESC
+               LIMIT ?`;
+  binds.push(limit);
+  const rows = (await env.DB.prepare(sql).bind(...binds).all()).results || [];
+  return {
+    items: rows.map((r) => ({
+      cacheKey: r.cache_key,
+      sourceLanguage: r.source_language,
+      targetLanguage: r.target_language,
+      sourceText: r.source_text,
+      translatedText: r.translated_text,
+      sourcePinyin: r.source_pinyin || '',
+      targetPinyin: r.target_pinyin || '',
+      provider: r.provider || '',
+      hits: Number(r.hits || 0),
+      reported: Number(r.reported || 0),
+      reportNote: r.report_note || '',
+      updatedAt: r.updated_at,
+    })),
+  };
+}
+
+export async function adminUpdateTranslationCache(env, ctx, input) {
+  requireRole(ctx.user, 'teacher');
+  const cacheKey = str(input.cacheKey || input.cache_key, { min: 3, max: 500, field: 'cacheKey' });
+  const translatedText = str(input.translatedText || input.translated_text, { min: 1, max: 2000, field: 'translatedText' });
+  const sourcePinyin = String(input.sourcePinyin ?? input.source_pinyin ?? '').trim().slice(0, 500);
+  const targetPinyin = String(input.targetPinyin ?? input.target_pinyin ?? '').trim().slice(0, 500);
+  const t = now();
+  await env.DB.prepare(
+    `UPDATE translation_cache
+     SET translated_text = ?, source_pinyin = ?, target_pinyin = ?, provider = 'admin-override', reported = 0, report_note = '', updated_at = ?
+     WHERE cache_key = ?`
+  )
+    .bind(translatedText, sourcePinyin, targetPinyin, t, cacheKey)
+    .run();
+  await audit(env, ctx.user.uid, 'translation_cache.update', cacheKey, { translatedText });
+  return { ok: true, cacheKey };
+}
+
+export async function adminDeleteTranslationCache(env, ctx, url) {
+  requireRole(ctx.user, 'teacher');
+  const cacheKey = str(url.searchParams.get('cacheKey') || '', { min: 3, max: 500, field: 'cacheKey' });
+  await env.DB.prepare('DELETE FROM translation_cache WHERE cache_key = ?').bind(cacheKey).run();
+  await audit(env, ctx.user.uid, 'translation_cache.delete', cacheKey, {});
+  return { ok: true, cacheKey };
+}
+
 export async function routeDictionaryAuth(req, env, ctx, url) {
   const p = url.pathname;
   const m = req.method;
@@ -1750,6 +1981,9 @@ export async function routeDictionaryAuth(req, env, ctx, url) {
 
   if (p === '/v1/translation' && m === 'POST') {
     return json(await handleTranslate(env, await body(req, 16_000)));
+  }
+  if (p === '/v1/translation/report' && m === 'POST') {
+    return json(await reportTranslation(env, ctx, await body(req, 8_000)));
   }
   if (p === '/v1/translation/detect' && m === 'POST') {
     return json(handleDetectLanguage(await body(req, 16_000)));
@@ -1780,6 +2014,15 @@ export async function routeDictionaryAuth(req, env, ctx, url) {
   }
   if (p === '/v1/admin/translation-quota' && m === 'GET') {
     return json(await adminTranslationQuota(env, ctx));
+  }
+  if (p === '/v1/admin/translation-cache' && m === 'GET') {
+    return json(await adminListTranslationCache(env, ctx, url));
+  }
+  if (p === '/v1/admin/translation-cache' && m === 'PATCH') {
+    return json(await adminUpdateTranslationCache(env, ctx, await body(req, 16_000)));
+  }
+  if (p === '/v1/admin/translation-cache' && m === 'DELETE') {
+    return json(await adminDeleteTranslationCache(env, ctx, url));
   }
   if (p === '/v1/admin/grammar-rules/import' && m === 'POST') {
     return json(await adminBulkImportGrammarRules(env, ctx, await body(req, 500_000)));

@@ -477,4 +477,46 @@ CREATE TABLE IF NOT EXISTS grammar_rules (
 CREATE INDEX IF NOT EXISTS idx_grammar_rules_lang ON grammar_rules(language, sort);
 `,
   },
+  {
+    id: '0013_translation_cache_and_quota',
+    sql: `
+CREATE TABLE IF NOT EXISTS translation_cache (
+  cache_key TEXT PRIMARY KEY,
+  source_language TEXT NOT NULL,
+  target_language TEXT NOT NULL,
+  source_text TEXT NOT NULL,
+  translated_text TEXT NOT NULL,
+  source_pinyin TEXT NOT NULL DEFAULT '',
+  target_pinyin TEXT NOT NULL DEFAULT '',
+  provider TEXT NOT NULL DEFAULT '',
+  hits INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_translation_cache_pair ON translation_cache(source_language, target_language, updated_at);
+CREATE TABLE IF NOT EXISTS translation_quota_monthly (
+  month_key TEXT PRIMARY KEY,
+  chars_used INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
+);
+`,
+  },
+  {
+    id: '0014_grammar_cache_and_reports',
+    sql: `
+CREATE TABLE IF NOT EXISTS grammar_cache (
+  cache_key TEXT PRIMARY KEY,
+  language TEXT NOT NULL,
+  source_text TEXT NOT NULL,
+  corrected_text TEXT NOT NULL DEFAULT '',
+  points_json TEXT NOT NULL DEFAULT '[]',
+  hits INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_grammar_cache_lang ON grammar_cache(language, updated_at);
+ALTER TABLE translation_cache ADD COLUMN reported INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE translation_cache ADD COLUMN report_note TEXT NOT NULL DEFAULT '';
+`,
+  },
 ];
