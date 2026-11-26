@@ -486,14 +486,13 @@ export const BanglaWordStudio: React.FC<Props> = ({ word, defaultCollapsed = fal
             </div>
           )}
 
-          {/* Wide 4-Line Ruled Kalpurush Penmanship Strip (matches EnglishWordStudio) */}
-          <div className="relative rounded-2xl bg-white dark:bg-black/35 border-2 border-emerald-900/25 dark:border-white/20 shadow-inner overflow-x-auto select-none">
-            {/* Full-width 4-Line Ruled Bangla Notebook Lines */}
+          {/* Responsive 4-Line Ruled Kalpurush Penmanship Strip (scales cleanly on mobile without clipping) */}
+          <div className="relative rounded-2xl bg-white dark:bg-black/35 border-2 border-emerald-900/25 dark:border-white/20 shadow-inner overflow-hidden select-none">
+            {/* Full-width 4-Line Ruled Bangla Notebook Lines (aligned 1:1 with scaled stage height) */}
             <svg
               viewBox={`0 0 100 ${model.height}`}
               preserveAspectRatio="none"
-              style={{ height: `${stageHeight}px` }}
-              className="pointer-events-none absolute inset-x-0 top-0 w-full block"
+              className="pointer-events-none absolute inset-0 w-full h-full block"
             >
               <line x1="0" y1={model.crownY} x2="100" y2={model.crownY} stroke="#0ea5e9" strokeOpacity="0.4" strokeWidth="0.65" vectorEffect="non-scaling-stroke" />
               <line
@@ -512,10 +511,10 @@ export const BanglaWordStudio: React.FC<Props> = ({ word, defaultCollapsed = fal
             </svg>
 
             <div
-              className="relative mx-auto"
+              className="relative mx-auto w-full"
               style={{
-                width: `${stageWidth}px`,
-                height: `${stageHeight}px`,
+                maxWidth: `${stageWidth}px`,
+                aspectRatio: `${model.width} / ${model.height}`,
               }}
             >
               {/* 2x Retina Authentic Kalpurush Stroke Canvas */}
