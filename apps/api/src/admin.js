@@ -509,14 +509,19 @@ async function putDictionary(env, ctx, id, i) {
   const word = str(i.word, { min: 1, max: 120, field: 'Word' });
   const phonetic = str(i.phonetic ?? '', { max: 120, field: 'Phonetic' });
   const phoneticPlain = stripPinyinTones(phonetic);
+  const synonymsJson = JSON.stringify(Array.isArray(i.synonyms) ? i.synonyms.slice(0, 12) : []);
+  const antonymsJson = JSON.stringify(Array.isArray(i.antonyms) ? i.antonyms.slice(0, 12) : []);
+  const collocationsJson = JSON.stringify(Array.isArray(i.collocations) ? i.collocations.slice(0, 10) : []);
+  const grammarNote = str(i.grammar_note ?? '', { max: 600, field: 'Grammar note' });
   const t = now();
   await env.DB.prepare(`INSERT INTO dictionary_entries
-    (id, language, word, phonetic, phonetic_plain, part_of_speech, meaning_en, meaning_bn, meaning_zh, example, example_translation, hsk_level, status, created_by, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, language, word, phonetic, phonetic_plain, part_of_speech, meaning_en, meaning_bn, meaning_zh, example, example_translation, hsk_level, synonyms_json, antonyms_json, collocations_json, grammar_note, status, created_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       language = excluded.language, word = excluded.word, phonetic = excluded.phonetic, phonetic_plain = excluded.phonetic_plain,
       part_of_speech = excluded.part_of_speech, meaning_en = excluded.meaning_en, meaning_bn = excluded.meaning_bn, meaning_zh = excluded.meaning_zh,
       example = excluded.example, example_translation = excluded.example_translation, hsk_level = excluded.hsk_level,
+      synonyms_json = excluded.synonyms_json, antonyms_json = excluded.antonyms_json, collocations_json = excluded.collocations_json, grammar_note = excluded.grammar_note,
       status = excluded.status, updated_at = excluded.updated_at`)
     .bind(
       id, language, word, phonetic, phoneticPlain,
@@ -527,6 +532,7 @@ async function putDictionary(env, ctx, id, i) {
       str(i.example ?? '', { max: 500, field: 'Example' }),
       str(i.example_translation ?? '', { max: 500, field: 'Example translation' }),
       str(i.hsk_level ?? '', { max: 20, field: 'HSK level' }),
+      synonymsJson, antonymsJson, collocationsJson, grammarNote,
       status(i.status), ctx.user.uid, t, t
     ).run();
   await audit(env, ctx, 'dictionary.save', id, { language, word });

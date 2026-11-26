@@ -264,6 +264,9 @@ const DictionaryForm: React.FC<{ entry: DictionaryEntry | null; onDone: () => vo
     example: entry?.example ?? '',
     example_translation: entry?.example_translation ?? '',
     hsk_level: entry?.hsk_level ?? '',
+    synonyms_csv: (entry?.synonyms ?? []).map((x) => x.word).join(', '),
+    antonyms_csv: (entry?.antonyms ?? []).map((x) => x.word).join(', '),
+    grammar_note: entry?.grammar_note ?? '',
     status: entry?.status ?? 'published',
   });
   const [err, setErr] = useState<string | null>(null);
@@ -290,6 +293,9 @@ const DictionaryForm: React.FC<{ entry: DictionaryEntry | null; onDone: () => vo
           example: f.example.trim(),
           example_translation: f.example_translation.trim(),
           hsk_level: f.hsk_level.trim(),
+          synonyms: f.synonyms_csv.split(',').map((s) => s.trim()).filter(Boolean).map((word) => ({ word })),
+          antonyms: f.antonyms_csv.split(',').map((s) => s.trim()).filter(Boolean).map((word) => ({ word })),
+          grammar_note: f.grammar_note.trim(),
           status: f.status,
         },
       });
@@ -358,6 +364,20 @@ const DictionaryForm: React.FC<{ entry: DictionaryEntry | null; onDone: () => vo
         <span>Example translation</span>
         <input value={f.example_translation} onChange={(e) => setF({ ...f, example_translation: e.target.value })} className="sanzar-input text-sm" />
       </label>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <label className="space-y-1">
+          <span>Synonyms (comma-separated)</span>
+          <input value={f.synonyms_csv} onChange={(e) => setF({ ...f, synonyms_csv: e.target.value })} placeholder="happy, joyful, glad" className="sanzar-input text-sm" />
+        </label>
+        <label className="space-y-1">
+          <span>Antonyms (comma-separated)</span>
+          <input value={f.antonyms_csv} onChange={(e) => setF({ ...f, antonyms_csv: e.target.value })} placeholder="sad, unhappy" className="sanzar-input text-sm" />
+        </label>
+      </div>
+      <label className="block space-y-1">
+        <span>Grammar &amp; usage note</span>
+        <input value={f.grammar_note} onChange={(e) => setF({ ...f, grammar_note: e.target.value })} placeholder="Countable noun / transitive verb usage note…" className="sanzar-input text-sm" />
+      </label>
       {err && <p className="text-sanzar-danger text-xs">{err}</p>}
       <button onClick={submit} disabled={busy} className="px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold disabled:opacity-50">
         Save word
@@ -367,6 +387,7 @@ const DictionaryForm: React.FC<{ entry: DictionaryEntry | null; onDone: () => vo
 };
 
 interface ImportRow {
+  id?: string;
   language: string;
   word: string;
   phonetic?: string;
@@ -377,6 +398,10 @@ interface ImportRow {
   example?: string;
   example_translation?: string;
   hsk_level?: string;
+  synonyms?: { word: string; pinyin?: string; note?: string }[];
+  antonyms?: { word: string; pinyin?: string; note?: string }[];
+  collocations?: { phrase: string; pinyin?: string; meaning?: string }[];
+  grammar_note?: string;
 }
 
 function parseCsvOrJson(raw: string): ImportRow[] {

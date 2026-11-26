@@ -40,10 +40,25 @@ export function toDbLang(lang) {
   return norm === 'zh-Hans' ? 'zh' : norm;
 }
 
+function safeParseArray(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw !== 'string' || !raw.trim()) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 export function shapeDictionaryRow(row) {
   return {
     ...row,
     language_code: row.language === 'zh' ? 'zh-Hans' : row.language,
+    synonyms: safeParseArray(row.synonyms_json),
+    antonyms: safeParseArray(row.antonyms_json),
+    collocations: safeParseArray(row.collocations_json),
+    grammar_note: row.grammar_note || '',
   };
 }
 
@@ -233,7 +248,7 @@ export async function searchDictionary(env, url) {
 
   const rows = (
     await env.DB.prepare(
-      `SELECT id, language, word, phonetic, part_of_speech, meaning_en, meaning_bn, meaning_zh, example, example_translation, hsk_level, updated_at
+      `SELECT id, language, word, phonetic, part_of_speech, meaning_en, meaning_bn, meaning_zh, example, example_translation, hsk_level, synonyms_json, antonyms_json, collocations_json, grammar_note, updated_at
        FROM dictionary_entries WHERE ${where.join(' AND ')} ${orderSql}`
     )
       .bind(...args, ...orderArgs)
@@ -257,14 +272,12 @@ export async function getDictionaryEntryDetails(env, url) {
 
   const row = id
     ? await env.DB.prepare(
-        `SELECT id, language, word, phonetic, part_of_speech, meaning_en, meaning_bn, meaning_zh, example, example_translation, hsk_level, updated_at
-         FROM dictionary_entries WHERE status = 'published' AND id = ? LIMIT 1`
+        `SELECT * FROM dictionary_entries WHERE status = 'published' AND id = ? LIMIT 1`
       )
         .bind(id)
         .first()
     : await env.DB.prepare(
-        `SELECT id, language, word, phonetic, part_of_speech, meaning_en, meaning_bn, meaning_zh, example, example_translation, hsk_level, updated_at
-         FROM dictionary_entries WHERE status = 'published' AND lower(word) = lower(?) ORDER BY CASE WHEN language = 'zh' THEN 0 ELSE 1 END LIMIT 1`
+        `SELECT * FROM dictionary_entries WHERE status = 'published' AND lower(word) = lower(?) ORDER BY CASE WHEN language = 'zh' THEN 0 ELSE 1 END LIMIT 1`
       )
         .bind(w)
         .first();
@@ -384,75 +397,7 @@ async function callTranslationProvider(env, text, sourceLang, targetLang) {
     }
   }
 
-  // 2.5. Primary zero-config provider: Cloudflare Workers AI multilingual LLMs (Gemma 3 12B / Llama 3.3 70B)
-  // Gives natural dictionary/sentence translation + accurate tone-marked Pinyin without external IP blocks.
-  if (env.AI && typeof env.AI.run === 'function') {
-    const langName = (c) => (c === 'zh-Hans' ? 'Simplified Chinese' : c === 'bn' ? 'Bangla (Bengali)' : 'English');
-    const srcName = langName(sourceLang);
-    const tgtName = langName(targetLang);
-    const isSingleWord = !/\s/.test(text.trim()) && text.trim().length <= 30;
-    const sysPrompt =
-      'You are an expert professional translator and lexicographer fluent in English, Bangla (বাংলা), and Simplified Chinese (简体中文). Return ONLY valid JSON with no markdown or extra commentary.';
-    const userPrompt = `Translate the following ${srcName} ${isSingleWord ? 'word/term (give its most common natural dictionary meaning, NEVER transliterate letters phonetically)' : 'text'} into natural, idiomatic ${tgtName}.
-Input: ${JSON.stringify(text)}
-
-Return ONLY a JSON object with this exact shape:
-{
-  "translatedText": "...",
-  "sourcePinyin": "${sourceLang === 'zh-Hans' ? 'tone-marked Hanyu Pinyin of Input' : ''}",
-  "targetPinyin": "${targetLang === 'zh-Hans' ? 'tone-marked Hanyu Pinyin of translatedText' : ''}"
-}`;
-
-    const llmModels = [
-      { id: '@cf/google/gemma-4-26b-a4b-it', tag: 'gemma-4' },
-      { id: '@cf/qwen/qwen3.8-27b', tag: 'qwen-3.8' },
-      { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', tag: 'llama-3.3-70b' },
-    ];
-
-    for (const model of llmModels) {
-      try {
-        const aiRes = await env.AI.run(model.id, {
-          messages: [
-            { role: 'system', content: sysPrompt },
-            { role: 'user', content: userPrompt },
-          ],
-          temperature: 0.1,
-          max_tokens: 500,
-        });
-        const parsed = safeParseJsonObject(extractAiText(aiRes));
-        const translated = typeof parsed?.translatedText === 'string' ? parsed.translatedText.trim() : '';
-        if (translated) {
-          return {
-            translatedText: translated,
-            provider: model.tag,
-            sourcePinyin: typeof parsed?.sourcePinyin === 'string' ? parsed.sourcePinyin.trim() : '',
-            targetPinyin: typeof parsed?.targetPinyin === 'string' ? parsed.targetPinyin.trim() : '',
-          };
-        }
-      } catch {
-        // Try next LLM model
-      }
-    }
-
-    // Secondary Workers AI fallback: m2m100-1.2b
-    try {
-      const cfSrc = sourceLang === 'zh-Hans' ? 'zh' : sourceLang;
-      const cfTgt = targetLang === 'zh-Hans' ? 'zh' : targetLang;
-      const aiRes = await env.AI.run('@cf/meta/m2m100-1.2b', {
-        text,
-        source_lang: cfSrc,
-        target_lang: cfTgt,
-      });
-      const translated = aiRes?.translated_text;
-      if (translated && String(translated).trim()) {
-        return { translatedText: String(translated).trim(), provider: 'm2m100' };
-      }
-    } catch {
-      // Fall through to MyMemory
-    }
-  }
-
-  // 4. Default zero-config provider #2: MyMemory fallback (supports en, bn, zh-CN)
+  // 3. Non-AI online fallback for multi-word sentences not in D1: MyMemory (supports en, bn, zh-CN)
   const pair = `${toProviderLang(sourceLang, 'mymemory')}|${toProviderLang(targetLang, 'mymemory')}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
@@ -483,55 +428,61 @@ function hasHanzi(text) {
   return /[\u3400-\u4dbf\u4e00-\u9fff]/.test(String(text || ''));
 }
 
-function extractGtxPinyin(data, sourceLang, targetLang) {
-  if (!Array.isArray(data?.[0])) return { sourcePinyin: '', targetPinyin: '' };
-  let sourcePinyin = '';
-  let targetPinyin = '';
-  for (const seg of data[0]) {
-    if (Array.isArray(seg) && seg[0] == null && seg[1] == null) {
-      if (targetLang === 'zh-Hans' && typeof seg[2] === 'string' && seg[2].trim()) {
-        targetPinyin = seg[2].trim();
-      }
-      if (sourceLang === 'zh-Hans' && typeof seg[3] === 'string' && seg[3].trim()) {
-        sourcePinyin = seg[3].trim();
-      }
-    }
-  }
-  return { sourcePinyin, targetPinyin };
-}
-
-function extractAiText(aiRes) {
-  if (!aiRes) return '';
-  if (typeof aiRes === 'string') return aiRes;
-  if (typeof aiRes.response === 'string') return aiRes.response;
-  if (aiRes.response && typeof aiRes.response === 'object') return JSON.stringify(aiRes.response);
-  const choiceContent = aiRes?.choices?.[0]?.message?.content;
-  if (typeof choiceContent === 'string') return choiceContent;
-  return '';
-}
-
-async function fetchChinesePinyin(env, text) {
-  const clean = String(text || '').trim().slice(0, 500);
+/** 100% D1-backed Chinese Pinyin segmenter & lookup — zero AI cost, zero external API calls. */
+async function lookupPinyinFromDb(env, text) {
+  const clean = String(text || '').trim().slice(0, 300);
   if (!clean || !hasHanzi(clean)) return '';
-  if (env?.AI && typeof env.AI.run === 'function') {
-    for (const model of ['@cf/google/gemma-4-26b-a4b-it', '@cf/qwen/qwen3.8-27b', '@cf/meta/llama-3.3-70b-instruct-fp8-fast']) {
-      try {
-        const aiRes = await env.AI.run(model, {
-          messages: [
-            { role: 'system', content: 'Return ONLY the tone-marked Hanyu Pinyin for the user\'s Chinese text. No quotes, no explanation.' },
-            { role: 'user', content: clean },
-          ],
-          temperature: 0,
-          max_tokens: 200,
-        });
-        const out = extractAiText(aiRes).trim();
-        if (out && !hasHanzi(out)) return out.replace(/^["']|["']$/g, '').trim();
-      } catch {
-        // Try next
+  const hanziSet = [...new Set(Array.from(clean).filter((ch) => /[\u3400-\u4dbf\u4e00-\u9fff]/.test(ch)))].slice(0, 60);
+  if (hanziSet.length === 0) return '';
+
+  const placeholders = hanziSet.map(() => '?').join(', ');
+  const rows = (
+    await env.DB.prepare(
+      `SELECT word, phonetic FROM dictionary_entries
+       WHERE status = 'published' AND language = 'zh' AND phonetic != '' AND length(word) <= 4 AND substr(word, 1, 1) IN (${placeholders})`
+    )
+      .bind(...hanziSet)
+      .all()
+  ).results;
+
+  const map = new Map();
+  for (const r of rows) {
+    if (!map.has(r.word)) map.set(r.word, r.phonetic);
+  }
+
+  const chars = Array.from(clean);
+  const out = [];
+  let i = 0;
+  while (i < chars.length) {
+    const ch = chars[i];
+    if (!/[\u3400-\u4dbf\u4e00-\u9fff]/.test(ch)) {
+      if (/\s/.test(ch)) {
+        i++;
+        continue;
+      }
+      out.push(ch);
+      i++;
+      continue;
+    }
+    let matchedLen = 0;
+    let matchedPy = '';
+    for (let len = Math.min(4, chars.length - i); len >= 1; len--) {
+      const sub = chars.slice(i, i + len).join('');
+      if (map.has(sub)) {
+        matchedLen = len;
+        matchedPy = map.get(sub);
+        break;
       }
     }
+    if (matchedLen > 0) {
+      out.push(matchedPy);
+      i += matchedLen;
+    } else {
+      out.push(ch);
+      i++;
+    }
   }
-  return '';
+  return out.join(' ').replace(/\s+([，。！？；：、,.!?;:])/g, '$1').trim();
 }
 
 export async function handleTranslate(env, input) {
@@ -550,7 +501,7 @@ export async function handleTranslate(env, input) {
   }
 
   if (sourceLang === targetLang) {
-    const samePinyin = sourceLang === 'zh-Hans' && hasHanzi(text) ? await fetchChinesePinyin(env, text) : '';
+    const samePinyin = sourceLang === 'zh-Hans' && hasHanzi(text) ? await lookupPinyinFromDb(env, text) : '';
     return {
       translatedText: text,
       sourceLanguage: sourceLang,
@@ -565,15 +516,14 @@ export async function handleTranslate(env, input) {
 
   let textToTranslate = text;
   let matchedEntries = [];
-  if (text.length <= 60) {
-    const q = text.toLowerCase();
+  if (text.length <= 80) {
+    const q = text.trim().toLowerCase();
     const qPlain = stripPinyinTones(text);
     const qCompact = qPlain.replace(/\s+/g, '');
     const dbLang = toDbLang(sourceLang);
     const rows = (
       await env.DB.prepare(
-        `SELECT id, language, word, phonetic, part_of_speech, meaning_en, meaning_bn, meaning_zh, example, example_translation, hsk_level, updated_at
-         FROM dictionary_entries
+        `SELECT * FROM dictionary_entries
          WHERE status = 'published' AND language = ? AND (lower(word) = ? OR phonetic_plain = ? OR replace(phonetic_plain, ' ', '') = ?)
          LIMIT 5`
       )
@@ -582,22 +532,64 @@ export async function handleTranslate(env, input) {
     ).results;
     matchedEntries = rows.map(shapeDictionaryRow);
 
-    // If user typed Pinyin (Latin) for Chinese and we found a curated Hanzi entry, translate the exact Hanzi!
-    if (sourceLang === 'zh-Hans' && /^[a-zA-Z0-9'\s-]+$/.test(text) && matchedEntries.length > 0) {
-      textToTranslate = matchedEntries[0].word;
+    // Direct curated D1 dictionary translation first (instant, $0 cost, teacher-curated quality)
+    if (matchedEntries.length > 0) {
+      const top = matchedEntries[0];
+      let directTranslated = '';
+      let directTargetPinyin = '';
+      if (targetLang === 'en' && top.meaning_en) directTranslated = top.meaning_en;
+      else if (targetLang === 'bn' && top.meaning_bn) directTranslated = top.meaning_bn;
+      else if (targetLang === 'zh-Hans' && top.meaning_zh) directTranslated = top.meaning_zh;
+
+      // Reverse lookup in Chinese HSK entries when translating EN/BN -> ZH and meaning_zh wasn't filled
+      if (targetLang === 'zh-Hans' && !directTranslated) {
+        const revField = sourceLang === 'bn' ? 'meaning_bn' : 'meaning_en';
+        const rev = await env.DB.prepare(
+          `SELECT word, phonetic FROM dictionary_entries
+           WHERE status = 'published' AND language = 'zh' AND (lower(${revField}) = ? OR lower(${revField}) LIKE ? OR lower(${revField}) LIKE ?)
+           ORDER BY length(word) ASC LIMIT 1`
+        )
+          .bind(q, `${q};%`, `%; ${q}%`)
+          .first();
+        if (rev?.word) {
+          directTranslated = rev.word;
+          directTargetPinyin = rev.phonetic || '';
+        }
+      }
+
+      if (directTranslated) {
+        const sourcePinyin = sourceLang === 'zh-Hans' ? (top.phonetic || await lookupPinyinFromDb(env, top.word)) : '';
+        const targetPinyin = targetLang === 'zh-Hans'
+          ? (directTargetPinyin || await lookupPinyinFromDb(env, directTranslated))
+          : '';
+        return {
+          translatedText: directTranslated,
+          sourceLanguage: sourceLang,
+          targetLanguage: targetLang,
+          detectedSourceLanguage: detected.language,
+          isPinyin: Boolean(detected.isPinyin),
+          confidence: 1,
+          provider: 'sanzar-dictionary',
+          ...(sourcePinyin ? { sourcePinyin } : {}),
+          ...(targetPinyin ? { targetPinyin } : {}),
+          matchedEntries,
+        };
+      }
+
+      if (sourceLang === 'zh-Hans' && /^[a-zA-Z0-9'\s-]+$/.test(text)) {
+        textToTranslate = top.word;
+      }
     }
   }
 
   const result = await callTranslationProvider(env, textToTranslate, sourceLang, targetLang);
 
-  let sourcePinyin = sourceLang === 'zh-Hans' ? (result.sourcePinyin || matchedEntries[0]?.phonetic || '') : '';
-  let targetPinyin = targetLang === 'zh-Hans' ? (result.targetPinyin || '') : '';
-  if (sourceLang === 'zh-Hans' && !sourcePinyin && hasHanzi(textToTranslate)) {
-    sourcePinyin = await fetchChinesePinyin(env, textToTranslate);
-  }
-  if (targetLang === 'zh-Hans' && !targetPinyin && hasHanzi(result.translatedText)) {
-    targetPinyin = await fetchChinesePinyin(env, result.translatedText);
-  }
+  const sourcePinyin = sourceLang === 'zh-Hans'
+    ? (matchedEntries[0]?.phonetic || (hasHanzi(textToTranslate) ? await lookupPinyinFromDb(env, textToTranslate) : ''))
+    : '';
+  const targetPinyin = targetLang === 'zh-Hans' && hasHanzi(result.translatedText)
+    ? await lookupPinyinFromDb(env, result.translatedText)
+    : '';
 
   return {
     translatedText: result.translatedText,
@@ -925,19 +917,25 @@ export async function adminBulkImportDictionary(env, ctx, input) {
     const example = String(r.example || '').trim().slice(0, 500);
     const exampleTranslation = String(r.example_translation || '').trim().slice(0, 500);
     const hskLevel = String(r.hsk_level || '').trim().slice(0, 30);
+    const synonymsJson = JSON.stringify(Array.isArray(r.synonyms) ? r.synonyms.slice(0, 12) : []);
+    const antonymsJson = JSON.stringify(Array.isArray(r.antonyms) ? r.antonyms.slice(0, 12) : []);
+    const collocationsJson = JSON.stringify(Array.isArray(r.collocations) ? r.collocations.slice(0, 10) : []);
+    const grammarNote = String(r.grammar_note || '').trim().slice(0, 600);
     const status = ['draft', 'published', 'archived'].includes(r.status) ? r.status : defaultStatus;
 
     await env.DB.prepare(
       `INSERT INTO dictionary_entries
-        (id, language, word, phonetic, phonetic_plain, part_of_speech, meaning_en, meaning_bn, meaning_zh, example, example_translation, hsk_level, status, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, language, word, phonetic, phonetic_plain, part_of_speech, meaning_en, meaning_bn, meaning_zh, example, example_translation, hsk_level, synonyms_json, antonyms_json, collocations_json, grammar_note, status, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
         language=excluded.language, word=excluded.word, phonetic=excluded.phonetic, phonetic_plain=excluded.phonetic_plain,
         part_of_speech=excluded.part_of_speech, meaning_en=excluded.meaning_en, meaning_bn=excluded.meaning_bn,
         meaning_zh=excluded.meaning_zh, example=excluded.example, example_translation=excluded.example_translation,
-        hsk_level=excluded.hsk_level, status=excluded.status, updated_at=excluded.updated_at`
+        hsk_level=excluded.hsk_level, synonyms_json=excluded.synonyms_json, antonyms_json=excluded.antonyms_json,
+        collocations_json=excluded.collocations_json, grammar_note=excluded.grammar_note,
+        status=excluded.status, updated_at=excluded.updated_at`
     )
-      .bind(id, dbLang, word, phonetic, phoneticPlain, partOfSpeech, meaningEn, meaningBn, meaningZh, example, exampleTranslation, hskLevel, status, ctx.user.uid, t, t)
+      .bind(id, dbLang, word, phonetic, phoneticPlain, partOfSpeech, meaningEn, meaningBn, meaningZh, example, exampleTranslation, hskLevel, synonymsJson, antonymsJson, collocationsJson, grammarNote, status, ctx.user.uid, t, t)
       .run();
     imported++;
   }
@@ -1078,196 +1076,193 @@ function buildFallbackGrammar(text, language) {
   };
 }
 
-function safeParseJsonObject(raw) {
-  if (!raw || typeof raw !== 'string') return null;
-  const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
-  if (start === -1 || end <= start) return null;
-  try {
-    return JSON.parse(raw.slice(start, end + 1));
-  } catch {
-    return null;
+function matchesGrammarPattern(text, pattern) {
+  if (!pattern || !pattern.trim()) return false;
+  const parts = pattern.split('|').map((p) => p.trim()).filter(Boolean);
+  const lower = text.toLowerCase();
+  for (const p of parts) {
+    if (/^[a-z0-9']+$/i.test(p)) {
+      const re = new RegExp(`\\b${p.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\b`, 'i');
+      if (re.test(text)) return true;
+    } else if (lower.includes(p.toLowerCase())) {
+      return true;
+    }
   }
+  return false;
 }
 
+/** 100% D1-backed Grammar Assistance & Advanced Vocabulary — zero AI fallback, <10ms lookup. */
 export async function handleLanguageInsights(env, input) {
   const text = str(input.text, { min: 1, max: 1200, field: 'Text' });
   const requested = input.language && input.language !== 'auto' ? normalizeApiLang(input.language) : null;
   const detected = detectLanguageFromText(text);
   const language = requested || detected.language;
-  const langFull = language === 'zh-Hans' ? 'Simplified Chinese' : language === 'bn' ? 'Bangla (Bengali)' : 'English';
+  const dbLang = toDbLang(language);
+  const q = text.trim().toLowerCase();
+  const qPlain = stripPinyinTones(text);
 
-  const pinyinPromise = language === 'zh-Hans' && hasHanzi(text) ? fetchChinesePinyin(env, text) : Promise.resolve('');
+  // 1. Lookup exact word or key content words from D1 dictionary_entries
+  let entries = (
+    await env.DB.prepare(
+      `SELECT * FROM dictionary_entries
+       WHERE status = 'published' AND language = ? AND (lower(word) = ? OR phonetic_plain = ?)
+       ORDER BY CASE WHEN synonyms_json != '[]' THEN 0 ELSE 1 END LIMIT 3`
+    )
+      .bind(dbLang, q, qPlain)
+      .all()
+  ).results;
 
-  // 1. Primary: Cloudflare Workers AI structured JSON insights for all 3 languages
-  if (env.AI && typeof env.AI.run === 'function') {
-    try {
-      const prompt = `Analyze this ${langFull} text for a language learner: "${text.slice(0, 600)}".
-Return ONLY valid JSON with this exact shape:
-{
-  "grammar": {
-    "isCorrect": true,
-    "correctedText": "...",
-    "summary": "1-2 sentence explanation in English",
-    "points": [{"title": "...", "explanation": "...", "example": "..."}],
-    "tips": ["..."]
-  },
-  "vocabulary": {
-    "partOfSpeech": "noun/verb/phrase/etc",
-    "synonyms": [{"word": "...", "pinyin": ""}],
-    "antonyms": [{"word": "...", "pinyin": ""}],
-    "collocations": [{"phrase": "...", "meaning": "...", "pinyin": ""}],
-    "relatedWords": [{"word": "...", "note": "...", "pinyin": ""}]
-  }
-}
-Rules: provide 2-4 grammar points, 3-5 synonyms, 2-4 antonyms, 3-4 natural collocations, and 3-5 related words in ${langFull}. Include tone-marked Pinyin ONLY when ${langFull} is Simplified Chinese.`;
+  // If input is a phrase/sentence (or comma/semicolon translation string like "do; make"), match tokens inside it
+  if (entries.length === 0) {
+    const tokens =
+      dbLang === 'zh'
+        ? [...new Set(
+            [
+              ...Array.from(text.trim()).slice(0, 12).map((_, idx, arr) => arr.slice(idx, idx + 2).join('')).filter((s) => s.length === 2 && hasHanzi(s)),
+              ...Array.from(text.trim()).filter((ch) => hasHanzi(ch)),
+            ]
+          )].slice(0, 10)
+        : [...new Set(
+            text
+              .toLowerCase()
+              .split(/[\s,;.!?/()।]+/)
+              .map((t) => t.trim())
+              .filter((t) => t.length >= 2)
+          )].slice(0, 10);
 
-      const aiModels = [
-        '@cf/google/gemma-4-26b-a4b-it',
-        '@cf/qwen/qwen3.8-27b',
-        '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
-      ];
-      let parsed = null;
-      for (const model of aiModels) {
-        try {
-          const aiRes = await env.AI.run(model, {
-            messages: [
-              { role: 'system', content: 'You are a concise, accurate trilingual (English, Bangla, Simplified Chinese) linguistics tutor. Respond with strict JSON only.' },
-              { role: 'user', content: prompt },
-            ],
-            max_tokens: 700,
-          });
-          const parsedCandidate = safeParseJsonObject(extractAiText(aiRes));
-          parsed = parsedCandidate;
-          if (parsed && parsed.grammar && parsed.vocabulary) break;
-        } catch {
-          // Try next model
-        }
-      }
-      if (parsed && parsed.grammar && parsed.vocabulary) {
-        const pinyin = await pinyinPromise;
-        return {
-          text,
-          language,
-          ...(pinyin ? { pinyin } : {}),
-          grammar: {
-            isCorrect: parsed.grammar.isCorrect !== false,
-            correctedText: String(parsed.grammar.correctedText || text).trim(),
-            summary: String(parsed.grammar.summary || '').trim() || 'Grammar analysis complete.',
-            points: Array.isArray(parsed.grammar.points) ? parsed.grammar.points.slice(0, 5) : [],
-            tips: Array.isArray(parsed.grammar.tips) ? parsed.grammar.tips.slice(0, 4).map(String) : [],
-          },
-          vocabulary: {
-            partOfSpeech: typeof parsed.vocabulary.partOfSpeech === 'string' ? parsed.vocabulary.partOfSpeech : undefined,
-            synonyms: Array.isArray(parsed.vocabulary.synonyms) ? parsed.vocabulary.synonyms.slice(0, 6) : [],
-            antonyms: Array.isArray(parsed.vocabulary.antonyms) ? parsed.vocabulary.antonyms.slice(0, 5) : [],
-            collocations: Array.isArray(parsed.vocabulary.collocations) ? parsed.vocabulary.collocations.slice(0, 5) : [],
-            relatedWords: Array.isArray(parsed.vocabulary.relatedWords) ? parsed.vocabulary.relatedWords.slice(0, 6) : [],
-          },
-          provider: 'cloudflare-ai',
-        };
-      }
-    } catch {
-      // Fall through to zero-config linguistic fallback
+    if (tokens.length > 0) {
+      const ph = tokens.map(() => '?').join(', ');
+      entries = (
+        await env.DB.prepare(
+          `SELECT * FROM dictionary_entries
+           WHERE status = 'published' AND language = ? AND lower(word) IN (${ph})
+           ORDER BY length(word) DESC, CASE WHEN synonyms_json != '[]' THEN 0 ELSE 1 END LIMIT 4`
+        )
+          .bind(dbLang, ...tokens.map((t) => t.toLowerCase()))
+          .all()
+      ).results;
     }
   }
 
-  // 2. Zero-config fallback: Google public gtx dictionary/synonyms/examples + D1 related entries + deterministic grammar
   const synonyms = [];
   const antonyms = [];
   const collocations = [];
   const relatedWords = [];
-  let partOfSpeech;
+  let partOfSpeech = entries[0]?.part_of_speech || undefined;
+  const entryGrammarNotes = [];
 
-  try {
-    const sl = toProviderLang(language, 'google');
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
-    try {
-      const res = await fetch(
-        `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(sl)}&tl=en&dt=bd&dt=ss&dt=ex&dt=rw&dt=rm&q=${encodeURIComponent(text.slice(0, 300))}`,
-        {
-          headers: { 'user-agent': 'Mozilla/5.0 (compatible; Sanzar/1.0)' },
-          signal: controller.signal,
-        }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        // Part of speech from dt=bd (data[1])
-        if (Array.isArray(data?.[1]) && Array.isArray(data[1][0]) && typeof data[1][0][0] === 'string') {
-          partOfSpeech = data[1][0][0];
-        }
-        // Synonyms from dt=ss (data[11])
-        if (Array.isArray(data?.[11])) {
-          for (const group of data[11]) {
-            if (!Array.isArray(group) || !Array.isArray(group[1])) continue;
-            for (const sub of group[1]) {
-              if (!Array.isArray(sub) || !Array.isArray(sub[0])) continue;
-              for (const w of sub[0]) {
-                if (typeof w === 'string' && w.trim() && synonyms.length < 6 && !synonyms.some((x) => x.word === w.trim())) {
-                  synonyms.push({ word: w.trim() });
-                }
-              }
-            }
-          }
-        }
-        // Examples / collocations from dt=ex (data[13])
-        if (Array.isArray(data?.[13]?.[0])) {
-          for (const ex of data[13][0]) {
-            if (Array.isArray(ex) && typeof ex[0] === 'string' && collocations.length < 4) {
-              const cleanEx = ex[0].replace(/<[^>]+>/g, '').trim();
-              if (cleanEx) collocations.push({ phrase: cleanEx });
-            }
-          }
-        }
-        // Related words from dt=rw (data[14])
-        if (Array.isArray(data?.[14]?.[0])) {
-          for (const rw of data[14][0]) {
-            if (typeof rw === 'string' && rw.trim() && relatedWords.length < 6) {
-              relatedWords.push({ word: rw.trim() });
-            }
-          }
-        }
-      }
-    } finally {
-      clearTimeout(timer);
+  for (const row of entries) {
+    for (const s of safeParseArray(row.synonyms_json)) {
+      if (s?.word && synonyms.length < 8 && !synonyms.some((x) => x.word === s.word)) synonyms.push(s);
     }
-  } catch {
-    // Non-fatal
+    for (const a of safeParseArray(row.antonyms_json)) {
+      if (a?.word && antonyms.length < 8 && !antonyms.some((x) => x.word === a.word)) antonyms.push(a);
+    }
+    for (const c of safeParseArray(row.collocations_json)) {
+      if (c?.phrase && collocations.length < 6 && !collocations.some((x) => x.phrase === c.phrase)) collocations.push(c);
+    }
+    if (row.example && collocations.length < 6 && !collocations.some((x) => x.phrase === row.example)) {
+      collocations.push({
+        phrase: row.example,
+        ...(row.example_translation ? { meaning: row.example_translation } : {}),
+      });
+    }
+    if (row.grammar_note && entryGrammarNotes.length < 2) {
+      entryGrammarNotes.push({
+        title: `${row.word}${row.part_of_speech ? ` (${row.part_of_speech})` : ''}`,
+        explanation: row.grammar_note,
+        ...(row.example ? { example: row.example } : {}),
+      });
+    }
   }
 
-  // Enrich related words from curated D1 dictionary entries in the same language
-  try {
-    const dbLang = toDbLang(language);
-    const like = `%${text.slice(0, 24).toLowerCase()}%`;
-    const dbRows = (
-      await env.DB.prepare(
-        `SELECT word, phonetic, meaning_en FROM dictionary_entries
-         WHERE status = 'published' AND language = ? AND (lower(word) LIKE ? OR lower(meaning_en) LIKE ?)
-         LIMIT 6`
-      )
-        .bind(dbLang, like, like)
-        .all()
-    ).results;
-    for (const r of dbRows) {
-      if (r.word !== text && relatedWords.length < 8 && !relatedWords.some((x) => x.word === r.word)) {
+  // Related words from D1 (compound words for Chinese, prefix/shared-meaning words for EN/BN)
+  const headword = entries[0]?.word || text.trim().split(/[\s,;।]+/)[0] || '';
+  if (headword) {
+    const relRows =
+      dbLang === 'zh' && hasHanzi(headword)
+        ? (
+            await env.DB.prepare(
+              `SELECT word, phonetic, meaning_en FROM dictionary_entries
+               WHERE status = 'published' AND language = 'zh' AND word != ? AND word LIKE ?
+               ORDER BY length(word) ASC LIMIT 8`
+            )
+              .bind(headword, `%${Array.from(headword)[0]}%`)
+              .all()
+          ).results
+        : (
+            await env.DB.prepare(
+              `SELECT word, phonetic, meaning_en, meaning_bn FROM dictionary_entries
+               WHERE status = 'published' AND language = ? AND lower(word) != ? AND (lower(word) LIKE ? OR (part_of_speech = ? AND hsk_level = ?))
+               LIMIT 8`
+            )
+              .bind(
+                dbLang,
+                headword.toLowerCase(),
+                `${headword.slice(0, Math.max(3, headword.length - 1)).toLowerCase()}%`,
+                entries[0]?.part_of_speech || '__none__',
+                entries[0]?.hsk_level || '__none__'
+              )
+              .all()
+          ).results;
+
+    for (const r of relRows) {
+      if (relatedWords.length < 8 && !relatedWords.some((x) => x.word === r.word) && !synonyms.some((x) => x.word === r.word)) {
         relatedWords.push({
           word: r.word,
-          ...(r.phonetic ? { pinyin: r.phonetic } : {}),
-          ...(r.meaning_en ? { note: r.meaning_en } : {}),
+          ...(dbLang === 'zh' && r.phonetic ? { pinyin: r.phonetic } : {}),
+          ...(r.meaning_en ? { note: r.meaning_en.slice(0, 60) } : {}),
         });
       }
     }
-  } catch {
-    // Non-fatal
   }
 
-  const pinyin = await pinyinPromise;
+  // 2. Match curated D1 grammar_rules for this language + deterministic sentence checks
+  const baseGrammar = buildFallbackGrammar(text, language);
+  let dbGrammarPoints = [];
+  try {
+    const ruleRows = (
+      await env.DB.prepare(
+        `SELECT pattern, title, explanation, example, level_tag FROM grammar_rules
+         WHERE language = ? ORDER BY sort ASC LIMIT 80`
+      )
+        .bind(dbLang)
+        .all()
+    ).results;
+    const matched = ruleRows.filter((r) => matchesGrammarPattern(text, r.pattern));
+    const defaults = ruleRows.filter((r) => !r.pattern);
+    const chosen = (matched.length > 0 ? matched : defaults).slice(0, 3);
+    dbGrammarPoints = chosen.map((r) => ({
+      title: r.level_tag ? `${r.title} (${r.level_tag})` : r.title,
+      explanation: r.explanation,
+      ...(r.example ? { example: r.example } : {}),
+    }));
+  } catch {
+    // Table empty or not yet seeded
+  }
+
+  const combinedPoints = [...entryGrammarNotes, ...dbGrammarPoints];
+  if (combinedPoints.length === 0) {
+    combinedPoints.push(...baseGrammar.points);
+  } else if (!baseGrammar.isCorrect) {
+    combinedPoints.unshift(...baseGrammar.points.slice(0, 1));
+  }
+
+  const pinyin = language === 'zh-Hans'
+    ? (entries[0]?.word === text.trim() && entries[0]?.phonetic ? entries[0].phonetic : await lookupPinyinFromDb(env, text))
+    : '';
+
   return {
     text,
     language,
     ...(pinyin ? { pinyin } : {}),
-    grammar: buildFallbackGrammar(text, language),
+    grammar: {
+      isCorrect: baseGrammar.isCorrect,
+      correctedText: baseGrammar.correctedText,
+      summary: entries[0]?.grammar_note || baseGrammar.summary,
+      points: combinedPoints.slice(0, 4),
+      tips: baseGrammar.tips,
+    },
     vocabulary: {
       ...(partOfSpeech ? { partOfSpeech } : {}),
       synonyms,
@@ -1275,8 +1270,49 @@ Rules: provide 2-4 grammar points, 3-5 synonyms, 2-4 antonyms, 3-4 natural collo
       collocations,
       relatedWords,
     },
-    provider: 'sanzar-linguistics',
+    provider: 'sanzar-db',
   };
+}
+
+export async function adminBulkImportGrammarRules(env, ctx, input) {
+  requireRole(ctx.user, 'teacher');
+  const rules = Array.isArray(input.rules) ? input.rules : [];
+  if (rules.length === 0 || rules.length > 300) {
+    throw new HttpError(400, 'invalid-argument', 'Provide 1 to 300 grammar rules');
+  }
+  const t = now();
+  let imported = 0;
+  for (let i = 0; i < rules.length; i++) {
+    const r = rules[i] || {};
+    const dbLang = toDbLang(r.language);
+    if (!dbLang || !r.title || !r.explanation) continue;
+    const id = String(r.id || `${dbLang}-gr-${i + 1}`).trim().slice(0, 60);
+    await env.DB.prepare(
+      `INSERT INTO grammar_rules (id, language, pattern, title, explanation, example, example_translation, level_tag, sort, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         language=excluded.language, pattern=excluded.pattern, title=excluded.title, explanation=excluded.explanation,
+         example=excluded.example, example_translation=excluded.example_translation, level_tag=excluded.level_tag,
+         sort=excluded.sort, updated_at=excluded.updated_at`
+    )
+      .bind(
+        id,
+        dbLang,
+        String(r.pattern || '').trim().slice(0, 200),
+        String(r.title).trim().slice(0, 160),
+        String(r.explanation).trim().slice(0, 800),
+        String(r.example || '').trim().slice(0, 400),
+        String(r.example_translation || '').trim().slice(0, 400),
+        String(r.level_tag || '').trim().slice(0, 30),
+        Number(r.sort) || i,
+        t,
+        t
+      )
+      .run();
+    imported++;
+  }
+  await audit(env, ctx, 'grammar_rules.import', `imported=${imported}`);
+  return { imported };
 }
 
 /* ============================== router ============================== */
@@ -1314,6 +1350,9 @@ export async function routeDictionaryAuth(req, env, ctx, url) {
   }
   if (p === '/v1/admin/dictionary/import' && m === 'POST') {
     return json(await adminBulkImportDictionary(env, ctx, await body(req, 500_000)));
+  }
+  if (p === '/v1/admin/grammar-rules/import' && m === 'POST') {
+    return json(await adminBulkImportGrammarRules(env, ctx, await body(req, 500_000)));
   }
   return null;
 }

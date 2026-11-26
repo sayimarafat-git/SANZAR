@@ -99,6 +99,10 @@ export interface DictionaryEntry {
   example: string;
   example_translation: string;
   hsk_level: string;
+  synonyms?: VocabItem[];
+  antonyms?: VocabItem[];
+  collocations?: CollocationItem[];
+  grammar_note?: string;
   status?: string;
   updated_at?: number;
 }
