@@ -1224,7 +1224,7 @@ export async function handleLanguageInsights(env, input) {
     const ruleRows = (
       await env.DB.prepare(
         `SELECT pattern, title, explanation, example, level_tag FROM grammar_rules
-         WHERE language = ? ORDER BY sort ASC LIMIT 80`
+         WHERE language = ? ORDER BY sort ASC LIMIT 500`
       )
         .bind(dbLang)
         .all()
