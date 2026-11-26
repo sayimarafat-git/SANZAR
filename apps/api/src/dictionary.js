@@ -404,9 +404,9 @@ Return ONLY a JSON object with this exact shape:
 }`;
 
     const llmModels = [
-      { id: '@cf/google/gemma-3-12b-it', tag: 'gemma-3' },
+      { id: '@cf/google/gemma-4-26b-a4b-it', tag: 'gemma-4' },
+      { id: '@cf/qwen/qwen3.8-27b', tag: 'qwen-3.8' },
       { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', tag: 'llama-3.3-70b' },
-      { id: '@cf/meta/llama-3.1-8b-instruct-fast', tag: 'llama-3.1' },
     ];
 
     for (const model of llmModels) {
@@ -514,7 +514,7 @@ async function fetchChinesePinyin(env, text) {
   const clean = String(text || '').trim().slice(0, 500);
   if (!clean || !hasHanzi(clean)) return '';
   if (env?.AI && typeof env.AI.run === 'function') {
-    for (const model of ['@cf/google/gemma-3-12b-it', '@cf/meta/llama-3.3-70b-instruct-fp8-fast', '@cf/meta/llama-3.1-8b-instruct-fast']) {
+    for (const model of ['@cf/google/gemma-4-26b-a4b-it', '@cf/qwen/qwen3.8-27b', '@cf/meta/llama-3.3-70b-instruct-fp8-fast']) {
       try {
         const aiRes = await env.AI.run(model, {
           messages: [
@@ -1123,9 +1123,9 @@ Return ONLY valid JSON with this exact shape:
 Rules: provide 2-4 grammar points, 3-5 synonyms, 2-4 antonyms, 3-4 natural collocations, and 3-5 related words in ${langFull}. Include tone-marked Pinyin ONLY when ${langFull} is Simplified Chinese.`;
 
       const aiModels = [
-        '@cf/google/gemma-3-12b-it',
+        '@cf/google/gemma-4-26b-a4b-it',
+        '@cf/qwen/qwen3.8-27b',
         '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
-        '@cf/meta/llama-3.1-8b-instruct-fast',
       ];
       let parsed = null;
       for (const model of aiModels) {
