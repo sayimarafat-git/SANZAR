@@ -384,39 +384,57 @@ async function callTranslationProvider(env, text, sourceLang, targetLang) {
     }
   }
 
-  // 2.5. Primary zero-config provider: Google public gtx endpoint (Google Translate quality + instant Pinyin, supports en/bn/zh-CN)
-  try {
-    const sl = toProviderLang(sourceLang, 'google');
-    const tl = toProviderLang(targetLang, 'google');
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
-    try {
-      const res = await fetch(
-        `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(sl)}&tl=${encodeURIComponent(tl)}&dt=t&dt=rm&q=${encodeURIComponent(text)}`,
-        {
-          headers: { 'user-agent': 'Mozilla/5.0 (compatible; Sanzar/1.0)' },
-          signal: controller.signal,
-        }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const translated = Array.isArray(data?.[0])
-          ? data[0].map((seg) => (Array.isArray(seg) && typeof seg[0] === 'string' ? seg[0] : '')).join('')
-          : '';
-        if (translated) {
-          const { sourcePinyin, targetPinyin } = extractGtxPinyin(data, sourceLang, targetLang);
-          return { translatedText: translated, provider: 'google-gtx', sourcePinyin, targetPinyin };
-        }
-      }
-    } finally {
-      clearTimeout(timer);
-    }
-  } catch {
-    // Fall through to Cloudflare Workers AI
-  }
-
-  // 3. Fallback #1: Cloudflare Workers AI native translation (@cf/meta/m2m100-1.2b) — zero API key, never IP-blocked
+  // 2.5. Primary zero-config provider: Cloudflare Workers AI multilingual LLMs (Gemma 3 12B / Llama 3.3 70B)
+  // Gives natural dictionary/sentence translation + accurate tone-marked Pinyin without external IP blocks.
   if (env.AI && typeof env.AI.run === 'function') {
+    const langName = (c) => (c === 'zh-Hans' ? 'Simplified Chinese' : c === 'bn' ? 'Bangla (Bengali)' : 'English');
+    const srcName = langName(sourceLang);
+    const tgtName = langName(targetLang);
+    const isSingleWord = !/\s/.test(text.trim()) && text.trim().length <= 30;
+    const sysPrompt =
+      'You are an expert professional translator and lexicographer fluent in English, Bangla (বাংলা), and Simplified Chinese (简体中文). Return ONLY valid JSON with no markdown or extra commentary.';
+    const userPrompt = `Translate the following ${srcName} ${isSingleWord ? 'word/term (give its most common natural dictionary meaning, NEVER transliterate letters phonetically)' : 'text'} into natural, idiomatic ${tgtName}.
+Input: ${JSON.stringify(text)}
+
+Return ONLY a JSON object with this exact shape:
+{
+  "translatedText": "...",
+  "sourcePinyin": "${sourceLang === 'zh-Hans' ? 'tone-marked Hanyu Pinyin of Input' : ''}",
+  "targetPinyin": "${targetLang === 'zh-Hans' ? 'tone-marked Hanyu Pinyin of translatedText' : ''}"
+}`;
+
+    const llmModels = [
+      { id: '@cf/google/gemma-3-12b-it', tag: 'gemma-3' },
+      { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', tag: 'llama-3.3-70b' },
+      { id: '@cf/meta/llama-3.1-8b-instruct-fast', tag: 'llama-3.1' },
+    ];
+
+    for (const model of llmModels) {
+      try {
+        const aiRes = await env.AI.run(model.id, {
+          messages: [
+            { role: 'system', content: sysPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature: 0.1,
+          max_tokens: 500,
+        });
+        const parsed = safeParseJsonObject(extractAiText(aiRes));
+        const translated = typeof parsed?.translatedText === 'string' ? parsed.translatedText.trim() : '';
+        if (translated) {
+          return {
+            translatedText: translated,
+            provider: model.tag,
+            sourcePinyin: typeof parsed?.sourcePinyin === 'string' ? parsed.sourcePinyin.trim() : '',
+            targetPinyin: typeof parsed?.targetPinyin === 'string' ? parsed.targetPinyin.trim() : '',
+          };
+        }
+      } catch {
+        // Try next LLM model
+      }
+    }
+
+    // Secondary Workers AI fallback: m2m100-1.2b
     try {
       const cfSrc = sourceLang === 'zh-Hans' ? 'zh' : sourceLang;
       const cfTgt = targetLang === 'zh-Hans' ? 'zh' : targetLang;
@@ -427,7 +445,7 @@ async function callTranslationProvider(env, text, sourceLang, targetLang) {
       });
       const translated = aiRes?.translated_text;
       if (translated && String(translated).trim()) {
-        return { translatedText: String(translated).trim(), provider: 'cloudflare-ai' };
+        return { translatedText: String(translated).trim(), provider: 'm2m100' };
       }
     } catch {
       // Fall through to MyMemory
@@ -482,27 +500,38 @@ function extractGtxPinyin(data, sourceLang, targetLang) {
   return { sourcePinyin, targetPinyin };
 }
 
-async function fetchChinesePinyin(text) {
+function extractAiText(aiRes) {
+  if (!aiRes) return '';
+  if (typeof aiRes === 'string') return aiRes;
+  if (typeof aiRes.response === 'string') return aiRes.response;
+  if (aiRes.response && typeof aiRes.response === 'object') return JSON.stringify(aiRes.response);
+  const choiceContent = aiRes?.choices?.[0]?.message?.content;
+  if (typeof choiceContent === 'string') return choiceContent;
+  return '';
+}
+
+async function fetchChinesePinyin(env, text) {
   const clean = String(text || '').trim().slice(0, 500);
   if (!clean || !hasHanzi(clean)) return '';
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 3500);
-  try {
-    const res = await fetch(
-      `https://translate.googleapis.com/translate_a/single?client=gtx&sl=zh-CN&tl=en&dt=rm&q=${encodeURIComponent(clean)}`,
-      {
-        headers: { 'user-agent': 'Mozilla/5.0 (compatible; Sanzar/1.0)' },
-        signal: controller.signal,
+  if (env?.AI && typeof env.AI.run === 'function') {
+    for (const model of ['@cf/google/gemma-3-12b-it', '@cf/meta/llama-3.3-70b-instruct-fp8-fast', '@cf/meta/llama-3.1-8b-instruct-fast']) {
+      try {
+        const aiRes = await env.AI.run(model, {
+          messages: [
+            { role: 'system', content: 'Return ONLY the tone-marked Hanyu Pinyin for the user\'s Chinese text. No quotes, no explanation.' },
+            { role: 'user', content: clean },
+          ],
+          temperature: 0,
+          max_tokens: 200,
+        });
+        const out = extractAiText(aiRes).trim();
+        if (out && !hasHanzi(out)) return out.replace(/^["']|["']$/g, '').trim();
+      } catch {
+        // Try next
       }
-    );
-    if (!res.ok) return '';
-    const data = await res.json();
-    return extractGtxPinyin(data, 'zh-Hans', 'en').sourcePinyin;
-  } catch {
-    return '';
-  } finally {
-    clearTimeout(timer);
+    }
   }
+  return '';
 }
 
 export async function handleTranslate(env, input) {
@@ -521,7 +550,7 @@ export async function handleTranslate(env, input) {
   }
 
   if (sourceLang === targetLang) {
-    const samePinyin = sourceLang === 'zh-Hans' && hasHanzi(text) ? await fetchChinesePinyin(text) : '';
+    const samePinyin = sourceLang === 'zh-Hans' && hasHanzi(text) ? await fetchChinesePinyin(env, text) : '';
     return {
       translatedText: text,
       sourceLanguage: sourceLang,
@@ -564,10 +593,10 @@ export async function handleTranslate(env, input) {
   let sourcePinyin = sourceLang === 'zh-Hans' ? (result.sourcePinyin || matchedEntries[0]?.phonetic || '') : '';
   let targetPinyin = targetLang === 'zh-Hans' ? (result.targetPinyin || '') : '';
   if (sourceLang === 'zh-Hans' && !sourcePinyin && hasHanzi(textToTranslate)) {
-    sourcePinyin = await fetchChinesePinyin(textToTranslate);
+    sourcePinyin = await fetchChinesePinyin(env, textToTranslate);
   }
   if (targetLang === 'zh-Hans' && !targetPinyin && hasHanzi(result.translatedText)) {
-    targetPinyin = await fetchChinesePinyin(result.translatedText);
+    targetPinyin = await fetchChinesePinyin(env, result.translatedText);
   }
 
   return {
@@ -1068,7 +1097,7 @@ export async function handleLanguageInsights(env, input) {
   const language = requested || detected.language;
   const langFull = language === 'zh-Hans' ? 'Simplified Chinese' : language === 'bn' ? 'Bangla (Bengali)' : 'English';
 
-  const pinyinPromise = language === 'zh-Hans' && hasHanzi(text) ? fetchChinesePinyin(text) : Promise.resolve('');
+  const pinyinPromise = language === 'zh-Hans' && hasHanzi(text) ? fetchChinesePinyin(env, text) : Promise.resolve('');
 
   // 1. Primary: Cloudflare Workers AI structured JSON insights for all 3 languages
   if (env.AI && typeof env.AI.run === 'function') {
@@ -1093,7 +1122,11 @@ Return ONLY valid JSON with this exact shape:
 }
 Rules: provide 2-4 grammar points, 3-5 synonyms, 2-4 antonyms, 3-4 natural collocations, and 3-5 related words in ${langFull}. Include tone-marked Pinyin ONLY when ${langFull} is Simplified Chinese.`;
 
-      const aiModels = ['@cf/meta/llama-3.1-8b-instruct-fast', '@cf/meta/llama-3.1-8b-instruct'];
+      const aiModels = [
+        '@cf/google/gemma-3-12b-it',
+        '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+        '@cf/meta/llama-3.1-8b-instruct-fast',
+      ];
       let parsed = null;
       for (const model of aiModels) {
         try {
@@ -1104,11 +1137,8 @@ Rules: provide 2-4 grammar points, 3-5 synonyms, 2-4 antonyms, 3-4 natural collo
             ],
             max_tokens: 700,
           });
-          const rawOut = aiRes?.response;
-          parsed =
-            rawOut && typeof rawOut === 'object'
-              ? rawOut
-              : safeParseJsonObject(typeof rawOut === 'string' ? rawOut : '');
+          const parsedCandidate = safeParseJsonObject(extractAiText(aiRes));
+          parsed = parsedCandidate;
           if (parsed && parsed.grammar && parsed.vocabulary) break;
         } catch {
           // Try next model

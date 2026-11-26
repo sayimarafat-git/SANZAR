@@ -29,7 +29,7 @@ import {
 const HanziStrokeStudio = lazy(() => import('./HanziStrokeStudio'));
 import { useAuth } from '../../lib/auth-context';
 import { useSettings } from '../../lib/settings-context';
-import { apiRequest, errorText } from '../../lib/api-client';
+import { API_BASE, apiRequest, errorText } from '../../lib/api-client';
 import type {
   DictLangCode,
   DictionaryEntry,
@@ -263,7 +263,7 @@ function speakText(text: string, langCode: DictLangCode | 'zh', rate = 1.0) {
   }
 
   // Primary: server-proxied MP3 audio (supports Bangla, Chinese, English + exact 0.5x playbackRate on all browsers)
-  const audioUrl = `/v1/dictionary/tts?text=${encodeURIComponent(clean)}&lang=${encodeURIComponent(apiLang)}`;
+  const audioUrl = `${API_BASE}/v1/dictionary/tts?text=${encodeURIComponent(clean)}&lang=${encodeURIComponent(apiLang)}`;
   const audio = new Audio(audioUrl);
   audio.playbackRate = clampedRate;
   activeTtsAudio = audio;

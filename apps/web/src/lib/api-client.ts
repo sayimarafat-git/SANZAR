@@ -6,7 +6,7 @@ const isLocalHost =
 
 export const API_BASE = (
   import.meta.env.VITE_API_BASE ||
-  (isLocalHost ? 'http://localhost:8787' : 'https://sanzar-api.workers.dev')
+  (isLocalHost ? 'http://localhost:8787' : 'https://sanzar-api.sanzar.workers.dev')
 ).replace(/\/+$/, '');
 
 const DEFAULT_TIMEOUT_MS = 8000;
