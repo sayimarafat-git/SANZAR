@@ -222,13 +222,28 @@ function highlightMatch(text: string, query: string): React.ReactNode {
 }
 
 let activeTtsAudio: HTMLAudioElement | null = null;
+let activeTtsBlobUrl: string | null = null;
 let speakTimer: number | null = null;
+const TTS_AUDIO_CACHE_NAME = 'sanzar-tts-v1';
 
-function fallbackBrowserSpeak(text: string, langCode: DictLangCode | 'zh', rate: number) {
+function getPreferredDeviceVoice(langCode: DictLangCode | 'zh', rate: number): SpeechSynthesisVoice | null {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
+  const targetLang = langCode === 'zh-Hans' || langCode === 'zh' ? 'zh-CN' : langCode === 'bn' ? 'bn-BD' : 'en-US';
+  const langPrefix = targetLang.split('-')[0].toLowerCase();
+  const voices = window.speechSynthesis.getVoices();
+  const matching = voices.filter((v) => v.lang.toLowerCase().startsWith(langPrefix));
+  if (matching.length === 0) return null;
+  return (
+    (rate < 0.95 ? matching.find((v) => v.localService) : null) ||
+    matching.find((v) => v.lang.toLowerCase() === targetLang.toLowerCase()) ||
+    matching[0]
+  );
+}
+
+function browserSpeak(text: string, langCode: DictLangCode | 'zh', rate: number, voice?: SpeechSynthesisVoice | null) {
   if (typeof window === 'undefined' || !('speechSynthesis' in window) || !text.trim()) return;
   const synth = window.speechSynthesis;
   const targetLang = langCode === 'zh-Hans' || langCode === 'zh' ? 'zh-CN' : langCode === 'bn' ? 'bn-BD' : 'en-US';
-  const langPrefix = targetLang.split('-')[0].toLowerCase();
   if (speakTimer !== null) {
     window.clearTimeout(speakTimer);
     speakTimer = null;
@@ -238,44 +253,88 @@ function fallbackBrowserSpeak(text: string, langCode: DictLangCode | 'zh', rate:
     const u = new SpeechSynthesisUtterance(text);
     u.lang = targetLang;
     u.rate = rate;
-    const voices = synth.getVoices();
-    const matching = voices.filter((v) => v.lang.toLowerCase().startsWith(langPrefix));
-    const preferred =
-      (rate < 0.95 ? matching.find((v) => v.localService) : null) ||
-      matching.find((v) => v.lang.toLowerCase() === targetLang.toLowerCase()) ||
-      matching[0];
-    if (preferred) u.voice = preferred;
+    const chosen = voice ?? getPreferredDeviceVoice(langCode, rate);
+    if (chosen) u.voice = chosen;
     synth.speak(u);
-  }, 35);
+  }, 25);
+}
+
+function stopActiveAudio() {
+  if (activeTtsAudio) {
+    activeTtsAudio.pause();
+    activeTtsAudio = null;
+  }
+  if (activeTtsBlobUrl) {
+    URL.revokeObjectURL(activeTtsBlobUrl);
+    activeTtsBlobUrl = null;
+  }
+}
+
+async function playCachedEndpointAudio(clean: string, langCode: DictLangCode | 'zh', clampedRate: number) {
+  const apiLang = langCode === 'zh' ? 'zh-Hans' : langCode;
+  const audioUrl = `${API_BASE}/v1/dictionary/tts?text=${encodeURIComponent(clean)}&lang=${encodeURIComponent(apiLang)}`;
+  try {
+    let response: Response | undefined;
+    if ('caches' in window) {
+      const cache = await caches.open(TTS_AUDIO_CACHE_NAME);
+      response = await cache.match(audioUrl);
+      if (!response) {
+        const fetched = await fetch(audioUrl);
+        if (fetched.ok) {
+          void cache.put(audioUrl, fetched.clone()).catch(() => {});
+          response = fetched;
+        }
+      }
+    } else {
+      const fetched = await fetch(audioUrl);
+      if (fetched.ok) response = fetched;
+    }
+
+    if (!response) {
+      browserSpeak(clean, langCode, clampedRate);
+      return;
+    }
+
+    const blob = await response.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    stopActiveAudio();
+    activeTtsBlobUrl = blobUrl;
+    const audio = new Audio(blobUrl);
+    audio.playbackRate = clampedRate;
+    activeTtsAudio = audio;
+    audio.onended = () => {
+      if (activeTtsAudio === audio) stopActiveAudio();
+    };
+    audio.onerror = () => {
+      if (activeTtsAudio === audio) stopActiveAudio();
+      browserSpeak(clean, langCode, clampedRate);
+    };
+    await audio.play();
+  } catch {
+    stopActiveAudio();
+    browserSpeak(clean, langCode, clampedRate);
+  }
 }
 
 function speakText(text: string, langCode: DictLangCode | 'zh', rate = 1.0) {
   const clean = text.trim().slice(0, 200);
   if (typeof window === 'undefined' || !clean) return;
   const clampedRate = Math.max(0.4, Math.min(1.5, rate));
-  const apiLang = langCode === 'zh' ? 'zh-Hans' : langCode;
 
-  if (activeTtsAudio) {
-    activeTtsAudio.pause();
-    activeTtsAudio = null;
-  }
+  stopActiveAudio();
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
   }
 
-  // Primary: server-proxied MP3 audio (supports Bangla, Chinese, English + exact 0.5x playbackRate on all browsers)
-  const audioUrl = `${API_BASE}/v1/dictionary/tts?text=${encodeURIComponent(clean)}&lang=${encodeURIComponent(apiLang)}`;
-  const audio = new Audio(audioUrl);
-  audio.playbackRate = clampedRate;
-  activeTtsAudio = audio;
-  audio.onerror = () => {
-    if (activeTtsAudio === audio) activeTtsAudio = null;
-    fallbackBrowserSpeak(clean, langCode, clampedRate);
-  };
-  void audio.play().catch(() => {
-    if (activeTtsAudio === audio) activeTtsAudio = null;
-    fallbackBrowserSpeak(clean, langCode, clampedRate);
-  });
+  // Layer 1 (Device-First): Use installed OS/browser voice if available (instant, offline, 0 network calls)
+  const deviceVoice = getPreferredDeviceVoice(langCode, clampedRate);
+  if (deviceVoice) {
+    browserSpeak(clean, langCode, clampedRate, deviceVoice);
+    return;
+  }
+
+  // Layer 2 & 3 (Audio Cache -> Endpoint Fallback): Serve from browser Cache API or fetch once & cache offline
+  void playCachedEndpointAudio(clean, langCode, clampedRate);
 }
 
 function groupHistoryByDay(items: TranslationHistoryItem[]) {
