@@ -83,7 +83,7 @@ before(async () => {
     APP_ENV: 'test',
   };
   const migration = await migrate(env);
-  assert.deepEqual(migration.applied, ['0001_init', '0002_existing_profiles', '0003_sync_and_resources', '0004_learning_languages', '0005_admin_enhancements', '0006_book_thumbnails', '0007_dictionary', '0008_exam_targeting_and_timezone', '0009_dictionary_translator_sync', '0010_teacher_role', '0011_content_enhancements', '0012_dictionary_insights_columns']);
+  assert.deepEqual(migration.applied, ['0001_init', '0002_existing_profiles', '0003_sync_and_resources', '0004_learning_languages', '0005_admin_enhancements', '0006_book_thumbnails', '0007_dictionary', '0008_exam_targeting_and_timezone', '0009_dictionary_translator_sync', '0010_teacher_role', '0011_content_enhancements', '0012_dictionary_insights_columns', '0013_translation_cache_and_quota']);
   const preserved = await DB.prepare('SELECT uid, email, display_name, created_at FROM users WHERE uid = ?').bind('preserved-profile').first();
   assert.equal(preserved.uid, 'preserved-profile');
   assert.equal(preserved.email, 'preserved@example.test');
@@ -95,7 +95,7 @@ before(async () => {
 test('health reports completed schema migrations', async () => {
   const { response, data } = await call('GET', '/v1/health');
   assert.equal(response.status, 200);
-  assert.equal(data.schema, '12/12');
+  assert.equal(data.schema, '13/13');
 });
 
 test('catalog starts with platform levels and no imported course data', async () => {
@@ -430,4 +430,41 @@ test('onboarding, single notification read, community search, dictionary, and bo
   const savedTargeted = catTargeted.data.exams.find((e) => e.id === 'zh-quiz-targeted');
   assert.equal(savedTargeted.level_id, 'zh');
   assert.equal(savedTargeted.time_zone, 'Asia/Shanghai');
+});
+
+test('translation QA: Google once, shared cache hit after, quota route reports usage', async () => {
+  const realFetch = globalThis.fetch;
+  let googleCalls = 0;
+  globalThis.fetch = async (u, init) => {
+    if (String(u).startsWith('https://translation.googleapis.com/')) {
+      googleCalls += 1;
+      return new Response(JSON.stringify({ data: { translations: [{ translatedText: 'আমি প্রতিদিন চাইনিজ শিখি।' }] } }));
+    }
+    if (String(u).startsWith('https://api.languagetool.org/')) return new Response(JSON.stringify({ matches: [] }));
+    return realFetch(u, init);
+  };
+  env.GOOGLE_TRANSLATE_API_KEY = 'test-key';
+  try {
+    const text = 'I study Chinese every single day with my friends.';
+    const req = { text, sourceLanguage: 'en', targetLanguage: 'bn' };
+    const first = await call('POST', '/v1/translation', { auth: ownerToken, body: req });
+    assert.equal(first.response.status, 200, JSON.stringify(first.data));
+    assert.equal(googleCalls, 1);
+    const second = await call('POST', '/v1/translation', { auth: ownerToken, body: req });
+    assert.equal(second.response.status, 200);
+    assert.equal(second.data.translatedText, first.data.translatedText);
+    assert.equal(googleCalls, 1, 'second request must be served from shared D1 cache');
+
+    const quota = await call('GET', '/v1/admin/translation-quota', { auth: ownerToken });
+    assert.equal(quota.response.status, 200, JSON.stringify(quota.data));
+    assert.equal(quota.data.charsUsed, text.length);
+    assert.equal(quota.data.charCap, 480000);
+    assert.ok(quota.data.cache.entries >= 1);
+
+    const insights = await call('POST', '/v1/dictionary/insights', { auth: ownerToken, body: { text: '我比他很高', language: 'zh-Hans' } });
+    assert.equal(insights.response.status, 200, JSON.stringify(insights.data));
+  } finally {
+    globalThis.fetch = realFetch;
+    delete env.GOOGLE_TRANSLATE_API_KEY;
+  }
 });

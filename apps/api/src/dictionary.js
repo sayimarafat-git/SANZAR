@@ -340,9 +340,68 @@ function toProviderLang(code, provider) {
   return code;
 }
 
+const GOOGLE_TRANSLATE_MONTHLY_CHAR_CAP = 480000;
+
+function currentMonthKey() {
+  const d = new Date();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+async function canUseGoogleTranslate(env, charCount) {
+  if (!env.GOOGLE_TRANSLATE_API_KEY) return false;
+  try {
+    const row = await env.DB.prepare(
+      'SELECT chars_used FROM translation_quota_monthly WHERE month_key = ?'
+    )
+      .bind(currentMonthKey())
+      .first();
+    const used = Number(row?.chars_used || 0);
+    return used + charCount <= GOOGLE_TRANSLATE_MONTHLY_CHAR_CAP;
+  } catch {
+    return true;
+  }
+}
+
+async function recordGoogleTranslateUsage(env, charCount) {
+  try {
+    const t = now();
+    await env.DB.prepare(
+      `INSERT INTO translation_quota_monthly (month_key, chars_used, updated_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(month_key) DO UPDATE SET chars_used = chars_used + excluded.chars_used, updated_at = excluded.updated_at`
+    )
+      .bind(currentMonthKey(), charCount, t)
+      .run();
+  } catch {
+    // Non-fatal quota telemetry error
+  }
+}
+
+/** Admin-only ops view: Google free-tier usage this month + shared cache effectiveness. */
+export async function adminTranslationQuota(env, ctx) {
+  requireRole(ctx.user, 'teacher');
+  const month = currentMonthKey();
+  const q = await env.DB.prepare('SELECT chars_used, updated_at FROM translation_quota_monthly WHERE month_key = ?')
+    .bind(month).first().catch(() => null);
+  const c = await env.DB.prepare(
+    'SELECT COUNT(*) AS entries, COALESCE(SUM(hits),0) AS hits FROM translation_cache'
+  ).first().catch(() => null);
+  const used = Number(q?.chars_used || 0);
+  return {
+    month,
+    googleConfigured: Boolean(env.GOOGLE_TRANSLATE_API_KEY),
+    charsUsed: used,
+    charCap: GOOGLE_TRANSLATE_MONTHLY_CHAR_CAP,
+    charsRemaining: Math.max(0, GOOGLE_TRANSLATE_MONTHLY_CHAR_CAP - used),
+    percentUsed: Math.round((used / GOOGLE_TRANSLATE_MONTHLY_CHAR_CAP) * 1000) / 10,
+    updatedAt: q?.updated_at || null,
+    cache: { entries: Number(c?.entries || 0), totalHits: Number(c?.hits || 0) },
+  };
+}
+
 async function callTranslationProvider(env, text, sourceLang, targetLang) {
-  // 1. Google Cloud Translate v2 (if secret configured)
-  if (env.GOOGLE_TRANSLATE_API_KEY) {
+  // 1. Google Cloud Translate v2 (if secret configured & within 480K/month free-tier safety cap)
+  if (await canUseGoogleTranslate(env, text.length)) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
     try {
@@ -360,11 +419,16 @@ async function callTranslationProvider(env, text, sourceLang, targetLang) {
           signal: controller.signal,
         }
       );
-      if (!res.ok) throw new HttpError(502, 'provider-error', 'Translation provider returned an error');
-      const data = await res.json();
-      const translated = data?.data?.translations?.[0]?.translatedText;
-      if (!translated) throw new HttpError(502, 'provider-error', 'Empty translation response');
-      return { translatedText: translated, provider: 'google-translate' };
+      if (res.ok) {
+        const data = await res.json();
+        const translated = data?.data?.translations?.[0]?.translatedText;
+        if (translated) {
+          await recordGoogleTranslateUsage(env, text.length);
+          return { translatedText: translated, provider: 'google-translate' };
+        }
+      }
+    } catch {
+      // Fall through to next provider if Google Translate fails or times out
     } finally {
       clearTimeout(timer);
     }
@@ -737,6 +801,40 @@ export async function handleTranslate(env, input) {
     }
   }
 
+  // Layer 2: Shared D1 translation_cache (instant <10ms for any repeated sentence across all students)
+  const sharedCacheKey = `${sourceLang}::${targetLang}::${textToTranslate.trim().toLowerCase().slice(0, 400)}`;
+  try {
+    const cached = await env.DB.prepare(
+      `SELECT translated_text, source_pinyin, target_pinyin, provider FROM translation_cache WHERE cache_key = ? LIMIT 1`
+    )
+      .bind(sharedCacheKey)
+      .first();
+    if (cached?.translated_text) {
+      env.DB.prepare(
+        `UPDATE translation_cache SET hits = hits + 1, updated_at = ? WHERE cache_key = ?`
+      )
+        .bind(now(), sharedCacheKey)
+        .run()
+        .catch(() => {});
+      return {
+        translatedText: cached.translated_text,
+        sourceLanguage: sourceLang,
+        targetLanguage: targetLang,
+        detectedSourceLanguage: detected.language,
+        isPinyin: Boolean(detected.isPinyin),
+        confidence: detected.confidence,
+        provider: cached.provider || 'sanzar-cache',
+        cached: true,
+        ...(cached.source_pinyin ? { sourcePinyin: cached.source_pinyin } : {}),
+        ...(cached.target_pinyin ? { targetPinyin: cached.target_pinyin } : {}),
+        matchedEntries,
+      };
+    }
+  } catch {
+    // Table not yet migrated or non-fatal cache miss
+  }
+
+  // Layer 3: External provider (Google Translate v2 within 480K/mo free cap -> LibreTranslate -> MyMemory)
   const result = await callTranslationProvider(env, textToTranslate, sourceLang, targetLang);
 
   const sourcePinyin = sourceLang === 'zh-Hans'
@@ -745,6 +843,28 @@ export async function handleTranslate(env, input) {
   const targetPinyin = targetLang === 'zh-Hans' && hasHanzi(result.translatedText)
     ? await lookupPinyinFromDb(env, result.translatedText)
     : '';
+
+  // Persist into shared D1 translation_cache so no other student ever triggers an external call for this phrase
+  if (result.translatedText && textToTranslate.length <= 500) {
+    try {
+      const t = now();
+      await env.DB.prepare(
+        `INSERT INTO translation_cache (cache_key, source_language, target_language, source_text, translated_text, source_pinyin, target_pinyin, provider, hits, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+         ON CONFLICT(cache_key) DO UPDATE SET
+           translated_text = excluded.translated_text,
+           source_pinyin = excluded.source_pinyin,
+           target_pinyin = excluded.target_pinyin,
+           provider = excluded.provider,
+           hits = translation_cache.hits + 1,
+           updated_at = excluded.updated_at`
+      )
+        .bind(sharedCacheKey, sourceLang, targetLang, textToTranslate.trim(), result.translatedText, sourcePinyin, targetPinyin, result.provider, t, t)
+        .run();
+    } catch {
+      // Non-fatal cache write error
+    }
+  }
 
   return {
     translatedText: result.translatedText,
@@ -1108,6 +1228,43 @@ function buildFallbackGrammar(text, language) {
   let isCorrect = true;
 
   if (language === 'zh-Hans') {
+    // Deterministic Chinese learner-mistake checks (zero AI)
+    if (/比[^，。！？]{1,8}很/.test(correctedText)) {
+      correctedText = correctedText.replace(/(比[^，。！？]{1,8})很/g, '$1');
+      isCorrect = false;
+      points.push({
+        title: 'Avoid 很 in 比 comparisons',
+        explanation: 'In A + 比 + B + Adjective sentences, do not put 很 before the adjective. Use 一点儿 or 得多 after the adjective instead.',
+        example: '今天比昨天冷一点儿。',
+      });
+    }
+    if (/不有/.test(correctedText)) {
+      correctedText = correctedText.replace(/不有/g, '没有');
+      isCorrect = false;
+      points.push({
+        title: 'Negate 有 with 没 (没有), never 不',
+        explanation: 'Always use 没有 (méiyǒu) to negate 有; 不有 is ungrammatical in Mandarin.',
+        example: '我没有时间。',
+      });
+    }
+    if (/很越来越/.test(correctedText)) {
+      correctedText = correctedText.replace(/很越来越/g, '越来越');
+      isCorrect = false;
+      points.push({
+        title: 'Do not combine 很 with 越来越',
+        explanation: '越来越 already expresses increasing degree, so omit 很.',
+        example: '天气越来越热了。',
+      });
+    }
+    if (/一个书/.test(correctedText)) {
+      correctedText = correctedText.replace(/一个书/g, '一本书');
+      isCorrect = false;
+      points.push({
+        title: 'Measure word for books: 本 (běn)',
+        explanation: 'Books take the classifier 本 (一本书), not the general classifier 个.',
+        example: '我买了一本书。',
+      });
+    }
     if (trimmed.includes('了')) {
       points.push({
         title: 'Aspect particle 了 (le)',
@@ -1143,15 +1300,37 @@ function buildFallbackGrammar(text, language) {
     }
     tips.push('Pay attention to Pinyin tones — changing a tone changes the meaning of a syllable.');
     return {
-      isCorrect: true,
-      correctedText: trimmed,
-      summary: 'Analyzed Chinese sentence structure, particles, and usage.',
+      isCorrect,
+      correctedText,
+      summary: isCorrect
+        ? 'Analyzed Chinese sentence structure, particles, and usage.'
+        : 'Detected a common Chinese grammar issue and suggested a fix.',
       points,
       tips,
     };
   }
 
   if (language === 'bn') {
+    // Deterministic Bangla register & negation mistake checks (zero AI)
+    if (/আপনি\b/.test(correctedText) && /(করো|যাও|খাও|বলো|পড়ো|আছো)([।!?]?)$/.test(correctedText)) {
+      const formalMap = { করো: 'করেন', যাও: 'যান', খাও: 'খান', বলো: 'বলেন', পড়ো: 'পড়েন', আছো: 'আছেন' };
+      correctedText = correctedText.replace(/(করো|যাও|খাও|বলো|পড়ো|আছো)([।!?]?)$/, (_, v, p) => `${formalMap[v] || v}${p}`);
+      isCorrect = false;
+      points.push({
+        title: 'Honorific verb agreement (আপনি)',
+        explanation: 'With formal আপনি, use formal verb endings (-এন: করেন, যান, আছেন) instead of familiar তুমি endings (-ও).',
+        example: 'আপনি কেমন আছেন?',
+      });
+    } else if (/তুমি\b/.test(correctedText) && /(করেন|যান|খান|বলেন|পড়েন|আছেন)([।!?]?)$/.test(correctedText)) {
+      const famMap = { করেন: 'করো', যান: 'যাও', খান: 'খাও', বলেন: 'বলো', পড়েন: 'পড়ো', আছেন: 'আছো' };
+      correctedText = correctedText.replace(/(করেন|যান|খান|বলেন|পড়েন|আছেন)([।!?]?)$/, (_, v, p) => `${famMap[v] || v}${p}`);
+      isCorrect = false;
+      points.push({
+        title: 'Familiar verb agreement (তুমি)',
+        explanation: 'With familiar তুমি, use familiar verb endings (-ও: করো, যাও, আছো) instead of formal আপনি endings (-এন).',
+        example: 'তুমি কেমন আছো?',
+      });
+    }
     if (/আপনি|আপনার|আপনাকে/.test(trimmed)) {
       points.push({
         title: 'Formal register (আপনি)',
@@ -1179,9 +1358,11 @@ function buildFallbackGrammar(text, language) {
     }
     tips.push('Match verb endings with the pronoun formality level (আপনি / তুমি / তুই).');
     return {
-      isCorrect: true,
-      correctedText: trimmed,
-      summary: 'Analyzed Bangla register, word order, and grammatical particles.',
+      isCorrect,
+      correctedText,
+      summary: isCorrect
+        ? 'Analyzed Bangla register, word order, and grammatical particles.'
+        : 'Detected a Bangla verb-register mismatch and suggested a correction.',
       points,
       tips,
     };
@@ -1231,19 +1412,74 @@ function buildFallbackGrammar(text, language) {
   };
 }
 
-function matchesGrammarPattern(text, pattern) {
-  if (!pattern || !pattern.trim()) return false;
+/** Specificity-scored grammar pattern matcher: longer/multi-part patterns rank above short generic tokens. */
+function scoreGrammarPattern(text, pattern) {
+  if (!pattern || !pattern.trim()) return 0;
   const parts = pattern.split('|').map((p) => p.trim()).filter(Boolean);
   const lower = text.toLowerCase();
+  let matchedCount = 0;
+  let maxLen = 0;
   for (const p of parts) {
+    let hit = false;
     if (/^[a-z0-9']+$/i.test(p)) {
       const re = new RegExp(`\\b${p.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\b`, 'i');
-      if (re.test(text)) return true;
-    } else if (lower.includes(p.toLowerCase())) {
-      return true;
+      hit = re.test(text);
+    } else {
+      hit = lower.includes(p.toLowerCase());
+    }
+    if (hit) {
+      matchedCount++;
+      if (p.length > maxLen) maxLen = p.length;
     }
   }
-  return false;
+  if (matchedCount === 0) return 0;
+  // Bonus when multiple paired parts match (e.g. 虽然|但是 or যদি|তাহলে) + length specificity
+  return (matchedCount >= 2 ? 20 : 0) + maxLen * 3 + matchedCount;
+}
+
+/** Optional free rule-based English grammar check via LanguageTool public API (non-AI, fail-silent, 2.5s timeout). */
+async function checkEnglishWithLanguageTool(text) {
+  const clean = String(text || '').trim();
+  if (!clean || clean.length > 300 || !/\s/.test(clean)) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 2500);
+  try {
+    const res = await fetch('https://api.languagetool.org/v2/check', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'Sanzar/1.0' },
+      body: new URLSearchParams({ text: clean, language: 'en-US' }),
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const matches = Array.isArray(data?.matches) ? data.matches.slice(0, 3) : [];
+    if (matches.length === 0) return null;
+
+    // Apply non-overlapping top replacements from right to left to build correctedText
+    let corrected = clean;
+    const sorted = [...matches].sort((a, b) => b.offset - a.offset);
+    let lastStart = Infinity;
+    const points = [];
+    for (const m of sorted) {
+      const rep = m?.replacements?.[0]?.value;
+      if (typeof m.offset === 'number' && typeof m.length === 'number' && rep && m.offset + m.length <= lastStart) {
+        corrected = corrected.slice(0, m.offset) + rep + corrected.slice(m.offset + m.length);
+        lastStart = m.offset;
+      }
+      if (m.message) {
+        points.unshift({
+          title: m.shortMessage || m.rule?.category?.name || 'English Grammar Suggestion',
+          explanation: m.message,
+          ...(rep ? { example: `Suggestion: "${rep}"` } : {}),
+        });
+      }
+    }
+    return { correctedText: corrected, points };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** 100% D1-backed Grammar Assistance & Advanced Vocabulary — zero AI fallback, <10ms lookup. */
@@ -1389,8 +1625,19 @@ export async function handleLanguageInsights(env, input) {
     }
   }
 
-  // 2. Match curated D1 grammar_rules for this language + deterministic sentence checks
+  // 2. Match curated D1 grammar_rules (specificity-ranked) + deterministic checks + optional LanguageTool (EN)
   const baseGrammar = buildFallbackGrammar(text, language);
+  if (language === 'en' && text.trim().includes(' ')) {
+    const lt = await checkEnglishWithLanguageTool(text);
+    if (lt && lt.points.length > 0) {
+      baseGrammar.isCorrect = false;
+      if (lt.correctedText && lt.correctedText !== text.trim()) {
+        baseGrammar.correctedText = lt.correctedText;
+      }
+      baseGrammar.summary = 'Suggested grammar corrections for more natural English.';
+      baseGrammar.points = [...lt.points, ...baseGrammar.points].slice(0, 4);
+    }
+  }
   let dbGrammarPoints = [];
   try {
     const ruleRows = (
@@ -1401,7 +1648,11 @@ export async function handleLanguageInsights(env, input) {
         .bind(dbLang)
         .all()
     ).results;
-    const matched = ruleRows.filter((r) => matchesGrammarPattern(text, r.pattern));
+    const matched = ruleRows
+      .map((r) => ({ r, score: scoreGrammarPattern(text, r.pattern) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map((x) => x.r);
     const defaults = ruleRows.filter((r) => !r.pattern);
     const chosen = (matched.length > 0 ? matched : defaults).slice(0, 3);
     dbGrammarPoints = chosen.map((r) => ({
@@ -1526,6 +1777,9 @@ export async function routeDictionaryAuth(req, env, ctx, url) {
   }
   if (p === '/v1/admin/dictionary/import' && m === 'POST') {
     return json(await adminBulkImportDictionary(env, ctx, await body(req, 500_000)));
+  }
+  if (p === '/v1/admin/translation-quota' && m === 'GET') {
+    return json(await adminTranslationQuota(env, ctx));
   }
   if (p === '/v1/admin/grammar-rules/import' && m === 'POST') {
     return json(await adminBulkImportGrammarRules(env, ctx, await body(req, 500_000)));
