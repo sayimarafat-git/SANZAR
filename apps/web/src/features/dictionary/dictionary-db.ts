@@ -68,10 +68,32 @@ function txPromise<T>(
 }
 
 /* ============================== translation cache (LRU) ============================== */
-const CACHE_KEY_VERSION = 'v4';
+// Bump this whenever translation logic/dictionary datasets change so stale bad entries (e.g. old MyMemory glitches) are immediately invalidated on every device.
+const CACHE_KEY_VERSION = 'v5';
 
 export function buildCacheKey(source: DictLangCode, target: DictLangCode, text: string): string {
   return `${CACHE_KEY_VERSION}::${source}::${target}::${text.trim().toLowerCase()}`;
+}
+
+let staleCachePurged = false;
+function purgeStaleCacheVersions(db: IDBDatabase): void {
+  if (staleCachePurged) return;
+  staleCachePurged = true;
+  try {
+    const tx = db.transaction('translation_cache', 'readwrite');
+    const store = tx.objectStore('translation_cache');
+    const prefix = `${CACHE_KEY_VERSION}::`;
+    store.openCursor().onsuccess = (ev) => {
+      const cursor = (ev.target as IDBRequest<IDBCursorWithValue | null>).result;
+      if (!cursor) return;
+      if (typeof cursor.key === 'string' && !cursor.key.startsWith(prefix)) {
+        cursor.delete();
+      }
+      cursor.continue();
+    };
+  } catch {
+    // Non-fatal cleanup
+  }
 }
 
 export async function getCachedTranslation(
@@ -80,8 +102,15 @@ export async function getCachedTranslation(
   text: string
 ): Promise<TranslationCacheEntry | null> {
   try {
+    const db = await openDb();
+    purgeStaleCacheVersions(db);
     const key = buildCacheKey(source, target, text);
-    const entry = await txPromise<TranslationCacheEntry | undefined>('translation_cache', 'readonly', (s) => s.get(key));
+    const entry = await new Promise<TranslationCacheEntry | undefined>((resolve, reject) => {
+      const tx = db.transaction('translation_cache', 'readonly');
+      const req = tx.objectStore('translation_cache').get(key);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
     if (!entry) return null;
     // Update LRU timestamp asynchronously
     void txPromise('translation_cache', 'readwrite', (s) => s.put({ ...entry, accessedAt: Date.now() }));

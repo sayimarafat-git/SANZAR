@@ -37,6 +37,7 @@ export const LanguageInsightsPanel: React.FC<LanguageInsightsPanelProps> = ({
   onSpeak,
 }) => {
   const [copied, setCopied] = useState(false);
+  const [selectedSegIdx, setSelectedSegIdx] = useState<number | null>(null);
 
   if (!loading && !error && !insights) return null;
 
@@ -72,8 +73,111 @@ export const LanguageInsightsPanel: React.FC<LanguageInsightsPanelProps> = ({
 
   if (!insights) return null;
 
+  const segments = insights.segments && insights.segments.length >= 2 ? insights.segments : [];
+  const activeSeg =
+    selectedSegIdx !== null && selectedSegIdx >= 0 && selectedSegIdx < segments.length
+      ? segments[selectedSegIdx]
+      : null;
+
   return (
     <div className="space-y-4">
+      {/* Tap-a-Word Chinese Sentence Breakdown */}
+      {segments.length >= 2 && (
+        <section className="sanzar-card overflow-hidden border-emerald-500/25">
+          <div className="px-4 sm:px-5 py-3 border-b border-sanzar-border/70 flex items-center justify-between gap-2 bg-emerald-500/5">
+            <div className="flex items-center gap-2 min-w-0">
+              <BookMarked className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <h3 className="font-bold text-sm truncate">Word-by-Word Breakdown</h3>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+                Tap a word
+              </span>
+            </div>
+            <span className="text-[11px] font-semibold text-sanzar-muted shrink-0">
+              {segments.length} words
+            </span>
+          </div>
+
+          <div className="p-4 sm:p-5 space-y-3">
+            <div className="flex flex-wrap gap-2">
+              {segments.map((seg, idx) => {
+                const isSelected = selectedSegIdx === idx;
+                return (
+                  <button
+                    key={`${seg.word}-${idx}`}
+                    type="button"
+                    onClick={() => setSelectedSegIdx(isSelected ? null : idx)}
+                    className={`px-3 py-1.5 rounded-xl border text-left transition ${
+                      isSelected
+                        ? 'bg-emerald-500/15 border-emerald-500 text-sanzar-text shadow-sm'
+                        : 'bg-sanzar-surface2/70 border-sanzar-border hover:border-emerald-500/40'
+                    }`}
+                  >
+                    <span className="block text-base font-bold leading-tight text-sanzar-text">
+                      {seg.word}
+                    </span>
+                    {seg.pinyin && (
+                      <span className="block text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                        {seg.pinyin}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {activeSeg && (
+              <div className="p-3.5 rounded-2xl bg-sanzar-surface2/80 border border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-lg font-extrabold text-sanzar-text">{activeSeg.word}</span>
+                    {activeSeg.pinyin && (
+                      <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                        {activeSeg.pinyin}
+                      </span>
+                    )}
+                    {activeSeg.hskLevel && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sanzar-primarySoft text-sanzar-primary">
+                        {activeSeg.hskLevel}
+                      </span>
+                    )}
+                  </div>
+                  {activeSeg.meaningEn && (
+                    <p className="text-xs sm:text-sm text-sanzar-text2">
+                      <span className="font-bold text-sanzar-text">EN:</span> {activeSeg.meaningEn}
+                    </p>
+                  )}
+                  {activeSeg.meaningBn && (
+                    <p className="text-xs sm:text-sm text-sanzar-text2">
+                      <span className="font-bold text-sanzar-text">BN:</span> {activeSeg.meaningBn}
+                    </p>
+                  )}
+                  {!activeSeg.meaningEn && !activeSeg.meaningBn && (
+                    <p className="text-xs text-sanzar-muted">No exact dictionary entry yet.</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => onSpeak(activeSeg.word, 'zh-Hans', 0.9)}
+                    title="Listen"
+                    className="p-2 rounded-xl border border-sanzar-border bg-sanzar-surface text-sanzar-primary hover:bg-sanzar-surface2 transition"
+                  >
+                    <Volume2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onPickWord(activeSeg.word)}
+                    className="px-3 py-1.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-bold hover:opacity-95 transition"
+                  >
+                    Translate word
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
       {/* Card 1: Grammar Assistance */}
       <section className="sanzar-card overflow-hidden border-sanzar-primary/25">
         <div className="px-4 sm:px-5 py-3 border-b border-sanzar-border/70 flex items-center justify-between gap-2 bg-sanzar-surface2/50">

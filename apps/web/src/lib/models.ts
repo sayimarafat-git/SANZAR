@@ -170,10 +170,19 @@ export interface CollocationItem {
   pinyin?: string;
 }
 
+export interface ChineseSegment {
+  word: string;
+  pinyin: string;
+  meaningEn: string;
+  meaningBn: string;
+  hskLevel: string;
+}
+
 export interface LanguageInsights {
   text: string;
   language: DictLangCode;
   pinyin?: string;
+  segments?: ChineseSegment[];
   grammar: {
     isCorrect: boolean;
     correctedText: string;

@@ -428,6 +428,146 @@ function hasHanzi(text) {
   return /[\u3400-\u4dbf\u4e00-\u9fff]/.test(String(text || ''));
 }
 
+const EN_IRREGULAR_LEMMAS = {
+  am: 'be', is: 'be', are: 'be', was: 'be', were: 'be', been: 'be', being: 'be',
+  has: 'have', had: 'have', having: 'have',
+  does: 'do', did: 'do', done: 'do', doing: 'do',
+  went: 'go', gone: 'go', goes: 'go', going: 'go',
+  better: 'good', best: 'good', worse: 'bad', worst: 'bad',
+  children: 'child', men: 'man', women: 'woman', people: 'person', feet: 'foot', teeth: 'tooth', mice: 'mouse',
+  said: 'say', made: 'make', took: 'take', taken: 'take', came: 'come', saw: 'see', seen: 'see',
+  knew: 'know', known: 'know', got: 'get', gotten: 'get', gave: 'give', given: 'give',
+  found: 'find', thought: 'think', told: 'tell', became: 'become', left: 'leave', felt: 'feel',
+  brought: 'bring', began: 'begin', begun: 'begin', kept: 'keep', held: 'hold',
+  wrote: 'write', written: 'write', stood: 'stand', heard: 'hear', meant: 'mean', met: 'meet',
+  ran: 'run', paid: 'pay', sat: 'sit', spoke: 'speak', spoken: 'speak', led: 'lead',
+  grew: 'grow', grown: 'grow', lost: 'lose', fell: 'fall', fallen: 'fall', sent: 'send',
+  built: 'build', understood: 'understand', drew: 'draw', drawn: 'draw', broke: 'break', broken: 'break',
+  spent: 'spend', rose: 'rise', risen: 'rise', drove: 'drive', driven: 'drive', bought: 'buy',
+  wore: 'wear', worn: 'wear', chose: 'choose', chosen: 'choose', ate: 'eat', eaten: 'eat',
+  drank: 'drink', drunk: 'drink', slept: 'sleep', taught: 'teach', caught: 'catch', fought: 'fight',
+  forgot: 'forget', forgotten: 'forget', forgave: 'forgive', forgiven: 'forgive',
+  flew: 'fly', flown: 'fly', swam: 'swim', swum: 'swim', sang: 'sing', sung: 'sing', won: 'win',
+};
+
+const BN_SUFFIXES = [
+  'গুলোকে', 'গুলির', 'গুলোর', 'গুলো', 'গুলি', 'দেরকে', 'দের',
+  'টাকে', 'টিকে', 'টার', 'টির', 'খানা', 'খানি', 'টা', 'টি',
+  'ছিলাম', 'ছিলে', 'ছিলেন', 'ছিল', 'তেছি', 'তেছে', 'ছেন', 'ছি', 'ছো', 'ছে',
+  'লাম', 'লেন', 'বেন', 'বো', 'বে',
+  'কে', 'তে', 'য়ে', 'এর', 'র',
+];
+
+/** Generate plausible dictionary base forms (lemmas) for inflected English or Bangla words. */
+function getLemmaCandidates(word, dbLang) {
+  const w = String(word || '').trim().toLowerCase();
+  if (!w || w.includes(' ')) return [];
+  const out = new Set();
+
+  if (dbLang === 'en') {
+    if (EN_IRREGULAR_LEMMAS[w]) out.add(EN_IRREGULAR_LEMMAS[w]);
+    if (w.endsWith('ies') && w.length > 4) out.add(w.slice(0, -3) + 'y');
+    if (w.endsWith('ied') && w.length > 4) out.add(w.slice(0, -3) + 'y');
+    if (w.endsWith('ing') && w.length > 5) {
+      const stem = w.slice(0, -3);
+      out.add(stem);
+      out.add(stem + 'e');
+      if (stem.length >= 3 && stem[stem.length - 1] === stem[stem.length - 2]) {
+        out.add(stem.slice(0, -1));
+      }
+    }
+    if (w.endsWith('ed') && w.length > 4) {
+      const stem = w.slice(0, -2);
+      out.add(stem);
+      out.add(stem + 'e');
+      if (stem.length >= 3 && stem[stem.length - 1] === stem[stem.length - 2]) {
+        out.add(stem.slice(0, -1));
+      }
+    }
+    if (w.endsWith('es') && w.length > 3) out.add(w.slice(0, -2));
+    if (w.endsWith('s') && !w.endsWith('ss') && w.length > 3) out.add(w.slice(0, -1));
+    if (w.endsWith('er') && w.length > 4) {
+      out.add(w.slice(0, -2));
+      out.add(w.slice(0, -1));
+    }
+    if (w.endsWith('est') && w.length > 5) {
+      out.add(w.slice(0, -3));
+      out.add(w.slice(0, -2));
+    }
+    if (w.endsWith('ly') && w.length > 4) out.add(w.slice(0, -2));
+  } else if (dbLang === 'bn') {
+    for (const suf of BN_SUFFIXES) {
+      if (w.endsWith(suf) && w.length - suf.length >= 2) {
+        const stem = w.slice(0, -suf.length);
+        out.add(stem);
+        if (!stem.endsWith('া')) out.add(stem + 'া');
+      }
+    }
+  }
+
+  out.delete(w);
+  return [...out].slice(0, 6);
+}
+
+/** 100% D1-backed Chinese word-by-word segmenter for tap-a-word sentence breakdown. */
+async function lookupChineseSegments(env, text) {
+  const clean = String(text || '').trim().slice(0, 180);
+  if (!clean || !hasHanzi(clean)) return [];
+  const hanziOnly = Array.from(clean).filter((ch) => /[\u3400-\u4dbf\u4e00-\u9fff]/.test(ch));
+  if (hanziOnly.length < 2) return [];
+  const hanziSet = [...new Set(hanziOnly)].slice(0, 50);
+
+  const placeholders = hanziSet.map(() => '?').join(', ');
+  const rows = (
+    await env.DB.prepare(
+      `SELECT word, phonetic, meaning_en, meaning_bn, hsk_level FROM dictionary_entries
+       WHERE status = 'published' AND language = 'zh' AND length(word) <= 4 AND substr(word, 1, 1) IN (${placeholders})`
+    )
+      .bind(...hanziSet)
+      .all()
+  ).results;
+
+  const map = new Map();
+  for (const r of rows) {
+    if (!map.has(r.word)) map.set(r.word, r);
+  }
+
+  const chars = Array.from(clean);
+  const segments = [];
+  let i = 0;
+  while (i < chars.length && segments.length < 24) {
+    const ch = chars[i];
+    if (!/[\u3400-\u4dbf\u4e00-\u9fff]/.test(ch)) {
+      i++;
+      continue;
+    }
+    let matchedLen = 0;
+    let matchedRow = null;
+    for (let len = Math.min(4, chars.length - i); len >= 1; len--) {
+      const sub = chars.slice(i, i + len).join('');
+      if (map.has(sub)) {
+        matchedLen = len;
+        matchedRow = map.get(sub);
+        break;
+      }
+    }
+    if (matchedRow) {
+      segments.push({
+        word: matchedRow.word,
+        pinyin: matchedRow.phonetic || '',
+        meaningEn: matchedRow.meaning_en || '',
+        meaningBn: matchedRow.meaning_bn || '',
+        hskLevel: matchedRow.hsk_level || '',
+      });
+      i += matchedLen;
+    } else {
+      segments.push({ word: ch, pinyin: '', meaningEn: '', meaningBn: '', hskLevel: '' });
+      i++;
+    }
+  }
+  return segments;
+}
+
 /** 100% D1-backed Chinese Pinyin segmenter & lookup — zero AI cost, zero external API calls. */
 async function lookupPinyinFromDb(env, text) {
   const clean = String(text || '').trim().slice(0, 300);
@@ -521,7 +661,7 @@ export async function handleTranslate(env, input) {
     const qPlain = stripPinyinTones(text);
     const qCompact = qPlain.replace(/\s+/g, '');
     const dbLang = toDbLang(sourceLang);
-    const rows = (
+    let rows = (
       await env.DB.prepare(
         `SELECT * FROM dictionary_entries
          WHERE status = 'published' AND language = ? AND (lower(word) = ? OR phonetic_plain = ? OR replace(phonetic_plain, ' ', '') = ?)
@@ -530,6 +670,21 @@ export async function handleTranslate(env, input) {
         .bind(dbLang, q, qPlain, qCompact)
         .all()
     ).results;
+    if (rows.length === 0 && (dbLang === 'en' || dbLang === 'bn')) {
+      const lemmas = getLemmaCandidates(q, dbLang);
+      if (lemmas.length > 0) {
+        const ph = lemmas.map(() => '?').join(', ');
+        rows = (
+          await env.DB.prepare(
+            `SELECT * FROM dictionary_entries
+             WHERE status = 'published' AND language = ? AND lower(word) IN (${ph})
+             ORDER BY length(word) DESC LIMIT 5`
+          )
+            .bind(dbLang, ...lemmas)
+            .all()
+        ).results;
+      }
+    }
     matchedEntries = rows.map(shapeDictionaryRow);
 
     // Direct curated D1 dictionary translation first (instant, $0 cost, teacher-curated quality)
@@ -1101,7 +1256,7 @@ export async function handleLanguageInsights(env, input) {
   const q = text.trim().toLowerCase();
   const qPlain = stripPinyinTones(text);
 
-  // 1. Lookup exact word or key content words from D1 dictionary_entries
+  // 1. Lookup exact word, lemma, or key content words from D1 dictionary_entries
   let entries = (
     await env.DB.prepare(
       `SELECT * FROM dictionary_entries
@@ -1111,6 +1266,23 @@ export async function handleLanguageInsights(env, input) {
       .bind(dbLang, q, qPlain)
       .all()
   ).results;
+
+  // Lemma fallback for inflected single words (English -ing/-ed/-s/irregulars & Bangla suffixes)
+  if (entries.length === 0 && (dbLang === 'en' || dbLang === 'bn')) {
+    const lemmas = getLemmaCandidates(q, dbLang);
+    if (lemmas.length > 0) {
+      const ph = lemmas.map(() => '?').join(', ');
+      entries = (
+        await env.DB.prepare(
+          `SELECT * FROM dictionary_entries
+           WHERE status = 'published' AND language = ? AND lower(word) IN (${ph})
+           ORDER BY CASE WHEN synonyms_json != '[]' THEN 0 ELSE 1 END, length(word) DESC LIMIT 3`
+        )
+          .bind(dbLang, ...lemmas)
+          .all()
+      ).results;
+    }
+  }
 
   // If input is a phrase/sentence (or comma/semicolon translation string like "do; make"), match tokens inside it
   if (entries.length === 0) {
@@ -1251,11 +1423,15 @@ export async function handleLanguageInsights(env, input) {
   const pinyin = language === 'zh-Hans'
     ? (entries[0]?.word === text.trim() && entries[0]?.phonetic ? entries[0].phonetic : await lookupPinyinFromDb(env, text))
     : '';
+  const segments = language === 'zh-Hans' && hasHanzi(text)
+    ? await lookupChineseSegments(env, text)
+    : [];
 
   return {
     text,
     language,
     ...(pinyin ? { pinyin } : {}),
+    ...(segments.length >= 2 ? { segments } : {}),
     grammar: {
       isCorrect: baseGrammar.isCorrect,
       correctedText: baseGrammar.correctedText,
