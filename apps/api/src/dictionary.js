@@ -771,6 +771,19 @@ export async function handleTranslate(env, input) {
     sourceLang = detected.language;
   }
 
+  // Symbols, punctuation, numbers, or emoji-only input needs no external translation
+  if (!/\p{L}/u.test(text)) {
+    return {
+      translatedText: text,
+      sourceLanguage: sourceLang,
+      targetLanguage: targetLang,
+      detectedSourceLanguage: detected.language,
+      confidence: 1,
+      provider: 'identity',
+      matchedEntries: [],
+    };
+  }
+
   if (sourceLang === targetLang) {
     const samePinyin = sourceLang === 'zh-Hans' && hasHanzi(text) ? await lookupPinyinFromDb(env, text) : '';
     return {

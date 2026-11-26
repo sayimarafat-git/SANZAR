@@ -547,4 +547,13 @@ test('polyphone pinyin disambiguation and expanded ZH/BN grammar rules', async (
   assert.equal(bn2.data.grammar.correctedText, 'তিনি ভালো আছেন।');
   const bn3 = await call('POST', '/v1/dictionary/insights', { auth: testTok, body: { text: 'একটা শিক্ষক', language: 'bn' } });
   assert.equal(bn3.data.grammar.correctedText, 'একজন শিক্ষক');
+
+  // Symbol-only input returns identity without hitting external translation providers
+  const sym = await call('POST', '/v1/translation', {
+    auth: testTok,
+    body: { text: '??? @#$ 123!', sourceLanguage: 'en', targetLanguage: 'bn' },
+  });
+  assert.equal(sym.response.status, 200);
+  assert.equal(sym.data.translatedText, '??? @#$ 123!');
+  assert.equal(sym.data.provider, 'identity');
 });
