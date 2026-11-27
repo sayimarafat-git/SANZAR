@@ -1872,6 +1872,21 @@ export async function handleLanguageInsights(env, input) {
   let partOfSpeech = entries[0]?.part_of_speech || undefined;
   const entryGrammarNotes = [];
 
+  const isRelevantCollocation = (phrase, rowWord) => {
+    const p = String(phrase || '').trim();
+    if (!p || p.length > 100) return false;
+    if (dbLang === 'bn') {
+      if (!/[\u0980-\u09FF]/.test(p)) return false;
+      const w = String(rowWord || '').trim();
+      const stem = w.length >= 3 ? w.slice(0, Math.max(3, w.length - 1)) : w;
+      const qStem = q.length >= 3 ? q.slice(0, Math.max(3, q.length - 1)) : q;
+      if (w && !p.includes(w) && (!stem || !p.includes(stem)) && (!qStem || !p.includes(qStem))) {
+        return false;
+      }
+    }
+    return true;
+  };
+
   for (const row of entries) {
     for (const s of safeParseArray(row.synonyms_json)) {
       if (s?.word && synonyms.length < 8 && !synonyms.some((x) => x.word === s.word)) synonyms.push(s);
@@ -1880,9 +1895,11 @@ export async function handleLanguageInsights(env, input) {
       if (a?.word && antonyms.length < 8 && !antonyms.some((x) => x.word === a.word)) antonyms.push(a);
     }
     for (const c of safeParseArray(row.collocations_json)) {
-      if (c?.phrase && collocations.length < 6 && !collocations.some((x) => x.phrase === c.phrase)) collocations.push(c);
+      if (c?.phrase && isRelevantCollocation(c.phrase, row.word) && collocations.length < 6 && !collocations.some((x) => x.phrase === c.phrase)) {
+        collocations.push(c);
+      }
     }
-    if (row.example && collocations.length < 6 && !collocations.some((x) => x.phrase === row.example)) {
+    if (row.example && isRelevantCollocation(row.example, row.word) && collocations.length < 6 && !collocations.some((x) => x.phrase === row.example)) {
       collocations.push({
         phrase: row.example,
         ...(row.example_translation ? { meaning: row.example_translation } : {}),

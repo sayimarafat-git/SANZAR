@@ -5,7 +5,6 @@ import {
   Home,
   BookOpen,
   BookA,
-  ClipboardCheck,
   TrendingUp,
   Users,
   Sparkles,
@@ -22,6 +21,7 @@ import { useAuth } from '../lib/auth-context';
 import { useSettings } from '../lib/settings-context';
 import { apiRequest } from '../lib/api-client';
 import type { AppNotification } from '../lib/models';
+import { useOverlayBackButton } from '../lib/useOverlayBackButton';
 import { AmbientBackdrop, BrandMark, useToast } from './SanzarUI';
 import { FirstVisitOnboarding, PostLoginOnboarding, postOnboardedKey } from './OnboardingFlow';
 import { FloatingTutorWidget } from './FloatingTutorWidget';
@@ -69,6 +69,8 @@ export const Layout: React.FC = () => {
     };
   }, [notifOpen]);
 
+  useOverlayBackButton(notifOpen, () => setNotifOpen(false), 'notifications-panel');
+
   const unread = notifQuery.data?.unread ?? 0;
   const notifications = notifQuery.data?.notifications ?? [];
 
@@ -107,7 +109,6 @@ export const Layout: React.FC = () => {
     { to: '/', label: t('home'), icon: Home, end: true },
     { to: '/library', label: t('library'), icon: BookOpen },
     { to: '/dictionary', label: t('dictionary'), icon: BookA },
-    { to: '/exams', label: t('exams'), icon: ClipboardCheck },
     { to: '/progress', label: t('progress'), icon: TrendingUp },
     { to: '/community', label: t('community'), icon: Users },
   ];

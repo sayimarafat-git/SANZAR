@@ -5,6 +5,7 @@ import { useAuth } from '../lib/auth-context';
 import { useSettings } from '../lib/settings-context';
 import { apiRequest } from '../lib/api-client';
 import type { TutorAnswer, TutorReference } from '../lib/models';
+import { useOverlayBackButton } from '../lib/useOverlayBackButton';
 import { BrandMark } from './SanzarUI';
 
 interface ChatMsg {
@@ -26,6 +27,8 @@ export const FloatingTutorWidget: React.FC<FloatingTutorWidgetProps> = ({ open, 
   const [busy, setBusy] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useOverlayBackButton(open, onClose, 'floating-tutor');
 
   useEffect(() => {
     if (!open) return;

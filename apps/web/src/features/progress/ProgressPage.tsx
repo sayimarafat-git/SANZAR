@@ -1,14 +1,31 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Flame, Star, Timer, Trophy, Lock, Award, TrendingUp, CloudOff, RefreshCw } from 'lucide-react';
+import {
+  Flame,
+  Star,
+  Timer,
+  Trophy,
+  Lock,
+  Award,
+  TrendingUp,
+  CloudOff,
+  RefreshCw,
+  Target,
+  ClipboardCheck,
+  History,
+} from 'lucide-react';
 import { useAuth } from '../../lib/auth-context';
 import { useFocusTimer } from '../../lib/focus-timer-context';
-import { useSettings } from '../../lib/settings-context';
+import { DAILY_GOAL_MAX, DAILY_GOAL_MIN, useSettings } from '../../lib/settings-context';
 import { apiRequest, fetchCatalogWithCache } from '../../lib/api-client';
 import { colorForSubject, localizedName } from '../../lib/i18n';
 import type { LeaderEntry, ProgressData } from '../../lib/models';
-import { LoadingState, mmss } from '../../components/SanzarUI';
+import { LoadingState, mmss, useToast } from '../../components/SanzarUI';
+import { ExamsPage } from '../exams/ExamsPage';
+
+type ProgressTab = 'overview' | 'leaderboard' | 'exams' | 'history';
+const GOAL_PRESETS = [10, 15, 30, 60] as const;
 
 const FALLBACK_PROGRESS: ProgressData = {
   xp: 0,
@@ -32,10 +49,15 @@ const FALLBACK_PROGRESS: ProgressData = {
 
 export const ProgressPage: React.FC = () => {
   const { user, profile } = useAuth();
-  const { lang, t } = useSettings();
+  const { lang, dailyGoalMinutes, setDailyGoalMinutes, t } = useSettings();
+  const toast = useToast();
   const [params, setParams] = useSearchParams();
-  const initialTab = params.get('tab') === 'leaderboard' ? 'leaderboard' : 'overview';
-  const [tab, setTab] = useState<'overview' | 'leaderboard'>(initialTab);
+  const rawTab = params.get('tab');
+  const tab: ProgressTab =
+    rawTab === 'leaderboard' || rawTab === 'exams' || rawTab === 'history' ? rawTab : 'overview';
+  const setTab = (next: ProgressTab) => {
+    setParams(next === 'overview' ? {} : { tab: next });
+  };
   const [period, setPeriod] = useState<'weekly' | 'monthly' | 'all'>('weekly');
   const [myClassOnly, setMyClassOnly] = useState(false);
 
@@ -73,6 +95,33 @@ export const ProgressPage: React.FC = () => {
     retry: false,
   });
 
+  const p = progQuery.data ?? FALLBACK_PROGRESS;
+  const cat = catQuery.data?.catalog;
+  const todayMin = Math.floor(p.todaySec / 60);
+  const goalMin = dailyGoalMinutes ?? Math.round((p.goalSec || 3600) / 60);
+  const goalPct = Math.min(100, Math.round((p.todaySec / (goalMin * 60)) * 100));
+
+  const [customGoalInput, setCustomGoalInput] = useState(() => String(goalMin));
+  useEffect(() => {
+    setCustomGoalInput(String(goalMin));
+  }, [goalMin]);
+
+  const applyDailyGoal = (minutes: number) => {
+    const saved = setDailyGoalMinutes(minutes);
+    setCustomGoalInput(String(saved));
+    toast(t('saved'));
+  };
+
+  const handleCustomGoalSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsed = Number(customGoalInput);
+    if (!Number.isFinite(parsed)) {
+      setCustomGoalInput(String(goalMin));
+      return;
+    }
+    applyDailyGoal(parsed);
+  };
+
   if (!user) {
     return (
       <div className="sanzar-card p-8 text-center max-w-md mx-auto my-8 space-y-4">
@@ -84,9 +133,6 @@ export const ProgressPage: React.FC = () => {
       </div>
     );
   }
-
-  const p = progQuery.data ?? FALLBACK_PROGRESS;
-  const cat = catQuery.data?.catalog;
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
@@ -105,37 +151,29 @@ export const ProgressPage: React.FC = () => {
         </div>
 
         {/* Compact Frosted Segmented Toggle */}
-        <div className="inline-flex items-center rounded-xl sanzar-glass p-1 gap-1 self-start sm:self-auto">
-          <button
-            type="button"
-            onClick={() => {
-              setTab('overview');
-              setParams({});
-            }}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
-              tab === 'overview'
-                ? 'bg-sanzar-primary text-sanzar-onPrimary shadow-sm'
-                : 'text-sanzar-text2 hover:bg-white/40 dark:hover:bg-white/5'
-            }`}
-          >
-            <TrendingUp className="w-3.5 h-3.5" />
-            <span>{t('progress')}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setTab('leaderboard');
-              setParams({ tab: 'leaderboard' });
-            }}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
-              tab === 'leaderboard'
-                ? 'bg-sanzar-primary text-sanzar-onPrimary shadow-sm'
-                : 'text-sanzar-text2 hover:bg-white/40 dark:hover:bg-white/5'
-            }`}
-          >
-            <Trophy className="w-3.5 h-3.5" />
-            <span>{t('leaderboard')}</span>
-          </button>
+        <div className="inline-flex flex-wrap items-center rounded-xl sanzar-glass p-1 gap-1 self-start sm:self-auto">
+          {(
+            [
+              { id: 'overview', label: t('overview'), icon: TrendingUp },
+              { id: 'leaderboard', label: t('leaderboard'), icon: Trophy },
+              { id: 'exams', label: t('exams'), icon: ClipboardCheck },
+              { id: 'history', label: t('history'), icon: History },
+            ] as const
+          ).map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setTab(item.id)}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+                tab === item.id
+                  ? 'bg-sanzar-primary text-sanzar-onPrimary shadow-sm'
+                  : 'text-sanzar-text2 hover:bg-white/40 dark:hover:bg-white/5'
+              }`}
+            >
+              <item.icon className="w-3.5 h-3.5" />
+              <span>{item.label}</span>
+            </button>
+          ))}
         </div>
       </div>
 
@@ -144,7 +182,7 @@ export const ProgressPage: React.FC = () => {
           <LoadingState />
         ) : (
           <div className="space-y-6">
-            {/* XP Level + Streak + Daily Goal */}
+            {/* XP Level + Streak + Focus Timer */}
             <div className="grid md:grid-cols-2 gap-4">
               <div className="sanzar-card p-5 space-y-3">
                 <div className="flex items-center justify-between">
@@ -219,12 +257,70 @@ export const ProgressPage: React.FC = () => {
               </div>
             </div>
 
+            {/* Daily Study Goal Customizer */}
+            <section className="sanzar-card p-5 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-sanzar-primarySoft text-sanzar-primary flex items-center justify-center shrink-0">
+                    <Target className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h2 className="font-bold text-sm sm:text-base">{t('dailyGoal')}</h2>
+                    <p className="text-xs text-sanzar-muted">{t('goalOf', { m: todayMin, g: goalMin })}</p>
+                  </div>
+                </div>
+                <span className="text-sm font-extrabold text-sanzar-primary">{goalPct}%</span>
+              </div>
+
+              <div className="h-2.5 rounded-full bg-sanzar-primarySoft overflow-hidden">
+                <div className="h-full bg-brand-grad rounded-full transition-all" style={{ width: `${goalPct}%` }} />
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {GOAL_PRESETS.map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => applyDailyGoal(m)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                        goalMin === m
+                          ? 'bg-sanzar-primary text-sanzar-onPrimary border-sanzar-primary shadow-sm'
+                          : 'border-sanzar-border text-sanzar-text2 hover:border-sanzar-primary/50'
+                      }`}
+                    >
+                      {t('minutes', { n: m })}
+                    </button>
+                  ))}
+                </div>
+
+                <form onSubmit={handleCustomGoalSubmit} className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={DAILY_GOAL_MIN}
+                    max={DAILY_GOAL_MAX}
+                    value={customGoalInput}
+                    onChange={(e) => setCustomGoalInput(e.target.value)}
+                    aria-label={t('customGoal')}
+                    placeholder={t('customGoal')}
+                    className="w-24 px-3 py-1.5 rounded-lg border border-sanzar-border bg-sanzar-surface2 text-xs font-semibold text-sanzar-text focus:outline-none focus:border-sanzar-primary"
+                  />
+                  <button
+                    type="submit"
+                    className="px-3.5 py-1.5 rounded-lg bg-sanzar-primarySoft text-sanzar-primary hover:bg-sanzar-primary hover:text-sanzar-onPrimary text-xs font-bold transition"
+                  >
+                    {t('apply')}
+                  </button>
+                </form>
+              </div>
+            </section>
+
             {/* 7-Day Study Bar Chart */}
             <section className="sanzar-card p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="font-bold text-base">{t('last7')}</h2>
                 <span className="text-xs text-sanzar-muted">
-                  {t('goalOf', { m: Math.floor(p.todaySec / 60), g: Math.round((p.goalSec || 3600) / 60) })}
+                  {t('goalOf', { m: todayMin, g: goalMin })}
                 </span>
               </div>
               <div className="h-40 flex items-end gap-2 sm:gap-4 pt-4">
@@ -316,6 +412,8 @@ export const ProgressPage: React.FC = () => {
             </section>
           </div>
         )
+      ) : tab === 'exams' || tab === 'history' ? (
+        <ExamsPage view="list" embedded activeTab={tab === 'history' ? 'history' : 'tests'} />
       ) : (
         /* Leaderboard */
         <div className="space-y-4">

@@ -6,7 +6,6 @@ import {
   Star,
   Sparkles,
   ClipboardCheck,
-  TrendingUp,
   Trophy,
   Megaphone,
   ChevronRight,
@@ -24,7 +23,7 @@ import { AnalogFocusTimer } from '../../components/AnalogFocusTimer';
 
 export const HomePage: React.FC = () => {
   const { user, profile } = useAuth();
-  const { lang, t } = useSettings();
+  const { lang, dailyGoalMinutes, t } = useSettings();
 
   const catQuery = useQuery({
     queryKey: ['catalog'],
@@ -130,9 +129,9 @@ export const HomePage: React.FC = () => {
     ? cat.subjects.filter((s) => booksForLevel.some((b) => b.subjectId === s.id))
     : [];
 
-  const goalPct = prog ? Math.min(100, Math.round((prog.todaySec / (prog.goalSec || 3600)) * 100)) : 0;
   const todayMin = prog ? Math.floor(prog.todaySec / 60) : 0;
-  const goalMin = prog ? Math.round((prog.goalSec || 3600) / 60) : 60;
+  const goalMin = dailyGoalMinutes ?? (prog ? Math.round((prog.goalSec || 3600) / 60) : 60);
+  const goalPct = prog ? Math.min(100, Math.round((prog.todaySec / (goalMin * 60)) * 100)) : 0;
 
   return (
     <div className="space-y-6">
@@ -244,7 +243,7 @@ export const HomePage: React.FC = () => {
           {[
             { to: '/library', label: t('library'), icon: BookOpen },
             { to: '/dictionary', label: t('dictionary'), icon: BookA },
-            { to: '/exams', label: t('exams'), icon: ClipboardCheck },
+            { to: '/progress?tab=exams', label: t('exams'), icon: ClipboardCheck },
             { to: '/progress?tab=leaderboard', label: t('leaderboard'), icon: Trophy },
           ].map((qa) => (
             <Link

@@ -212,6 +212,10 @@ export const STRINGS: Record<Lang, Record<string, string>> = {
     'onb4.title': 'Bilingual dictionary & AI Tutor',
     'onb4.body': 'Look up Chinese or English words anytime in Dictionary, or ask the AI Tutor in the bottom-right corner.',
     markRead: 'Mark as read',
+    overview: 'Overview',
+    dailyGoal: 'Daily goal',
+    customGoal: 'Custom (5–240 min)',
+    apply: 'Apply',
   },
   bn: {
     tagline: 'আজ শিখি, আগামীতে নেতৃত্ব দিই',
@@ -409,6 +413,10 @@ export const STRINGS: Record<Lang, Record<string, string>> = {
     'onb4.title': 'দ্বিভাষিক ডিকশনারি ও AI টিউটর',
     'onb4.body': 'যেকোনো সময় ডিকশনারিতে শব্দ খোঁজো অথবা নিচের ডান কোণার AI টিউটর বাটনে প্রশ্ন করো।',
     markRead: 'পঠিত হিসেবে চিহ্নিত',
+    overview: 'একনজরে',
+    dailyGoal: 'দৈনিক লক্ষ্য',
+    customGoal: 'নিজস্ব (৫–২৪০ মিনিট)',
+    apply: 'প্রয়োগ',
   },
   zh: {
     tagline: '今日学习，明日引领',
@@ -606,6 +614,10 @@ export const STRINGS: Record<Lang, Record<string, string>> = {
     'onb4.title': '双语词典与 AI 辅导',
     'onb4.body': '随时在词典中查阅中英文单词，或点击右下角的 AI 辅导悬浮按钮提问。',
     markRead: '标为已读',
+    overview: '概览',
+    dailyGoal: '每日目标',
+    customGoal: '自定义（5–240 分钟）',
+    apply: '应用',
   },
 };
 

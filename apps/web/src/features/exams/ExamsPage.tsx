@@ -18,17 +18,25 @@ import { useStudyTracker } from '../../lib/study-tracker';
 import type { AttemptResult, AttemptSummary, ExamSession } from '../../lib/models';
 import { ErrorRetry, LoadingState, Modal, mmss, timeAgo, useToast } from '../../components/SanzarUI';
 
-export const ExamsPage: React.FC<{ view?: 'list' | 'run' | 'result' }> = ({ view = 'list' }) => {
+export const ExamsPage: React.FC<{
+  view?: 'list' | 'run' | 'result';
+  embedded?: boolean;
+  activeTab?: 'tests' | 'history';
+}> = ({ view = 'list', embedded = false, activeTab }) => {
   const { examId, attemptId } = useParams();
   if (view === 'run' && examId) return <ExamRunner examId={examId} />;
   if (view === 'result' && attemptId) return <AttemptReview attemptId={attemptId} />;
-  return <ExamsList />;
+  return <ExamsList embedded={embedded} activeTab={activeTab} />;
 };
 
-const ExamsList: React.FC = () => {
+const ExamsList: React.FC<{ embedded?: boolean; activeTab?: 'tests' | 'history' }> = ({
+  embedded = false,
+  activeTab,
+}) => {
   const { user, profile } = useAuth();
   const { t } = useSettings();
-  const [tab, setTab] = useState<'tests' | 'history'>('tests');
+  const [internalTab, setInternalTab] = useState<'tests' | 'history'>(activeTab ?? 'tests');
+  const tab = activeTab ?? internalTab;
 
   const catQuery = useQuery({
     queryKey: ['catalog'],
@@ -76,28 +84,30 @@ const ExamsList: React.FC = () => {
   });
 
   return (
-    <div className="space-y-5 max-w-4xl mx-auto">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-extrabold">{t('exams')}</h1>
-        <div className="flex rounded-xl border border-sanzar-border bg-sanzar-surface p-1 gap-1">
-          <button
-            onClick={() => setTab('tests')}
-            className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition ${
-              tab === 'tests' ? 'bg-sanzar-primary text-sanzar-onPrimary' : 'text-sanzar-text2'
-            }`}
-          >
-            {t('modelTests')}
-          </button>
-          <button
-            onClick={() => setTab('history')}
-            className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
-              tab === 'history' ? 'bg-sanzar-primary text-sanzar-onPrimary' : 'text-sanzar-text2'
-            }`}
-          >
-            <History className="w-3.5 h-3.5" /> {t('history')}
-          </button>
+    <div className={embedded ? 'space-y-4' : 'space-y-5 max-w-4xl mx-auto'}>
+      {!embedded && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-2xl font-extrabold">{t('exams')}</h1>
+          <div className="flex rounded-xl border border-sanzar-border bg-sanzar-surface p-1 gap-1">
+            <button
+              onClick={() => setInternalTab('tests')}
+              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition ${
+                tab === 'tests' ? 'bg-sanzar-primary text-sanzar-onPrimary' : 'text-sanzar-text2'
+              }`}
+            >
+              {t('modelTests')}
+            </button>
+            <button
+              onClick={() => setInternalTab('history')}
+              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+                tab === 'history' ? 'bg-sanzar-primary text-sanzar-onPrimary' : 'text-sanzar-text2'
+              }`}
+            >
+              <History className="w-3.5 h-3.5" /> {t('history')}
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {tab === 'tests' ? (
         catQuery.isLoading ? (
@@ -382,7 +392,7 @@ const AttemptReview: React.FC<{ attemptId: string }> = ({ attemptId }) => {
 
   return (
     <div className="max-w-3xl mx-auto space-y-5">
-      <Link to="/exams" className="inline-flex items-center gap-1.5 text-sm font-semibold text-sanzar-primary hover:underline">
+      <Link to="/progress?tab=exams" className="inline-flex items-center gap-1.5 text-sm font-semibold text-sanzar-primary hover:underline">
         <ArrowLeft className="w-4 h-4" /> {t('exams')}
       </Link>
 

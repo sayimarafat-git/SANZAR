@@ -8,6 +8,7 @@ import {
   BookmarkCheck,
   BookOpen,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -54,6 +55,8 @@ import {
   syncSavedVocabulary,
   syncTranslationHistory,
 } from './dictionary-db';
+
+const TARGET_LANG_STORAGE_KEY = 'sanzar.dict.targetLang';
 
 const LANG_OPTIONS: { code: DictLangCode; label: string; short: string }[] = [
   { code: 'bn', label: 'বাংলা', short: 'BN' },
@@ -464,9 +467,19 @@ export const DictionaryPage: React.FC = () => {
   // Unified search + inline translation state (initialized from URL ?q=...)
   const [query, setQuery] = useState(() => searchParams.get('q') || '');
   const [debouncedQuery, setDebouncedQuery] = useState(() => (searchParams.get('q') || '').trim());
-  const [targetLang, setTargetLang] = useState<DictLangCode>('bn');
+  const [targetLang, setTargetLang] = useState<DictLangCode>(() => {
+    try {
+      const saved = typeof window !== 'undefined' ? window.localStorage.getItem(TARGET_LANG_STORAGE_KEY) : null;
+      if (saved === 'bn' || saved === 'en' || saved === 'zh-Hans') return saved;
+    } catch {
+      // ignore storage errors
+    }
+    return 'bn';
+  });
   const [translation, setTranslation] = useState<TranslationResult | null>(null);
   const [translating, setTranslating] = useState(false);
+  const [showScrollHint, setShowScrollHint] = useState(false);
+  const scrollHintTimerRef = useRef<number | null>(null);
   const [translateError, setTranslateError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [savedTranslationKey, setSavedTranslationKey] = useState<string | null>(null);
@@ -628,6 +641,49 @@ export const DictionaryPage: React.FC = () => {
   const detectedClient = useMemo(() => detectClientLang(query), [query]);
   const detectedClientLang = detectedClient?.lang ?? null;
   const detectedIsPinyin = detectedClient?.isPinyin ?? false;
+
+  // Persist selected translator target language
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(TARGET_LANG_STORAGE_KEY, targetLang);
+    } catch {
+      // ignore storage errors
+    }
+  }, [targetLang]);
+
+  // Auto-hide scroll hint on user scroll and clear timer on unmount
+  useEffect(() => {
+    if (!showScrollHint) return;
+    const hideOnScroll = () => {
+      setShowScrollHint(false);
+      if (scrollHintTimerRef.current) {
+        window.clearTimeout(scrollHintTimerRef.current);
+        scrollHintTimerRef.current = null;
+      }
+    };
+    window.addEventListener('scroll', hideOnScroll, { passive: true });
+    return () => window.removeEventListener('scroll', hideOnScroll);
+  }, [showScrollHint]);
+
+  useEffect(() => {
+    return () => {
+      if (scrollHintTimerRef.current) {
+        window.clearTimeout(scrollHintTimerRef.current);
+      }
+    };
+  }, []);
+
+  const triggerScrollHint = useCallback((translatedText?: string) => {
+    if (!translatedText?.trim()) return;
+    if (scrollHintTimerRef.current) {
+      window.clearTimeout(scrollHintTimerRef.current);
+    }
+    setShowScrollHint(true);
+    scrollHintTimerRef.current = window.setTimeout(() => {
+      setShowScrollHint(false);
+      scrollHintTimerRef.current = null;
+    }, 4000);
+  }, []);
 
   // Automatically pick a sensible non-identical target language when the user switches script
   useEffect(() => {
@@ -952,6 +1008,7 @@ export const DictionaryPage: React.FC = () => {
             targetPinyin: cached.targetPinyin,
             fromCache: true,
           });
+          triggerScrollHint(cached.translatedText);
           // Bump existing history entry to the top (deduplicated in-place, never creates a duplicate)
           const nowMs = Date.now();
           const bumped = await addLocalTranslationHistory(uid, {
@@ -989,6 +1046,7 @@ export const DictionaryPage: React.FC = () => {
       });
 
       setTranslation(res);
+      triggerScrollHint(res.translatedText);
 
       void putCachedTranslation({
         sourceLanguage: res.sourceLanguage,
@@ -1444,6 +1502,26 @@ export const DictionaryPage: React.FC = () => {
             </div>
           )}
 
+          {showScrollHint && translation?.translatedText?.trim() && (
+            <div className="flex justify-center -mt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowScrollHint(false);
+                  if (scrollHintTimerRef.current) {
+                    window.clearTimeout(scrollHintTimerRef.current);
+                    scrollHintTimerRef.current = null;
+                  }
+                  window.scrollBy({ top: 260, behavior: 'smooth' });
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-sanzar-primarySoft text-sanzar-primary border border-sanzar-primary/30 shadow-sm hover:bg-sanzar-primary hover:text-sanzar-onPrimary transition animate-pulse"
+              >
+                <ChevronDown className="w-3.5 h-3.5 animate-bounce" />
+                <span>Scroll down for writing studio &amp; details</span>
+              </button>
+            </div>
+          )}
+
           {/* Auto-displayed Writing & Stroke Studio (synced with Translate button) */}
           {translation?.translatedText?.trim() && translation.translatedText.trim().length <= 24 && (
             <div className="sanzar-card p-4 sm:p-5 border-sanzar-primary/25">
@@ -1489,48 +1567,25 @@ export const DictionaryPage: React.FC = () => {
 
           {/* Compact Filter & Results Bar */}
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-1.5">
-              {(
-                [
-                  { k: 'all', label: t('allWords') },
-                  { k: 'zh-Hans', label: '简体中文' },
-                  { k: 'en', label: 'English' },
-                  { k: 'bn', label: 'বাংলা' },
-                ] as const
-              ).map((tab) => (
-                <button
-                  key={tab.k}
-                  type="button"
-                  onClick={() => setLangFilter(tab.k)}
-                  className={`px-3.5 py-1.5 rounded-full text-xs font-semibold border transition ${
-                    langFilter === tab.k
-                      ? 'bg-sanzar-primary text-sanzar-onPrimary border-sanzar-primary shadow-sm'
-                      : 'bg-sanzar-surface border-sanzar-border text-sanzar-text2 hover:bg-sanzar-surface2'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
+            <span className="text-xs font-medium text-sanzar-muted">
+              {entries.length} {entries.length === 1 ? 'word' : 'words'}
+            </span>
 
             <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-sanzar-muted">
-                {entries.length} {entries.length === 1 ? 'word' : 'words'}
-              </span>
               <button
                 type="button"
                 onClick={() => setShowFilters((v) => !v)}
                 className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition inline-flex items-center gap-1.5 ${
-                  showFilters || hskFilter || posFilter
+                  showFilters || activeFilterCount > 0
                     ? 'bg-sanzar-primarySoft border-sanzar-primary/40 text-sanzar-primary'
                     : 'bg-sanzar-surface border-sanzar-border text-sanzar-text2 hover:bg-sanzar-surface2'
                 }`}
               >
                 <Filter className="w-3.5 h-3.5" />
                 Filters
-                {hskFilter || posFilter ? (
+                {activeFilterCount > 0 ? (
                   <span className="px-1.5 py-0.2 rounded-full bg-sanzar-primary text-sanzar-onPrimary text-[10px]">
-                    {(hskFilter ? 1 : 0) + (posFilter ? 1 : 0)}
+                    {activeFilterCount}
                   </span>
                 ) : null}
               </button>
@@ -1550,9 +1605,35 @@ export const DictionaryPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Expandable HSK + Part-of-Speech Filter Drawer */}
+          {/* Expandable Language + HSK + Part-of-Speech Filter Drawer */}
           {showFilters && (
             <div className="sanzar-card p-4 flex flex-wrap items-center gap-4">
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-sanzar-muted">Language</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {(
+                    [
+                      { k: 'all', label: t('allWords') },
+                      { k: 'zh-Hans', label: '简体中文' },
+                      { k: 'en', label: 'English' },
+                      { k: 'bn', label: 'বাংলা' },
+                    ] as const
+                  ).map((tab) => (
+                    <button
+                      key={tab.k}
+                      type="button"
+                      onClick={() => setLangFilter(tab.k)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
+                        langFilter === tab.k
+                          ? 'bg-sanzar-primary text-sanzar-onPrimary border-sanzar-primary'
+                          : 'bg-sanzar-surface2 border-sanzar-border text-sanzar-text2 hover:text-sanzar-text'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="space-y-1.5">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-sanzar-muted">
                   {langFilter === 'en' || langFilter === 'bn' ? 'CEFR Level' : langFilter === 'zh-Hans' ? 'HSK Level' : 'Level (HSK / CEFR)'}

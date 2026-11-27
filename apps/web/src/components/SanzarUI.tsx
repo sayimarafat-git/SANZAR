@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { useSettings } from '../lib/settings-context';
+import { useOverlayBackButton } from '../lib/useOverlayBackButton';
 
 export const AmbientBackdrop: React.FC = () => (
   <div aria-hidden="true" className="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
@@ -203,6 +204,8 @@ export const Modal: React.FC<{
   onClose: () => void;
   children: React.ReactNode;
 }> = ({ title, onClose, children }) => {
+  useOverlayBackButton(true, onClose);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
