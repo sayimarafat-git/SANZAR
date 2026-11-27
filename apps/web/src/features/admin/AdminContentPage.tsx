@@ -338,6 +338,12 @@ const BooksAndSubjectsView: React.FC = () => {
                   <StatusPill s={b.status} />
                 </td>
                 <td className="p-3 text-right space-x-2 whitespace-nowrap">
+                  <Link
+                    to={`/admin/content/book/${encodeURIComponent(b.id)}`}
+                    className="inline-block px-3 py-1 rounded-lg border border-sanzar-primary/50 text-sanzar-primary text-xs font-semibold hover:bg-sanzar-primarySoft"
+                  >
+                    Manage
+                  </Link>
                   <button
                     onClick={() => setEditingBook(b)}
                     className="px-3 py-1 rounded-lg border border-sanzar-border text-xs font-semibold hover:bg-sanzar-surface2"
@@ -383,15 +389,23 @@ const BooksAndSubjectsView: React.FC = () => {
           <tbody>
             {data.subjects.map((s) => (
               <tr key={s.id} className="border-b border-sanzar-border last:border-0">
-                <td className="p-3 font-bold">{s.name_en}</td>
+                <td className="p-3">
+                  <button
+                    type="button"
+                    onClick={() => setEditingSubject(s)}
+                    className="font-bold text-sanzar-primary hover:underline text-left"
+                  >
+                    {s.name_en}
+                  </button>
+                </td>
                 <td className="p-3 text-xs text-sanzar-muted">{s.id}</td>
                 <td className="p-3">{data.books.filter((b) => b.subject_id === s.id).length}</td>
                 <td className="p-3 text-right space-x-2 whitespace-nowrap">
                   <button
                     onClick={() => setEditingSubject(s)}
-                    className="px-3 py-1 rounded-lg border border-sanzar-border text-xs font-semibold hover:bg-sanzar-surface2"
+                    className="px-3 py-1 rounded-lg border border-sanzar-primary/50 text-sanzar-primary text-xs font-semibold hover:bg-sanzar-primarySoft"
                   >
-                    Edit
+                    Manage
                   </button>
                   <button
                     onClick={() => void deleteSubject(s)}
@@ -451,7 +465,8 @@ const BookForm: React.FC<{ book: Partial<AdminBook> | null; content: AdminConten
   const [f, setF] = useState({
     id: book?.id ?? '',
     title: book?.title ?? '',
-    subject_id: book?.subject_id ?? content.subjects[0]?.id ?? '',
+    subject_id: book?.subject_id ?? content.subjects[0]?.id ?? '__custom__',
+    custom_subject: '',
     edition: book?.edition ?? '',
     author: book?.author ?? '',
     c1: book?.cover_c1 ?? '#0b523b',
@@ -505,10 +520,17 @@ const BookForm: React.FC<{ book: Partial<AdminBook> | null; content: AdminConten
 
   const submit = async () => {
     const id = isNew ? f.id || slugify(f.title) : f.id;
+    const isCustomSub = f.subject_id === '__custom__';
+    const customSubName = f.custom_subject.trim();
+    const customSubId = customSubName ? slugify(customSubName) : '';
+    const resolvedSubjectId = isCustomSub ? customSubId : f.subject_id;
+
     const errs = [
       !isId(id) && 'ID may use letters, digits, dot, dash and underscore.',
       f.title.trim().length < 2 && 'Title is too short.',
-      !f.subject_id && 'Create a subject before adding books.',
+      isCustomSub
+        ? (customSubName.length < 2 || !isId(customSubId)) && 'Enter a valid custom subject name (e.g. All-in-One).'
+        : !f.subject_id && 'Choose a subject or enter a custom subject.',
       f.levels.length !== 1 && 'Choose one learning language.',
     ].filter(Boolean) as string[];
     if (errs.length) return setErrors(errs);
@@ -518,11 +540,25 @@ const BookForm: React.FC<{ book: Partial<AdminBook> | null; content: AdminConten
     setBusy(true);
     setErrors([]);
     try {
+      // Auto-create custom subject if it doesn't exist yet
+      if (isCustomSub && !content.subjects.some((s) => s.id === customSubId)) {
+        await apiRequest(`/v1/admin/subjects/${encodeURIComponent(customSubId)}`, {
+          method: 'PUT',
+          bodyJson: {
+            name_en: customSubName,
+            name_bn: customSubName,
+            name_zh: '',
+            icon: 'book',
+            color: f.c1 || '#176B4B',
+            sort: content.subjects.length,
+          },
+        });
+      }
       await apiRequest(`/v1/admin/books/${id}`, {
         method: 'PUT',
         bodyJson: {
           title: f.title.trim(),
-          subject_id: f.subject_id,
+          subject_id: resolvedSubjectId,
           edition: f.edition,
           author: f.author,
           cover: [f.c1, f.c2],
@@ -560,14 +596,29 @@ const BookForm: React.FC<{ book: Partial<AdminBook> | null; content: AdminConten
             className="sanzar-input text-sm"
           />
         </label>
-        <label className="space-y-1">
-          <span>Subject</span>
-          <select value={f.subject_id} onChange={(e) => setF({ ...f, subject_id: e.target.value })} className="sanzar-input text-sm">
-            {content.subjects.map((s) => (
-              <option key={s.id} value={s.id}>{s.name_en}</option>
-            ))}
-          </select>
-        </label>
+        <div className="space-y-1.5">
+          <label className="block space-y-1">
+            <span>Subject</span>
+            <select
+              value={f.subject_id}
+              onChange={(e) => setF({ ...f, subject_id: e.target.value })}
+              className="sanzar-input text-sm"
+            >
+              {content.subjects.map((s) => (
+                <option key={s.id} value={s.id}>{s.name_en}</option>
+              ))}
+              <option value="__custom__">+ Custom subject…</option>
+            </select>
+          </label>
+          {f.subject_id === '__custom__' && (
+            <input
+              value={f.custom_subject}
+              onChange={(e) => setF({ ...f, custom_subject: e.target.value })}
+              placeholder="e.g. All-in-One, Comprehensive, HSK 1 Full"
+              className="sanzar-input text-sm"
+            />
+          )}
+        </div>
         <label className="space-y-1">
           <span>Edition</span>
           <input value={f.edition} onChange={(e) => setF({ ...f, edition: e.target.value })} className="sanzar-input text-sm" />
@@ -817,7 +868,7 @@ const BookDetailView: React.FC<{ bookId: string }> = ({ bookId }) => {
     try {
       await apiRequest(`/v1/admin/chapters/${wholeBookId}`, {
         method: 'PUT',
-        bodyJson: { book_id: bookId, number: 0, title: `${book.title} (Whole Book)`, status: 'published' },
+        bodyJson: { book_id: bookId, number: 0, title: `${book.title} — Full Edition`, status: 'published' },
       });
       await qc.invalidateQueries({ queryKey: ['admin', 'content'] });
       toast('Whole book content enabled');
@@ -850,9 +901,16 @@ const BookDetailView: React.FC<{ bookId: string }> = ({ bookId }) => {
       {/* Whole Book Content Option */}
       <div className="sanzar-card p-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="font-bold text-sm">Whole Book Content</h2>
+          <button
+            type="button"
+            onClick={openWholeBook}
+            disabled={creatingWhole}
+            className="font-bold text-sm text-sanzar-primary hover:underline text-left disabled:opacity-50"
+          >
+            Whole Book Content
+          </button>
           <p className="text-xs text-sanzar-muted">
-            Add notes, PDFs/videos/links, and questions for the whole book at once — or add separate chapters below.
+            Add notes, PDFs/videos/links, and questions for the whole book at once (shown to learners as &ldquo;Full Edition&rdquo;) — or add separate chapters below.
           </p>
           {wholeBook && (
             <div className="flex items-center gap-3 mt-1.5 text-xs text-sanzar-text2">
@@ -905,6 +963,12 @@ const BookDetailView: React.FC<{ bookId: string }> = ({ bookId }) => {
                 <td className="p-3">{data.questionCounts[c.id] ?? 0}</td>
                 <td className="p-3"><StatusPill s={c.status} /></td>
                 <td className="p-3 text-right space-x-2 whitespace-nowrap">
+                  <Link
+                    to={`/admin/content/chapter/${encodeURIComponent(c.id)}`}
+                    className="inline-block px-3 py-1 rounded-lg border border-sanzar-primary/50 text-sanzar-primary text-xs font-semibold hover:bg-sanzar-primarySoft"
+                  >
+                    Manage
+                  </Link>
                   <button
                     onClick={() => setEditing(c)}
                     className="px-3 py-1 rounded-lg border border-sanzar-border text-xs font-semibold hover:bg-sanzar-surface2"

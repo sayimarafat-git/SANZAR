@@ -194,7 +194,13 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
                   {c.number === 0 ? '★' : c.number}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h2 className="font-bold text-sm sm:text-base truncate">{c.title}</h2>
+                  <h2 className="font-bold text-sm sm:text-base truncate">
+                    {c.number === 0
+                      ? c.title.replace(/\s*\(Whole Book\)\s*$/i, '').trim() === book.title
+                        ? `${book.title} — Full Edition`
+                        : c.title.replace(/\(Whole Book\)/gi, 'Full Edition')
+                      : c.title}
+                  </h2>
                   <p className="text-xs text-sanzar-muted">
                     {[
                       c.hasNotes ? t('notes') : null,
@@ -240,11 +246,17 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
           >
             <ArrowLeft className="w-4 h-4" /> {book.title}
           </Link>
-          <span className="sanzar-pill">{ch.number === 0 ? book.title : t('chapter', { n: ch.number })}</span>
+          <span className="sanzar-pill">{ch.number === 0 ? 'Full Edition' : t('chapter', { n: ch.number })}</span>
         </div>
 
         <div>
-          <h1 className="text-2xl font-extrabold">{ch.title}</h1>
+          <h1 className="text-2xl font-extrabold">
+            {ch.number === 0
+              ? ch.title.replace(/\s*\(Whole Book\)\s*$/i, '').trim() === book.title
+                ? `${book.title} — Full Edition`
+                : ch.title.replace(/\(Whole Book\)/gi, 'Full Edition')
+              : ch.title}
+          </h1>
           <p className="text-sm text-sanzar-muted">{book.title}</p>
         </div>
 
