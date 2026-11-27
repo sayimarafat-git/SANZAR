@@ -364,10 +364,24 @@ async function auditList(env, ctx, url) {
 
 
 /* ============================== router ============================== */
+function isOriginAllowed(origin, allowed) {
+  if (!origin) return false;
+  if (allowed.includes(origin)) return true;
+  let parsed;
+  try { parsed = new URL(origin); } catch { return false; }
+  for (const rule of allowed) {
+    const m = rule.match(/^(https?:)\/\/\*\.(.+)$/);
+    if (m && parsed.protocol === m[1] && parsed.hostname.endsWith(`.${m[2]}`) && parsed.hostname.length > m[2].length + 1) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function cors(env, req) {
   const origin = req.headers.get('origin');
   const allowed = String(env.ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
-  if (!origin || !allowed.includes(origin)) return {};
+  if (!isOriginAllowed(origin, allowed)) return {};
   return { 'access-control-allow-origin': origin, 'access-control-allow-methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS', 'access-control-allow-headers': 'authorization,content-type,if-none-match', 'access-control-expose-headers': 'etag', 'access-control-max-age': '600', vary: 'origin' };
 }
 
