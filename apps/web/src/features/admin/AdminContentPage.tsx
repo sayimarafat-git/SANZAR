@@ -1847,6 +1847,7 @@ const ResourceForm: React.FC<{ chapterId: string; book?: AdminBook; res: AdminRe
           <select value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })} className="sanzar-input text-sm">
             <option value="pdf">PDF</option>
             <option value="video">Video</option>
+            <option value="audio">Audio (MP3 / Drive)</option>
             <option value="ppt">Slides</option>
             <option value="link">Link</option>
           </select>

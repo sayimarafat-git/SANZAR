@@ -1,5 +1,4 @@
-import { apiRequest } from './api-client';
-import { auth } from './firebase';
+import { apiRequest, getAuthToken } from './api-client';
 
 export interface ExtractedThumbnail {
   coverImage: string;
@@ -269,10 +268,9 @@ export async function extractThumbnailFromFile(file: File, fallbackTitle?: strin
 }
 
 async function fetchAdminPreviewBytes(url: string): Promise<ArrayBuffer> {
-  const user = auth.currentUser;
-  if (!user) throw new Error('Sign in required');
+  const token = await getAuthToken();
+  if (!token) throw new Error('Sign in required');
   const { API_BASE } = await import('./api-client');
-  const token = await user.getIdToken();
   const res = await fetch(`${API_BASE}/v1/admin/fetch-preview?url=${encodeURIComponent(url)}`, {
     headers: { Authorization: `Bearer ${token}` },
   });

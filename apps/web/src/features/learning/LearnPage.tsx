@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { Suspense, useMemo, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -11,6 +11,7 @@ import {
   HelpCircle,
   PlayCircle,
   Presentation,
+  Volume2,
   Link as LinkIcon,
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth-context';
@@ -20,6 +21,8 @@ import { colorForSubject } from '../../lib/i18n';
 import { useStudyTracker } from '../../lib/study-tracker';
 import type { ProgressData, Resource } from '../../lib/models';
 import { BookCover, ErrorRetry, LoadingState, useToast } from '../../components/SanzarUI';
+
+const PptxSlideViewer = React.lazy(() => import('./PptxSlideViewer'));
 
 function embeddedUrlFor(resource: Resource): string | null {
   const url = resource.url;
@@ -294,10 +297,14 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
 
     const iconForRes = (type: string) => {
       if (type === 'video') return PlayCircle;
+      if (type === 'audio') return Volume2;
       if (type === 'pdf') return FileText;
       if (type === 'ppt') return Presentation;
       return LinkIcon;
     };
+
+    const audioResources = ch.resources.filter((r) => r.type === 'audio' && r.url);
+    const otherResources = ch.resources.filter((r) => r.type !== 'audio');
 
     return (
       <div className="space-y-6 max-w-4xl mx-auto">
@@ -331,14 +338,65 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
           <p className="text-sm text-sanzar-muted">{book.title}</p>
         </div>
 
+        {/* Inline Listening Audio Tracks */}
+        {audioResources.length > 0 && (
+          <section className="space-y-2.5">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-sanzar-muted flex items-center gap-1.5">
+              <Volume2 className="w-4 h-4 text-sanzar-primary" /> Listening Audio ({audioResources.length})
+            </h2>
+            <div className="space-y-2.5">
+              {audioResources.map((r) => {
+                const audioEmbed = embeddedUrlFor(r);
+                const rDone = completedSet.has(r.id);
+                return (
+                  <div key={r.id} className="sanzar-card p-3.5 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-sm flex items-center gap-2 min-w-0">
+                        <Volume2 className="w-4 h-4 text-sanzar-primary shrink-0" />
+                        <span className="truncate">{r.title || 'Audio track'}</span>
+                      </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {rDone ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-sanzar-success">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> {t('done')}
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => markComplete(r.id)}
+                            disabled={busyComplete}
+                            className="text-[11px] font-semibold text-sanzar-primary hover:underline disabled:opacity-50"
+                          >
+                            {t('markDone')}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {audioEmbed ? (
+                      <iframe
+                        src={audioEmbed}
+                        title={r.title || 'Audio'}
+                        className="w-full h-[72px] rounded-xl border border-sanzar-border/60 bg-sanzar-surface2"
+                        allow="autoplay"
+                      />
+                    ) : (
+                      <audio controls preload="metadata" src={r.url || ''} className="w-full h-10" />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         {/* Resources & Quiz */}
-        {(ch.resources.length > 0 || quiz) && (
+        {(otherResources.length > 0 || quiz) && (
           <section className="space-y-2.5">
             <h2 className="text-sm font-bold uppercase tracking-wider text-sanzar-muted">
               {t('resources')}
             </h2>
             <div className="grid sm:grid-cols-2 gap-3">
-              {ch.resources.map((r) => {
+              {otherResources.map((r) => {
                 const Icon = iconForRes(r.type);
                 const rDone = completedSet.has(r.id);
                 return (
@@ -472,7 +530,40 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
       <h1 className="text-xl font-extrabold">{resource.title || resource.type.toUpperCase()}</h1>
 
       <div className="sanzar-card overflow-hidden">
-        {resource.type === 'video' && !embed ? (
+        {resource.type === 'audio' ? (
+          <div className="p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-sanzar-primarySoft text-sanzar-primary flex items-center justify-center shrink-0">
+                <Volume2 className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-bold text-sm truncate">{resource.title || 'Listening Audio'}</p>
+                <p className="text-xs text-sanzar-muted">{book.title} · {chapter.title}</p>
+              </div>
+            </div>
+            {embed ? (
+              <iframe
+                src={embed}
+                title={resource.title || 'Audio'}
+                className="w-full h-[96px] rounded-xl border border-sanzar-border bg-sanzar-surface2"
+                allow="autoplay"
+              />
+            ) : (
+              <audio
+                src={resUrl}
+                controls
+                className="w-full"
+                onPlay={() => setPlayingVideo(true)}
+                onPause={() => setPlayingVideo(false)}
+                onEnded={() => setPlayingVideo(false)}
+              />
+            )}
+          </div>
+        ) : resource.type === 'ppt' && !/docs\.google\.com|drive\.google\.com/i.test(resUrl) ? (
+          <Suspense fallback={<LoadingState />}>
+            <PptxSlideViewer url={resUrl} title={resource.title || 'Presentation'} />
+          </Suspense>
+        ) : resource.type === 'video' && !embed ? (
           <video
             src={resUrl}
             controls

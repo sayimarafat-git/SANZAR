@@ -12,12 +12,16 @@ const ProgressPage = lazy(() => import('../features/progress/ProgressPage').then
 const CommunityPage = lazy(() => import('../features/community/CommunityPage').then((m) => ({ default: m.CommunityPage })));
 const ProfilePage = lazy(() => import('../features/profile/ProfilePage').then((m) => ({ default: m.ProfilePage })));
 const AuthPage = lazy(() => import('../features/auth/AuthPage').then((m) => ({ default: m.AuthPage })));
+const CallbackPage = lazy(() => import('../features/auth/CallbackPage').then((m) => ({ default: m.CallbackPage })));
 const AdminDashboard = lazy(() => import('../features/admin/AdminDashboard').then((m) => ({ default: m.AdminDashboard })));
 
 export const AppRouter: React.FC = () => {
   return (
     <Suspense fallback={<LoadingState />}>
       <Routes>
+        {/* OIDC Sign-in Callback */}
+        <Route path="/callback" element={<CallbackPage />} />
+
         {/* Admin Dashboard with its own sticky sidebar shell */}
         <Route path="/admin/*" element={<AdminDashboard />} />
 

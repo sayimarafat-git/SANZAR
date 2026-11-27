@@ -52,7 +52,7 @@ sealed interface SanzarRoute {
 @Composable
 fun AppShell(
     viewModel: SanzarViewModel,
-    onGoogleSignInClick: () -> Unit
+    onSignInClick: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
     val s = LocalStrings.current
@@ -94,22 +94,10 @@ fun AppShell(
             )
             return
         }
-        state.firebaseUser == null && !state.guestMode -> {
+        state.authUser == null && !state.guestMode -> {
             SignInScreen(
-                onSignIn = viewModel::signInWithEmail,
-                onRegister = viewModel::registerWithEmail,
-                onForgotPassword = viewModel::sendPasswordReset,
-                onGoogleSignInClick = onGoogleSignInClick,
+                onSignInClick = onSignInClick,
                 onContinueGuest = viewModel::continueAsGuest
-            )
-            return
-        }
-        state.firebaseUser != null && !state.isEmailVerified -> {
-            VerifyEmailScreen(
-                email = state.firebaseUser?.email.orEmpty(),
-                onCheckVerified = viewModel::checkEmailVerified,
-                onResend = viewModel::sendEmailVerification,
-                onSignOut = viewModel::signOut
             )
             return
         }
@@ -119,8 +107,8 @@ fun AppShell(
                 levels = state.catalog?.levels.orEmpty(),
                 initialLevelId = state.profile?.levelId ?: state.selectedLevelId,
                 initialName = state.profile?.displayName
-                    ?.ifBlank { state.firebaseUser?.displayName.orEmpty() }
-                    ?: state.firebaseUser?.displayName.orEmpty(),
+                    ?.ifBlank { state.authUser?.displayName.orEmpty() }
+                    ?: state.authUser?.displayName.orEmpty(),
                 initialLanguage = state.language,
                 loading = state.catalogLoading,
                 error = state.catalogError,

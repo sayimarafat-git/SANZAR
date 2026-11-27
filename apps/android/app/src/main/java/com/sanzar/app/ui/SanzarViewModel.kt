@@ -1,14 +1,11 @@
 package com.sanzar.app.ui
 
+import android.app.Activity
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.FirebaseAuthException
-import com.google.firebase.auth.FirebaseUser
-import com.google.firebase.auth.GoogleAuthProvider
-import com.google.firebase.auth.UserProfileChangeRequest
 import com.sanzar.app.SanzarApplication
+import com.sanzar.app.data.auth.AuthUser
 import com.sanzar.app.data.local.*
 import com.sanzar.app.data.model.*
 import com.sanzar.app.data.remote.ApiException
@@ -17,7 +14,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -35,8 +31,8 @@ data class SanzarUiState(
     val language: String = "bn",
     val guestMode: Boolean = false,
     val selectedLevelId: String? = null,
-    val firebaseUser: FirebaseUser? = null,
-    val isEmailVerified: Boolean = false,
+    val authUser: AuthUser? = null,
+    val isEmailVerified: Boolean = true,
     val profile: Profile? = null,
     val catalog: Catalog? = null,
     val catalogLoading: Boolean = false,
@@ -82,12 +78,12 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
     private val db = app.database
     private val api = app.apiClient
     private val downloader = app.resourceDownloader
-    private val auth = FirebaseAuth.getInstance()
+    private val auth = app.authManager
 
     private val _uiState = MutableStateFlow(
         SanzarUiState(
-            firebaseUser = auth.currentUser,
-            isEmailVerified = auth.currentUser?.isEmailVerified == true
+            authUser = auth.currentUser(),
+            isEmailVerified = auth.currentUser()?.isEmailVerified == true
         )
     )
     val uiState: StateFlow<SanzarUiState> = _uiState.asStateFlow()
@@ -99,11 +95,11 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
     private var studySeconds: Int = 0
     private var studyLastActivityAt: Long = 0L
 
-    private val authListener = FirebaseAuth.AuthStateListener { firebaseAuth ->
-        val user = firebaseAuth.currentUser
+    private fun refreshAuthState() {
+        val user = auth.currentUser()
         _uiState.update {
             it.copy(
-                firebaseUser = user,
+                authUser = user,
                 isEmailVerified = user?.isEmailVerified == true
             )
         }
@@ -117,7 +113,9 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     init {
-        auth.addAuthStateListener(authListener)
+        if (auth.isAuthenticated) {
+            refreshAuthState()
+        }
 
         viewModelScope.launch {
             prefs.state.collect { p ->
@@ -171,13 +169,12 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
         }
 
         refreshCatalog()
-        if (auth.currentUser != null) {
+        if (auth.isAuthenticated) {
             viewModelScope.launch { refreshProfileAndProgress() }
         }
     }
 
     override fun onCleared() {
-        auth.removeAuthStateListener(authListener)
         stopStudySession()
         super.onCleared()
     }
@@ -203,7 +200,7 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
     fun setLanguage(lang: String) {
         viewModelScope.launch {
             prefs.setLanguage(lang)
-            if (auth.currentUser != null) {
+            if (auth.isAuthenticated) {
                 try {
                     val updated = api.updateMe(mapOf("locale" to lang))
                     _uiState.update { it.copy(profile = updated) }
@@ -228,80 +225,15 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    // --- Firebase Authentication ---
+    // --- Logto Authentication ---
 
-    suspend fun signInWithEmail(email: String, password: String): String? {
-        return try {
-            auth.signInWithEmailAndPassword(email.trim(), password).await()
-            prefs.setGuestMode(false)
-            refreshProfileAndProgress()
-            null
-        } catch (e: Exception) {
-            mapAuthError(e)
-        }
-    }
-
-    suspend fun registerWithEmail(name: String, email: String, password: String): String? {
-        return try {
-            val res = auth.createUserWithEmailAndPassword(email.trim(), password).await()
-            res.user?.updateProfile(
-                UserProfileChangeRequest.Builder().setDisplayName(name.trim()).build()
-            )?.await()
-            res.user?.sendEmailVerification()?.await()
-            _uiState.update {
-                it.copy(
-                    firebaseUser = auth.currentUser,
-                    isEmailVerified = auth.currentUser?.isEmailVerified == true
-                )
+    fun signInWithLogto(activity: Activity) {
+        auth.signIn(activity) { err ->
+            if (err != null) {
+                showMessage(err.localizedMessage ?: "Sign-in cancelled or failed")
+            } else {
+                refreshAuthState()
             }
-            prefs.setGuestMode(false)
-            null
-        } catch (e: Exception) {
-            mapAuthError(e)
-        }
-    }
-
-    suspend fun signInWithGoogleIdToken(idToken: String): String? {
-        return try {
-            val credential = GoogleAuthProvider.getCredential(idToken, null)
-            auth.signInWithCredential(credential).await()
-            prefs.setGuestMode(false)
-            refreshProfileAndProgress()
-            null
-        } catch (e: Exception) {
-            mapAuthError(e)
-        }
-    }
-
-    suspend fun sendPasswordReset(email: String): String? {
-        return try {
-            auth.sendPasswordResetEmail(email.trim()).await()
-            null
-        } catch (e: Exception) {
-            mapAuthError(e)
-        }
-    }
-
-    suspend fun sendEmailVerification(): String? {
-        return try {
-            auth.currentUser?.sendEmailVerification()?.await()
-            null
-        } catch (e: Exception) {
-            mapAuthError(e)
-        }
-    }
-
-    suspend fun checkEmailVerified(): Boolean {
-        return try {
-            auth.currentUser?.reload()?.await()
-            val verified = auth.currentUser?.isEmailVerified == true
-            _uiState.update {
-                it.copy(firebaseUser = auth.currentUser, isEmailVerified = verified)
-            }
-            if (verified) refreshProfileAndProgress()
-            verified
-        } catch (_: Exception) {
-            false
         }
     }
 
@@ -318,7 +250,7 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
             prefs.setLanguage(language)
             prefs.setSelectedLevelId(levelId)
             val cleanName = displayName.trim()
-            if (auth.currentUser != null) {
+            if (auth.isAuthenticated) {
                 try {
                     val payload = mutableMapOf<String, Any?>(
                         "level_id" to levelId,
@@ -375,7 +307,7 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
         }
         if (changes.isEmpty()) return true
         return try {
-            if (auth.currentUser != null) {
+            if (auth.isAuthenticated) {
                 val updated = api.updateMe(changes)
                 _uiState.update { it.copy(profile = updated, selectedLevelId = updated.levelId ?: it.selectedLevelId) }
             } else {
@@ -398,36 +330,37 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun signOut() {
-        viewModelScope.launch {
-            auth.signOut()
-            prefs.clearAuthBoundData()
-            _uiState.update {
-                it.copy(
-                    firebaseUser = null,
-                    isEmailVerified = false,
-                    profile = null,
-                    guestMode = false,
-                    notifications = emptyList(),
-                    unreadNotifications = 0
-                )
+        auth.signOut {
+            viewModelScope.launch {
+                prefs.clearAuthBoundData()
+                _uiState.update {
+                    it.copy(
+                        authUser = null,
+                        isEmailVerified = false,
+                        profile = null,
+                        guestMode = false,
+                        notifications = emptyList(),
+                        unreadNotifications = 0
+                    )
+                }
             }
         }
     }
 
     suspend fun deleteAccount(): String? {
         return try {
-            if (auth.currentUser != null) {
+            if (auth.isAuthenticated) {
                 try {
                     api.deleteMe()
                 } catch (_: Exception) {
                 }
-                auth.currentUser?.delete()?.await()
+                auth.signOut {}
             }
             prefs.clearAuthBoundData()
             db.progressDao().clearAll()
             _uiState.update {
                 it.copy(
-                    firebaseUser = null,
+                    authUser = null,
                     isEmailVerified = false,
                     profile = null,
                     guestMode = false
@@ -435,19 +368,7 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
             }
             null
         } catch (e: Exception) {
-            mapAuthError(e)
-        }
-    }
-
-    private fun mapAuthError(e: Exception): String {
-        val code = (e as? FirebaseAuthException)?.errorCode
-        return when (code) {
-            "ERROR_INVALID_EMAIL" -> "err.email"
-            "ERROR_WRONG_PASSWORD", "ERROR_INVALID_CREDENTIAL", "ERROR_USER_NOT_FOUND" -> "err.wrongCredentials"
-            "ERROR_EMAIL_ALREADY_IN_USE" -> "err.emailInUse"
-            "ERROR_USER_DISABLED" -> "err.blocked"
-            "ERROR_REQUIRES_RECENT_LOGIN" -> "recentLogin"
-            else -> e.localizedMessage ?: "err.generic"
+            e.localizedMessage ?: "err.generic"
         }
     }
 
@@ -572,7 +493,7 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
     // --- Profile, Progress & Notifications ---
 
     suspend fun refreshProfileAndProgress() {
-        if (auth.currentUser == null) return
+        if (!auth.isAuthenticated) return
         try {
             val profile = api.getMe()
             if (profile.levelId != null) {
@@ -594,7 +515,7 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private suspend fun refreshProgressOnly() {
-        if (auth.currentUser == null) return
+        if (!auth.isAuthenticated) return
         try {
             val p = api.fetchProgress()
             val mergedCompleted = p.completed + _uiState.value.localCompletedIds
@@ -647,7 +568,7 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
             db.progressDao().upsertProgress(
                 ProgressEntity(itemId = itemId, isCompleted = true, updatedAt = System.currentTimeMillis())
             )
-            if (auth.currentUser != null) {
+            if (auth.isAuthenticated) {
                 try {
                     val res = api.completeItem(itemId)
                     val xp = res.optInt("xpAwarded", 0)
@@ -722,7 +643,7 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
             put("startedAt", System.currentTimeMillis() - sec * 1000L)
         }
 
-        if (auth.currentUser != null) {
+        if (auth.isAuthenticated) {
             try {
                 api.sendStudyEvents(listOf(event))
                 refreshProgressOnly()
@@ -794,7 +715,7 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
             _uiState.update { it.copy(isSyncing = true) }
             try {
                 val pending = db.pendingSyncDao().getPending()
-                if (pending.isNotEmpty() && auth.currentUser != null) {
+                if (pending.isNotEmpty() && auth.isAuthenticated) {
                     val ops = JSONArray()
                     pending.forEach { op ->
                         val payload = try {
@@ -831,7 +752,7 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
     // --- Exams ---
 
     fun loadAttemptHistory() {
-        if (auth.currentUser == null) return
+        if (!auth.isAuthenticated) return
         viewModelScope.launch {
             _uiState.update { it.copy(historyLoading = true) }
             try {
@@ -984,7 +905,7 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun loadDictionaryPersonalData() {
-        if (_uiState.value.firebaseUser == null) return
+        if (_uiState.value.authUser == null) return
         viewModelScope.launch {
             try {
                 val savedArr = api.fetchSavedVocabulary()
@@ -1038,7 +959,7 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
                         translating = false
                     )
                 }
-                if (_uiState.value.firebaseUser != null && out.isNotBlank()) {
+                if (_uiState.value.authUser != null && out.isNotBlank()) {
                     val nowMs = System.currentTimeMillis()
                     val histId = "th_${nowMs}_${(1000..9999).random()}"
                     val histObj = org.json.JSONObject().apply {
@@ -1066,7 +987,7 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun toggleSaveDictionaryEntry(entry: DictionaryEntry) {
-        if (_uiState.value.firebaseUser == null) return
+        if (_uiState.value.authUser == null) return
         viewModelScope.launch {
             val existing = _uiState.value.savedVocabulary.find {
                 it["dictionary_entry_id"] == entry.id || it["id"] == entry.id || it["id"] == "sv_${entry.id}"
@@ -1100,7 +1021,7 @@ class SanzarViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun saveTranslationAsVocabulary(word: String, meaning: String, sourceLang: String, targetLang: String) {
-        if (_uiState.value.firebaseUser == null || word.isBlank() || meaning.isBlank()) return
+        if (_uiState.value.authUser == null || word.isBlank() || meaning.isBlank()) return
         viewModelScope.launch {
             val nowMs = System.currentTimeMillis()
             val obj = org.json.JSONObject().apply {

@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { apiRequest, ApiError } from './api-client';
-import { auth } from './firebase';
+import { apiRequest, ApiError, hasAuthTokenProvider } from './api-client';
 
 const K_QUEUE = 'sanzar.study.queue';
 const IDLE_MS = 120_000;
@@ -32,7 +31,7 @@ function writeQueue(q: QueuedEvent[]) {
 let inflightFlush: Promise<void> | null = null;
 
 export async function flushStudyEvents(onFlushed?: () => void): Promise<void> {
-  if (!auth.currentUser) return;
+  if (!hasAuthTokenProvider()) return;
   if (inflightFlush) return inflightFlush;
   inflightFlush = (async () => {
     try {
@@ -72,7 +71,7 @@ export function useStudyTracker(
   playingRef.current = playing;
 
   useEffect(() => {
-    if (!active || !auth.currentUser) return;
+    if (!active || !hasAuthTokenProvider()) return;
     secRef.current = 0;
     lastActRef.current = Date.now();
 

@@ -3,9 +3,7 @@ package com.sanzar.app.sync
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.google.firebase.auth.FirebaseAuth
 import com.sanzar.app.SanzarApplication
-import com.sanzar.app.data.remote.ApiClient
 import com.sanzar.app.data.remote.ApiException
 import org.json.JSONArray
 import org.json.JSONObject
@@ -21,9 +19,9 @@ class SyncWorker(
         val pending = pendingDao.getPending()
 
         if (pending.isEmpty()) return Result.success()
-        if (FirebaseAuth.getInstance().currentUser == null) return Result.retry()
+        if (!app.authManager.isAuthenticated) return Result.retry()
 
-        val api = ApiClient()
+        val api = app.apiClient
         val operations = JSONArray()
         pending.forEach { op ->
             val payload = try {

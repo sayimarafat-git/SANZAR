@@ -55,7 +55,7 @@ fun HomeScreen(
         ?.split(" ")
         ?.firstOrNull()
         ?.takeIf { it.isNotEmpty() }
-        ?: state.firebaseUser?.displayName?.split(" ")?.firstOrNull()
+        ?: state.authUser?.displayName?.split(" ")?.firstOrNull()
         ?: if (state.guestMode) s("guestMode") else ""
 
     var notifOpen by remember { mutableStateOf(false) }
@@ -231,7 +231,7 @@ fun HomeScreen(
             }
         }
 
-        if (state.guestMode && state.firebaseUser == null) {
+        if (state.guestMode && state.authUser == null) {
             item {
                 Spacer(Modifier.height(SanzarSpace.S3.dp))
                 SanzarCard(

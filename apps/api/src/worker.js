@@ -3,13 +3,15 @@
  *
  * Bindings (wrangler.toml / dashboard):
  *   DB                   D1 database
- *   FIREBASE_PROJECT_ID  Firebase project whose ID tokens are accepted
+ *   LOGTO_ISSUER         Logto OIDC issuer (e.g. https://a69649.logto.app/oidc)
+ *   LOGTO_JWKS_URL       Logto JWKS endpoint (e.g. https://a69649.logto.app/oidc/jwks)
+ *   LOGTO_API_RESOURCE   Expected JWT audience (e.g. https://sanzar-api.sanzar.workers.dev)
  *   SUPER_ADMIN_EMAILS   comma-separated verified emails promoted to super_admin
  *   ALLOWED_ORIGINS      comma-separated CORS origins
  *   APP_ENV              dev | staging | production
  *
  * Security model: every request except /v1/health and /v1/public/* needs a
- * valid Firebase ID token. Roles are stored server-side in users.role and
+ * valid Logto OIDC JWT access token. Roles are stored server-side in users.role and
  * checked here — the client can never grant itself permissions.
  */
 import { MIGRATIONS } from './schema.js';
@@ -18,7 +20,9 @@ import { routeAdmin } from './admin.js';
 import { searchDictionary, getDictionaryEntryDetails, handleDictionaryTts, routeDictionaryAuth } from './dictionary.js';
 
 const ROLE_RANK = { student: 0, moderator: 1, teacher: 2, content_admin: 3, admin: 4, super_admin: 5 };
-const JWK_URL = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
+const DEFAULT_LOGTO_ISSUER = 'https://ugtpcv.logto.app/oidc';
+const DEFAULT_LOGTO_JWKS_URL = 'https://ugtpcv.logto.app/oidc/jwks';
+const DEFAULT_LOGTO_AUDIENCES = '092jfg3gdj4y3q4cfixzd,7xlpiztpwndj79tcas1tf';
 const RATE = { default: [120, 60], write: [30, 60], admin: [300, 60] }; // [requests, seconds]
 
 /* ============================== utilities ============================== */
@@ -52,39 +56,68 @@ export function splitSql(sql) {
 }
 
 /* ============================== auth ============================== */
-let jwkCache = { keys: null, exp: 0 };
-async function getJwks(fetcher) {
-  if (jwkCache.keys && jwkCache.exp > now()) return jwkCache.keys;
-  const res = await fetcher(JWK_URL);
+let jwkCache = { url: null, keys: null, exp: 0 };
+async function getJwks(fetcher, jwksUrl) {
+  if (jwkCache.keys && jwkCache.url === jwksUrl && jwkCache.exp > now()) return jwkCache.keys;
+  const res = await fetcher(jwksUrl);
   if (!res.ok) throw new HttpError(503, 'unavailable', 'Could not load sign-in keys');
   const maxAge = Number((res.headers.get('cache-control') || '').match(/max-age=(\d+)/)?.[1] || 3600);
   const { keys } = await res.json();
-  jwkCache = { keys, exp: now() + Math.min(maxAge, 21600) * 1000 };
+  jwkCache = { url: jwksUrl, keys, exp: now() + Math.min(maxAge, 21600) * 1000 };
   return keys;
 }
-export function _resetJwkCache() { jwkCache = { keys: null, exp: 0 }; }
+export function _resetJwkCache() { jwkCache = { url: null, keys: null, exp: 0 }; }
 
-/** Verifies a Firebase Authentication ID token (RS256) per Firebase's documented rules. */
-export async function verifyFirebaseToken(token, projectId, { fetcher = fetch, nowSec = Math.floor(now() / 1000) } = {}) {
+const ALG_PARAMS = {
+  ES384: { importAlg: { name: 'ECDSA', namedCurve: 'P-384' }, verifyAlg: { name: 'ECDSA', hash: 'SHA-384' } },
+  ES256: { importAlg: { name: 'ECDSA', namedCurve: 'P-256' }, verifyAlg: { name: 'ECDSA', hash: 'SHA-256' } },
+  RS256: { importAlg: { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, verifyAlg: { name: 'RSASSA-PKCS1-v1_5' } },
+};
+
+/** Verifies a Logto OIDC JWT (ID token or access token, ES384 / ES256 / RS256) via JWKS. */
+export async function verifyLogtoToken(
+  token,
+  { issuer = DEFAULT_LOGTO_ISSUER, jwksUrl = DEFAULT_LOGTO_JWKS_URL, audience = DEFAULT_LOGTO_AUDIENCES } = {},
+  { fetcher = fetch, nowSec = Math.floor(now() / 1000) } = {},
+) {
   const parts = String(token || '').split('.');
   if (parts.length !== 3) throw new HttpError(401, 'unauthenticated', 'Missing or malformed token');
   let header, payload;
   try { header = b64urlJson(parts[0]); payload = b64urlJson(parts[1]); } catch { throw new HttpError(401, 'unauthenticated', 'Malformed token'); }
-  if (header.alg !== 'RS256' || !header.kid) throw new HttpError(401, 'unauthenticated', 'Unsupported token');
-  const keys = await getJwks(fetcher);
-  const jwk = keys.find((k) => k.kid === header.kid);
-  if (!jwk) { _resetJwkCache(); throw new HttpError(401, 'unauthenticated', 'Unknown signing key'); }
-  const key = await crypto.subtle.importKey('jwk', { kty: jwk.kty, n: jwk.n, e: jwk.e, alg: 'RS256', ext: true }, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
-  const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64urlToBytes(parts[2]), new TextEncoder().encode(`${parts[0]}.${parts[1]}`));
+  const algSpec = ALG_PARAMS[header.alg];
+  if (!algSpec || !header.kid) throw new HttpError(401, 'unauthenticated', 'Unsupported token');
+  let keys = await getJwks(fetcher, jwksUrl);
+  let jwk = keys.find((k) => k.kid === header.kid);
+  if (!jwk) {
+    _resetJwkCache();
+    keys = await getJwks(fetcher, jwksUrl);
+    jwk = keys.find((k) => k.kid === header.kid);
+  }
+  if (!jwk) throw new HttpError(401, 'unauthenticated', 'Unknown signing key');
+  const keyData = jwk.kty === 'EC'
+    ? { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y, ext: true }
+    : { kty: jwk.kty, n: jwk.n, e: jwk.e, alg: header.alg, ext: true };
+  const key = await crypto.subtle.importKey('jwk', keyData, algSpec.importAlg, false, ['verify']);
+  const ok = await crypto.subtle.verify(algSpec.verifyAlg, key, b64urlToBytes(parts[2]), new TextEncoder().encode(`${parts[0]}.${parts[1]}`));
   if (!ok) throw new HttpError(401, 'unauthenticated', 'Invalid token signature');
   const skew = 300;
-  if (payload.aud !== projectId) throw new HttpError(401, 'unauthenticated', 'Token is for another project');
-  if (payload.iss !== `https://securetoken.google.com/${projectId}`) throw new HttpError(401, 'unauthenticated', 'Wrong token issuer');
+  const allowedAuds = Array.isArray(audience)
+    ? audience
+    : String(audience || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const tokenAuds = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+  const audMatch = tokenAuds.some((a) => allowedAuds.includes(a));
+  if (!audMatch) throw new HttpError(401, 'unauthenticated', 'Token is for another app');
+  if (payload.iss !== issuer) throw new HttpError(401, 'unauthenticated', 'Wrong token issuer');
   if (!payload.sub || typeof payload.sub !== 'string' || payload.sub.length > 128) throw new HttpError(401, 'unauthenticated', 'Invalid subject');
   if (typeof payload.exp !== 'number' || payload.exp + skew < nowSec) throw new HttpError(401, 'unauthenticated', 'Token expired');
   if (typeof payload.iat !== 'number' || payload.iat - skew > nowSec) throw new HttpError(401, 'unauthenticated', 'Token issued in the future');
-  if (typeof payload.auth_time === 'number' && payload.auth_time - skew > nowSec) throw new HttpError(401, 'unauthenticated', 'Invalid auth time');
-  return { uid: payload.sub, email: payload.email || null, emailVerified: payload.email_verified === true, name: payload.name || null, picture: payload.picture || null };
+  return {
+    uid: payload.sub,
+    email: typeof payload.email === 'string' ? payload.email : null,
+    emailVerified: payload.email_verified === true,
+    name: typeof payload.name === 'string' ? payload.name : null,
+    picture: typeof payload.picture === 'string' ? payload.picture : null,
+  };
 }
 
 /** Loads or creates the user row; promotes configured owner emails to super_admin. */
@@ -385,6 +418,64 @@ function cors(env, req) {
   return { 'access-control-allow-origin': origin, 'access-control-allow-methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS', 'access-control-allow-headers': 'authorization,content-type,if-none-match', 'access-control-expose-headers': 'etag', 'access-control-max-age': '600', vary: 'origin' };
 }
 
+const RELEASE_MIME = {
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  ppt: 'application/vnd.ms-powerpoint',
+  pdf: 'application/pdf',
+  mp3: 'audio/mpeg',
+  m4a: 'audio/mp4',
+  wav: 'audio/wav',
+  mp4: 'video/mp4',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+};
+
+async function serveReleaseMedia(req, env, tag, file, fetcher = fetch) {
+  if (!/^[A-Za-z0-9._-]{1,80}$/.test(tag) || !/^[A-Za-z0-9._-]{1,160}$/.test(file)) {
+    throw new HttpError(400, 'invalid-argument', 'Invalid release media path');
+  }
+  const repo = String(env.RELEASE_REPO || 'sayimarafat-git/SANZAR-Release').replace(/^\/+|\/+$/g, '');
+  const upstreamUrl = `https://github.com/${repo}/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(file)}`;
+  const range = req.headers.get('range');
+  const cache = typeof caches !== 'undefined' && caches?.default ? caches.default : null;
+  const cacheKey = cache && req.method === 'GET' && !range ? new Request(upstreamUrl, { method: 'GET' }) : null;
+  if (cacheKey) {
+    const hit = await cache.match(cacheKey);
+    if (hit) {
+      const cloned = new Response(hit.body, hit);
+      cloned.headers.set('access-control-allow-origin', '*');
+      return cloned;
+    }
+  }
+  const upstreamHeaders = { 'User-Agent': 'Sanzar-Media-Proxy/1.0' };
+  if (range) upstreamHeaders.Range = range;
+  const up = await fetcher(upstreamUrl, { method: req.method === 'HEAD' ? 'HEAD' : 'GET', headers: upstreamHeaders, redirect: 'follow' });
+  if (!up.ok && up.status !== 206) {
+    throw new HttpError(up.status === 404 ? 404 : 502, up.status === 404 ? 'not-found' : 'upstream-error', 'Media asset unavailable');
+  }
+  const ext = file.split('.').pop()?.toLowerCase() || '';
+  const upType = up.headers.get('content-type') || '';
+  const contentType = (!upType || upType.includes('octet-stream')) && RELEASE_MIME[ext] ? RELEASE_MIME[ext] : (upType || 'application/octet-stream');
+  const outHeaders = new Headers({
+    'content-type': contentType,
+    'content-disposition': `inline; filename="${file}"`,
+    'cache-control': 'public, max-age=86400, s-maxage=604800, immutable',
+    'access-control-allow-origin': '*',
+    'access-control-expose-headers': 'content-length, content-range, accept-ranges',
+  });
+  for (const h of ['content-length', 'content-range', 'accept-ranges', 'etag']) {
+    const v = up.headers.get(h);
+    if (v) outHeaders.set(h, v);
+  }
+  const resp = new Response(req.method === 'HEAD' ? null : up.body, { status: up.status, headers: outHeaders });
+  if (cacheKey && up.status === 200) {
+    try { await cache.put(cacheKey, resp.clone()); } catch { /* ignore cache put failure for very large streams */ }
+  }
+  return resp;
+}
+
 export async function handle(req, env, opts = {}) {
   const url = new URL(req.url);
   const rawPath = url.pathname.replace(/\/+$/, '') || '/';
@@ -431,6 +522,15 @@ export async function handle(req, env, opts = {}) {
     return handleDictionaryTts(normUrl);
   }
 
+  if ((m === 'GET' || m === 'HEAD') && path.startsWith('/v1/media/release/')) {
+    const parts = path.slice('/v1/media/release/'.length).split('/').filter(Boolean);
+    if (parts.length !== 2) throw new HttpError(404, 'not-found', 'Release media not found');
+    let tag, file;
+    try { tag = decodeURIComponent(parts[0]); file = decodeURIComponent(parts[1]); }
+    catch { throw new HttpError(404, 'not-found', 'Release media not found'); }
+    return serveReleaseMedia(req, env, tag, file, opts.fetcher || fetch);
+  }
+
   if (m === 'GET' && path.startsWith('/v1/media/')) {
     let key;
     try { key = decodeURIComponent(path.slice('/v1/media/'.length)); }
@@ -441,7 +541,11 @@ export async function handle(req, env, opts = {}) {
   // Everything else requires a signed-in user.
   const auth = req.headers.get('authorization') || '';
   if (!auth.startsWith('Bearer ')) throw new HttpError(401, 'unauthenticated', 'Sign in required');
-  const claims = await verifyFirebaseToken(auth.slice(7), env.FIREBASE_PROJECT_ID, opts);
+  const claims = await verifyLogtoToken(auth.slice(7), {
+    issuer: env.LOGTO_ISSUER || DEFAULT_LOGTO_ISSUER,
+    jwksUrl: env.LOGTO_JWKS_URL || DEFAULT_LOGTO_JWKS_URL,
+    audience: env.LOGTO_ALLOWED_AUDIENCES || env.LOGTO_API_RESOURCE || DEFAULT_LOGTO_AUDIENCES,
+  }, opts);
 
   // Bootstrap: before migrations exist, only owners may run /v1/admin/migrate.
   if (path === '/v1/admin/migrate' && m === 'POST') {

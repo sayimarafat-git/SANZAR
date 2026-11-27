@@ -1,15 +1,19 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import {
-  auth,
-  onAuthStateChanged,
-  User,
-  fbSignOut,
-} from './firebase';
-import { apiRequest } from './api-client';
+import { useLogto } from '@logto/react';
+import { apiRequest, setAuthTokenProvider } from './api-client';
+import { getCallbackUrl, getPostSignOutUrl } from './logto';
 import { atLeast, type Role, type UserProfile } from './models';
 
+export interface AuthUser {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  emailVerified: boolean;
+  photoURL: string | null;
+}
+
 interface AuthContextType {
-  user: User | null;
+  user: AuthUser | null;
   profile: UserProfile | null;
   profileLoaded: boolean;
   loading: boolean;
@@ -18,6 +22,7 @@ interface AuthContextType {
   guestMode: boolean;
   setGuestMode: (v: boolean) => void;
   atLeastRole: (min: Role) => boolean;
+  signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   updateProfile: (patch: Record<string, unknown>) => Promise<void>;
@@ -34,6 +39,7 @@ const AuthContext = createContext<AuthContextType>({
   guestMode: false,
   setGuestMode: () => {},
   atLeastRole: () => false,
+  signIn: async () => {},
   signOut: async () => {},
   refreshProfile: async () => {},
   updateProfile: async () => {},
@@ -41,7 +47,16 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const {
+    isAuthenticated,
+    isLoading: logtoLoading,
+    getIdToken,
+    getIdTokenClaims,
+    signIn: logtoSignIn,
+    signOut: logtoSignOut,
+  } = useLogto();
+
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -53,7 +68,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     else localStorage.removeItem('sanzar.guest');
   };
 
-  const fallbackProfile = (currentUser: User): UserProfile => ({
+  const fallbackProfile = (currentUser: AuthUser): UserProfile => ({
     uid: currentUser.uid,
     email: currentUser.email,
     display_name: currentUser.displayName || currentUser.email?.split('@')[0] || 'Student',
@@ -64,7 +79,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     onboarding_completed: true,
   });
 
-  const fetchProfile = async (currentUser: User) => {
+  const fetchProfile = async (currentUser: AuthUser) => {
     try {
       const data = await apiRequest<{ user: UserProfile }>('/v1/me');
       setProfile(data.user);
@@ -76,22 +91,54 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
+    if (logtoLoading) {
+      setLoading(true);
+      return;
+    }
+
+    if (!isAuthenticated) {
+      setAuthTokenProvider(null);
+      setUser(null);
+      setProfile(null);
+      setProfileLoaded(false);
+      setLoading(false);
+      return;
+    }
+
+    setAuthTokenProvider(async () => {
+      const token = await getIdToken();
+      return token ?? null;
+    });
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const claims = await getIdTokenClaims();
+        if (cancelled) return;
+        const currentUser: AuthUser = {
+          uid: claims?.sub || '',
+          email: claims?.email ?? null,
+          displayName: claims?.name ?? claims?.username ?? null,
+          emailVerified: claims?.email_verified === true,
+          photoURL: claims?.picture ?? null,
+        };
+        setUser(currentUser);
         setGuestMode(false);
         setProfileLoaded(false);
         setProfile((prev) => (prev?.uid === currentUser.uid ? prev : fallbackProfile(currentUser)));
         setLoading(false);
-        void fetchProfile(currentUser);
-      } else {
-        setProfile(null);
-        setProfileLoaded(false);
-        setLoading(false);
+        await fetchProfile(currentUser);
+      } catch {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
-    });
-    return () => unsubscribe();
-  }, []);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, logtoLoading, getIdToken, getIdTokenClaims]);
 
   const refreshProfile = async () => {
     if (user) await fetchProfile(user);
@@ -106,24 +153,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setProfileLoaded(true);
   };
 
-  const deleteAccount = async () => {
-    await apiRequest('/v1/me', { method: 'DELETE' });
-    if (auth.currentUser) {
-      try {
-        await auth.currentUser.delete();
-      } catch {
-        await fbSignOut(auth);
-      }
-    }
-    setProfile(null);
-    setProfileLoaded(false);
+  const signIn = async () => {
+    await logtoSignIn(getCallbackUrl());
   };
 
   const signOut = async () => {
-    await fbSignOut(auth);
+    setAuthTokenProvider(null);
     setProfile(null);
     setProfileLoaded(false);
     setGuestMode(false);
+    await logtoSignOut(getPostSignOutUrl());
+  };
+
+  const deleteAccount = async () => {
+    await apiRequest('/v1/me', { method: 'DELETE' });
+    await signOut();
   };
 
   const isStaff = atLeast(profile?.role, 'moderator');
@@ -142,6 +186,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         guestMode,
         setGuestMode,
         atLeastRole,
+        signIn,
         signOut,
         refreshProfile,
         updateProfile,

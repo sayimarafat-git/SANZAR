@@ -1,9 +1,7 @@
 package com.sanzar.app.data.remote
 
-import com.google.firebase.auth.FirebaseAuth
 import com.sanzar.app.data.model.*
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -33,7 +31,8 @@ data class ApiResponse(
 }
 
 class ApiClient(
-    private val baseUrl: String = "https://sanzar-api.workers.dev"
+    private val baseUrl: String = "https://sanzar-api.sanzar.workers.dev",
+    private val tokenProvider: suspend () -> String? = { null }
 ) {
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -44,7 +43,7 @@ class ApiClient(
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
     private suspend fun getToken(): String? = try {
-        FirebaseAuth.getInstance().currentUser?.getIdToken(false)?.await()?.token
+        tokenProvider()
     } catch (_: Exception) {
         null
     }

@@ -3,7 +3,9 @@ main = "src/worker.js"
 compatibility_date = "2024-09-01"
 
 [vars]
-FIREBASE_PROJECT_ID = "sanzar-1e625"
+LOGTO_ISSUER = "https://ugtpcv.logto.app/oidc"
+LOGTO_JWKS_URL = "https://ugtpcv.logto.app/oidc/jwks"
+LOGTO_ALLOWED_AUDIENCES = "092jfg3gdj4y3q4cfixzd,7xlpiztpwndj79tcas1tf"
 SUPER_ADMIN_EMAILS = "sayimarafat676@gmail.com"
 ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:3000,https://sanzar.pages.dev,https://sanzar.sanzar.workers.dev,https://sanzar.pro,https://*.sanzar.pro"
 APP_ENV = "production"

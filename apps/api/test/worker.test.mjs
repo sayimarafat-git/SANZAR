@@ -4,7 +4,9 @@ import { readFile } from 'node:fs/promises';
 import { makeD1 } from './d1-shim.mjs';
 import worker, { migrate } from '../src/worker.js';
 
-const PROJECT = 'sanzar-test-project';
+const ISSUER = 'https://a69649.logto.app/oidc';
+const JWKS_URL = 'https://a69649.logto.app/oidc/jwks';
+const AUDIENCE = 'https://sanzar-api.sanzar.workers.dev';
 const OWNER = 'owner@example.test';
 let env;
 let keyPair;
@@ -14,20 +16,19 @@ const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url
 
 async function token(uid = 'owner-user', email = OWNER) {
   const seconds = Math.floor(Date.now() / 1000);
-  const header = encode({ alg: 'RS256', kid: 'test-key' });
+  const header = encode({ alg: 'ES384', kid: 'test-key' });
   const payload = encode({
-    aud: PROJECT,
-    iss: `https://securetoken.google.com/${PROJECT}`,
+    aud: AUDIENCE,
+    iss: ISSUER,
     sub: uid,
     email,
     email_verified: true,
     name: 'Platform Owner',
     iat: seconds - 10,
     exp: seconds + 3600,
-    auth_time: seconds - 10,
   });
   const input = `${header}.${payload}`;
-  const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', keyPair.privateKey, new TextEncoder().encode(input));
+  const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-384' }, keyPair.privateKey, new TextEncoder().encode(input));
   return `${input}.${Buffer.from(signature).toString('base64url')}`;
 }
 
@@ -63,10 +64,8 @@ let ownerToken;
 
 before(async () => {
   keyPair = await crypto.subtle.generateKey({
-    name: 'RSASSA-PKCS1-v1_5',
-    modulusLength: 2048,
-    publicExponent: new Uint8Array([1, 0, 1]),
-    hash: 'SHA-256',
+    name: 'ECDSA',
+    namedCurve: 'P-384',
   }, true, ['sign', 'verify']);
   jwk = { ...(await crypto.subtle.exportKey('jwk', keyPair.publicKey)), kid: 'test-key' };
 
@@ -77,13 +76,15 @@ before(async () => {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind('preserved-profile', 'preserved@example.test', 'Preserved profile', 'student', 'en', 'private', 0, 100, 100).run();
   env = {
     DB,
-    FIREBASE_PROJECT_ID: PROJECT,
+    LOGTO_ISSUER: ISSUER,
+    LOGTO_JWKS_URL: JWKS_URL,
+    LOGTO_API_RESOURCE: AUDIENCE,
     SUPER_ADMIN_EMAILS: OWNER,
     ALLOWED_ORIGINS: 'https://student.test,https://admin.test',
     APP_ENV: 'test',
   };
   const migration = await migrate(env);
-  assert.deepEqual(migration.applied, ['0001_init', '0002_existing_profiles', '0003_sync_and_resources', '0004_learning_languages', '0005_admin_enhancements', '0006_book_thumbnails', '0007_dictionary', '0008_exam_targeting_and_timezone', '0009_dictionary_translator_sync', '0010_teacher_role', '0011_content_enhancements', '0012_dictionary_insights_columns', '0013_translation_cache_and_quota', '0014_grammar_cache_and_reports', '0015_chapter_lessons']);
+  assert.deepEqual(migration.applied, ['0001_init', '0002_existing_profiles', '0003_sync_and_resources', '0004_learning_languages', '0005_admin_enhancements', '0006_book_thumbnails', '0007_dictionary', '0008_exam_targeting_and_timezone', '0009_dictionary_translator_sync', '0010_teacher_role', '0011_content_enhancements', '0012_dictionary_insights_columns', '0013_translation_cache_and_quota', '0014_grammar_cache_and_reports', '0015_chapter_lessons', '0016_audio_resources']);
   const preserved = await DB.prepare('SELECT uid, email, display_name, created_at FROM users WHERE uid = ?').bind('preserved-profile').first();
   assert.equal(preserved.uid, 'preserved-profile');
   assert.equal(preserved.email, 'preserved@example.test');
@@ -95,7 +96,7 @@ before(async () => {
 test('health reports completed schema migrations', async () => {
   const { response, data } = await call('GET', '/v1/health');
   assert.equal(response.status, 200);
-  assert.equal(data.schema, '15/15');
+  assert.equal(data.schema, '16/16');
 });
 
 test('catalog starts with platform levels and no imported course data', async () => {
@@ -248,6 +249,32 @@ test('legacy import endpoint is not exposed and configured origins receive CORS 
     headers: { origin: 'https://student.test' },
   }), env);
   assert.equal(cors.headers.get('access-control-allow-origin'), 'https://student.test');
+
+  // Release media proxy streams allowed GitHub release assets with proper PPTX MIME & CORS
+  const proxyRes = await worker.fetch(
+    new Request('https://api.test/v1/media/release/book-1/b1-ch1-l1.pptx'),
+    env,
+    undefined,
+    {
+      fetcher: async (u) => {
+        assert.equal(u, 'https://github.com/sayimarafat-git/SANZAR-Release/releases/download/book-1/b1-ch1-l1.pptx');
+        return new Response(new Uint8Array([80, 75, 3, 4]), {
+          status: 200,
+          headers: { 'content-type': 'application/octet-stream', 'content-length': '4' },
+        });
+      },
+    },
+  );
+  assert.equal(proxyRes.status, 200);
+  assert.equal(
+    proxyRes.headers.get('content-type'),
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  );
+  assert.equal(proxyRes.headers.get('access-control-allow-origin'), '*');
+
+  // Path traversal or invalid tag is rejected
+  const badProxy = await worker.fetch(new Request('https://api.test/v1/media/release/bad%20tag/file.pptx'), env);
+  assert.equal(badProxy.status, 400);
 });
 
 test('offline sync is idempotent and resource manifest works on /v1 and /api/v1', async () => {

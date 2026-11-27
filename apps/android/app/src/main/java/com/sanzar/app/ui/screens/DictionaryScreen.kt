@@ -136,8 +136,8 @@ fun DictionaryScreen(
         cm?.setPrimaryClip(ClipData.newPlainText("sanzar", text))
     }
 
-    LaunchedEffect(state.firebaseUser?.uid) {
-        if (state.firebaseUser != null) {
+    LaunchedEffect(state.authUser?.uid) {
+        if (state.authUser != null) {
             onLoadPersonal()
         }
     }
@@ -289,7 +289,7 @@ fun DictionaryScreen(
                                             onClick = {
                                                 query = w
                                                 targetLang = tgt
-                                                if (state.firebaseUser != null) onTranslate(w, "auto", tgt)
+                                                if (state.authUser != null) onTranslate(w, "auto", tgt)
                                             },
                                             label = { Text(w) }
                                         )
@@ -347,7 +347,7 @@ fun DictionaryScreen(
                                         IconButton(onClick = { copyToClipboard(state.translationOutput) }) {
                                             Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy", tint = palette.text2)
                                         }
-                                        if (state.firebaseUser != null) {
+                                        if (state.authUser != null) {
                                             IconButton(
                                                 onClick = {
                                                     onSaveTranslation(
@@ -453,7 +453,7 @@ fun DictionaryScreen(
                                     IconButton(onClick = { copyToClipboard(entry.word) }) {
                                         Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy", tint = palette.muted)
                                     }
-                                    if (state.firebaseUser != null) {
+                                    if (state.authUser != null) {
                                         IconButton(onClick = { onToggleSave(entry) }) {
                                             Icon(
                                                 imageVector = if (saved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,

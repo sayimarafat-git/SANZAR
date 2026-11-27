@@ -49,9 +49,9 @@ fun ProfileScreen(
     val p = state.profile
     val level = state.catalog?.levels?.firstOrNull { it.id == (p?.levelId ?: state.selectedLevelId) }
     val displayName = p?.displayName?.ifBlank { null }
-        ?: state.firebaseUser?.displayName
+        ?: state.authUser?.displayName
         ?: if (state.guestMode) s("guestMode") else "Sanzar Student"
-    val email = p?.email?.ifBlank { null } ?: state.firebaseUser?.email.orEmpty()
+    val email = p?.email?.ifBlank { null } ?: state.authUser?.email.orEmpty()
 
     var visExpanded by remember { mutableStateOf(false) }
     var langExpanded by remember { mutableStateOf(false) }
@@ -295,7 +295,7 @@ fun ProfileScreen(
             item {
                 SanzarCard(modifier = Modifier.fillMaxWidth()) {
                     Column {
-                        if (state.firebaseUser == null) {
+                        if (state.authUser == null) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -419,7 +419,7 @@ fun EditProfileScreen(
     val palette = LocalSanzarPalette.current
     val scope = rememberCoroutineScope()
 
-    var name by remember { mutableStateOf(state.profile?.displayName ?: state.firebaseUser?.displayName ?: "") }
+    var name by remember { mutableStateOf(state.profile?.displayName ?: state.authUser?.displayName ?: "") }
     var institution by remember { mutableStateOf(state.profile?.institution ?: "") }
     var group by remember { mutableStateOf(state.profile?.group ?: "") }
     var selectedLevel by remember { mutableStateOf(state.profile?.levelId ?: state.selectedLevelId) }

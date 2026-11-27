@@ -6,19 +6,10 @@ import {
   LogOut,
   Shield,
   CloudOff,
-  KeyRound,
-  Mail,
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth-context';
 import { useSettings, type ThemeMode } from '../../lib/settings-context';
 import { apiRequest, fetchCatalogWithCache } from '../../lib/api-client';
-import {
-  auth,
-  EmailAuthProvider,
-  reauthenticateWithCredential,
-  sendPasswordResetEmail,
-  updatePassword,
-} from '../../lib/firebase';
 import { localizedName, type Lang } from '../../lib/i18n';
 import { LEVELS, type AppNotification } from '../../lib/models';
 import { useToast } from '../../components/SanzarUI';
@@ -53,11 +44,6 @@ export const ProfilePage: React.FC = () => {
   );
   const [saving, setSaving] = useState(false);
 
-  const [currentPwd, setCurrentPwd] = useState('');
-  const [newPwd, setNewPwd] = useState('');
-  const [confirmPwd, setConfirmPwd] = useState('');
-  const [pwdBusy, setPwdBusy] = useState(false);
-
   useEffect(() => {
     if (!profile) return;
     setName(profile.display_name || '');
@@ -83,8 +69,6 @@ export const ProfilePage: React.FC = () => {
     );
   }
 
-  const hasPasswordProvider = user.providerData.some((p) => p.providerId === 'password');
-
   const levels = catQuery.data?.catalog.levels?.length
     ? catQuery.data.catalog.levels
     : LEVELS.map((l) => ({ id: l.id, name_en: l.name, name_bn: l.name_bn, name_zh: l.name_zh }));
@@ -108,51 +92,6 @@ export const ProfilePage: React.FC = () => {
       toast(t('err.generic'));
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handlePasswordChange = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newPwd.length < 8) {
-      toast(t('err.password'));
-      return;
-    }
-    if (newPwd !== confirmPwd) {
-      toast(t('passwordMismatch'));
-      return;
-    }
-    if (!user.email) return;
-    setPwdBusy(true);
-    try {
-      const cred = EmailAuthProvider.credential(user.email, currentPwd);
-      await reauthenticateWithCredential(user, cred);
-      await updatePassword(user, newPwd);
-      setCurrentPwd('');
-      setNewPwd('');
-      setConfirmPwd('');
-      toast(t('passwordUpdated'));
-    } catch (err: any) {
-      const code = err?.code || '';
-      if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
-        toast(t('err.wrongCredentials'));
-      } else {
-        toast(err?.message || t('err.generic'));
-      }
-    } finally {
-      setPwdBusy(false);
-    }
-  };
-
-  const handleSendReset = async () => {
-    if (!user.email) return;
-    setPwdBusy(true);
-    try {
-      await sendPasswordResetEmail(auth, user.email);
-      toast(t('resetSent', { email: user.email }));
-    } catch (err: any) {
-      toast(err?.message || t('err.generic'));
-    } finally {
-      setPwdBusy(false);
     }
   };
 
@@ -285,76 +224,6 @@ export const ProfilePage: React.FC = () => {
             </select>
           </label>
         </div>
-      </div>
-
-      {/* Password & Security */}
-      <div className="sanzar-card p-6 space-y-4">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <h2 className="font-bold text-base flex items-center gap-2">
-            <KeyRound className="w-4 h-4 text-sanzar-primary" /> {t('changePassword')}
-          </h2>
-          {user.email && (
-            <button
-              type="button"
-              disabled={pwdBusy}
-              onClick={handleSendReset}
-              className="text-xs font-semibold text-sanzar-primary hover:underline flex items-center gap-1.5 disabled:opacity-50"
-            >
-              <Mail className="w-3.5 h-3.5" /> {t('sendResetEmail')}
-            </button>
-          )}
-        </div>
-
-        {hasPasswordProvider ? (
-          <form onSubmit={handlePasswordChange} className="space-y-4">
-            <div className="grid sm:grid-cols-3 gap-4">
-              <label className="block space-y-1 text-xs font-semibold text-sanzar-text2">
-                <span>{t('currentPassword')}</span>
-                <input
-                  type="password"
-                  required
-                  value={currentPwd}
-                  onChange={(e) => setCurrentPwd(e.target.value)}
-                  placeholder="••••••••"
-                  className="sanzar-input text-sm"
-                />
-              </label>
-              <label className="block space-y-1 text-xs font-semibold text-sanzar-text2">
-                <span>{t('newPassword')}</span>
-                <input
-                  type="password"
-                  required
-                  minLength={8}
-                  value={newPwd}
-                  onChange={(e) => setNewPwd(e.target.value)}
-                  placeholder="••••••••"
-                  className="sanzar-input text-sm"
-                />
-              </label>
-              <label className="block space-y-1 text-xs font-semibold text-sanzar-text2">
-                <span>{t('confirmPassword')}</span>
-                <input
-                  type="password"
-                  required
-                  minLength={8}
-                  value={confirmPwd}
-                  onChange={(e) => setConfirmPwd(e.target.value)}
-                  placeholder="••••••••"
-                  className="sanzar-input text-sm"
-                />
-              </label>
-            </div>
-            <button
-              type="submit"
-              disabled={pwdBusy}
-              className="px-5 py-2.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary font-semibold text-sm disabled:opacity-50"
-            >
-              {pwdBusy ? '…' : t('changePassword')}
-            </button>
-          </form>
-        ) : (
-          <p className="text-xs text-sanzar-muted">{t('googleUserPasswordNote')}</p>
-        )}
       </div>
 
       {/* Notifications Summary */}

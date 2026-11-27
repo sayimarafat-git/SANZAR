@@ -1,5 +1,24 @@
-import { auth } from './firebase';
 import type { Catalog } from './models';
+
+type TokenProvider = () => Promise<string | null>;
+let tokenProvider: TokenProvider | null = null;
+
+export function setAuthTokenProvider(provider: TokenProvider | null) {
+  tokenProvider = provider;
+}
+
+export function hasAuthTokenProvider(): boolean {
+  return tokenProvider !== null;
+}
+
+export async function getAuthToken(): Promise<string | null> {
+  if (!tokenProvider) return null;
+  try {
+    return await tokenProvider();
+  } catch {
+    return null;
+  }
+}
 
 const isLocalHost =
   typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname);
@@ -42,11 +61,10 @@ export async function apiRequest<T = any>(
   endpoint: string,
   options: RequestInit & { bodyJson?: unknown } = {}
 ): Promise<T> {
-  const user = auth.currentUser;
   const headers = new Headers(options.headers || {});
 
-  if (user) {
-    const token = await user.getIdToken();
+  const token = await getAuthToken();
+  if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
 
@@ -90,10 +108,10 @@ export async function apiUploadBytes<T = any>(
   bytes: ArrayBuffer | Uint8Array,
   mime: string
 ): Promise<T> {
-  const user = auth.currentUser;
   const headers = new Headers({ 'Content-Type': mime });
-  if (user) {
-    headers.set('Authorization', `Bearer ${await user.getIdToken()}`);
+  const token = await getAuthToken();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
   }
   let response: Response;
   try {
@@ -124,14 +142,13 @@ export async function fetchCatalogWithCache(): Promise<{ catalog: Catalog; offli
   const cached = cachedRaw ? (JSON.parse(cachedRaw) as Catalog) : null;
   const etag = cached ? localStorage.getItem(K_ETAG) : null;
 
-  const user = auth.currentUser;
-  if (!user) {
+  const token = await getAuthToken();
+  if (!token) {
     if (cached) return { catalog: cached, offline: true };
     throw new ApiError(401, 'unauthenticated', 'Sign in required');
   }
 
   try {
-    const token = await user.getIdToken();
     const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
     if (etag) headers['If-None-Match'] = etag;
     const res = await fetchWithTimeout(`${API_BASE}/v1/catalog`, { headers });

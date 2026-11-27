@@ -3,7 +3,6 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
-    alias(libs.plugins.google.services)
 }
 
 android {
@@ -46,6 +45,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -74,10 +74,8 @@ dependencies {
     // DataStore
     implementation(libs.androidx.datastore.preferences)
 
-    // Firebase Auth
-    implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.auth.ktx)
-    implementation(libs.play.services.auth)
+    // Logto Auth (OIDC, no GMS)
+    implementation(libs.logto.android)
 
     // Networking
     implementation(libs.okhttp)

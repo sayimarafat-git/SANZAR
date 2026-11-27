@@ -3,6 +3,7 @@ package com.sanzar.app
 import android.app.Application
 import androidx.room.Room
 import androidx.work.*
+import com.sanzar.app.data.auth.LogtoAuthManager
 import com.sanzar.app.data.local.SanzarDatabase
 import com.sanzar.app.data.local.UserPreferences
 import com.sanzar.app.data.remote.ApiClient
@@ -11,6 +12,9 @@ import com.sanzar.app.sync.SyncWorker
 import java.util.concurrent.TimeUnit
 
 class SanzarApplication : Application() {
+    lateinit var authManager: LogtoAuthManager
+        private set
+
     lateinit var database: SanzarDatabase
         private set
 
@@ -25,6 +29,7 @@ class SanzarApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        authManager = LogtoAuthManager(this)
         database = Room.databaseBuilder(
             applicationContext,
             SanzarDatabase::class.java,
@@ -32,7 +37,7 @@ class SanzarApplication : Application() {
         ).fallbackToDestructiveMigration().build()
 
         preferences = UserPreferences(applicationContext)
-        apiClient = ApiClient()
+        apiClient = ApiClient(tokenProvider = { authManager.getAccessToken() })
         resourceDownloader = ResourceDownloader(applicationContext, database.installedResourceDao())
 
         schedulePeriodicSync()

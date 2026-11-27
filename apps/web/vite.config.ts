@@ -11,7 +11,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          firebase: ['firebase/app', 'firebase/auth'],
+          logto: ['@logto/react'],
           query: ['@tanstack/react-query'],
         },
       },
