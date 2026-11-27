@@ -894,7 +894,7 @@ const BookDetailView: React.FC<{ bookId: string }> = ({ bookId }) => {
           onClick={() => setEditing(null)}
           className="px-4 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold"
         >
-          New chapter
+          New chapter / lesson
         </button>
       </div>
 
@@ -935,7 +935,7 @@ const BookDetailView: React.FC<{ bookId: string }> = ({ bookId }) => {
           <thead>
             <tr className="bg-sanzar-surface2 text-sanzar-text2 text-left border-b border-sanzar-border">
               <th className="p-3 font-semibold">#</th>
-              <th className="p-3 font-semibold">Chapter</th>
+              <th className="p-3 font-semibold">Chapter / Lesson</th>
               <th className="p-3 font-semibold">Notes</th>
               <th className="p-3 font-semibold">Materials</th>
               <th className="p-3 font-semibold">Quiz</th>
@@ -999,12 +999,13 @@ const BookDetailView: React.FC<{ bookId: string }> = ({ bookId }) => {
 
       {editing !== undefined && (
         <Modal
-          title={editing ? `Edit chapter ${editing.number}` : 'New chapter'}
+          title={editing ? `Edit chapter / lesson #${editing.number}` : 'New chapter / lesson'}
           onClose={() => setEditing(undefined)}
         >
           <ChapterForm
             bookId={bookId}
             chapter={editing}
+            existingChapters={allChapters}
             nextNumber={Math.max(0, ...chapters.map((c) => c.number)) + 1}
             onDone={() => {
               setEditing(undefined);
@@ -1017,9 +1018,16 @@ const BookDetailView: React.FC<{ bookId: string }> = ({ bookId }) => {
   );
 };
 
-const ChapterForm: React.FC<{ bookId: string; chapter: AdminChapter | null; nextNumber: number; onDone: () => void }> = ({
+const ChapterForm: React.FC<{
+  bookId: string;
+  chapter: AdminChapter | null;
+  existingChapters: AdminChapter[];
+  nextNumber: number;
+  onDone: () => void;
+}> = ({
   bookId,
   chapter,
+  existingChapters,
   nextNumber,
   onDone,
 }) => {
@@ -1031,27 +1039,40 @@ const ChapterForm: React.FC<{ bookId: string; chapter: AdminChapter | null; next
   const [thumbnailUrl, setThumbnailUrl] = useState(chapter?.thumbnail_url ?? '');
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  const id = chapter?.id ?? `${bookId}-${String(Number(n) || 0).padStart(2, '0')}`;
 
   const submit = async () => {
     const thumb = thumbnailUrl.trim();
+    const numVal = Math.max(1, Number(n) || 1);
     if (!title.trim()) return setErrors(['Title is required.']);
-    if (!isId(id)) return setErrors(['Invalid id.']);
     if (thumb && !isValidThumbValue(thumb)) return setErrors(['Thumbnail must be an uploaded image or https:// URL']);
+
+    // Always generate a collision-free unique ID for new chapters/lessons (never overwrite existing ones!)
+    let id = chapter?.id ?? '';
+    if (!id) {
+      const prefix = bookId.slice(0, 42);
+      const suffix = Date.now().toString(36);
+      id = `${prefix}-l${String(numVal).padStart(2, '0')}-${suffix}`.slice(0, 64);
+      let salt = 1;
+      while (existingChapters.some((c) => c.id === id)) {
+        id = `${prefix}-l${String(numVal).padStart(2, '0')}-${suffix}${salt++}`.slice(0, 64);
+      }
+    }
+    if (!isId(id)) return setErrors(['Invalid id.']);
+
     setBusy(true);
     try {
-      await apiRequest(`/v1/admin/chapters/${id}`, {
+      await apiRequest(`/v1/admin/chapters/${encodeURIComponent(id)}`, {
         method: 'PUT',
         bodyJson: {
           book_id: bookId,
-          number: Number(n),
+          number: numVal,
           title: title.trim(),
           status,
           is_whole_chapter: isWholeChapter,
           thumbnail_url: thumb || null,
         },
       });
-      toast('Saved');
+      toast(chapter ? 'Updated' : 'Created');
       onDone();
     } catch (e) {
       setErrors([errorText(e)]);
@@ -1081,7 +1102,7 @@ const ChapterForm: React.FC<{ bookId: string; chapter: AdminChapter | null; next
         </label>
         <label className="space-y-1">
           <span>ID</span>
-          <input value={id} disabled className="sanzar-input text-sm opacity-60" />
+          <input value={chapter?.id ?? 'Auto-generated unique ID'} disabled className="sanzar-input text-sm opacity-60" />
         </label>
         <ThumbnailField value={thumbnailUrl} onChange={setThumbnailUrl} className="sm:col-span-2" />
         <label className="flex items-center gap-2 sm:col-span-2 cursor-pointer pt-1">
@@ -1091,12 +1112,12 @@ const ChapterForm: React.FC<{ bookId: string; chapter: AdminChapter | null; next
             onChange={(e) => setIsWholeChapter(e.target.checked)}
             className="accent-sanzar-primary"
           />
-          <span>Whole chapter (single unit — no separate lessons needed)</span>
+          <span>Single unit / full chapter (all lessons bundled together)</span>
         </label>
       </div>
       <ErrorsBox list={errors} />
       <button onClick={submit} disabled={busy} className="px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold">
-        Save chapter
+        Save chapter / lesson
       </button>
     </div>
   );
@@ -1629,9 +1650,9 @@ const ResourceForm: React.FC<{ chapterId: string; book?: AdminBook; res: AdminRe
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
-    const id =
-      res?.id ??
-      (f.id || `${chapterId}-${f.type}-${slugify(f.title).slice(0, 20) || Date.now().toString(36)}`);
+    const slugPart = slugify(f.title).slice(0, 14);
+    const autoId = `${chapterId.slice(0, 32)}-${f.type}-${slugPart ? `${slugPart}-` : ''}${Date.now().toString(36)}`.slice(0, 64);
+    const id = res?.id ?? (f.id.trim() || autoId);
     const trimmedUrl = f.url.trim();
     const trimmedThumb = f.thumbnail_url.trim();
     const errs = [
