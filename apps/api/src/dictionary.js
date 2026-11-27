@@ -478,6 +478,36 @@ async function callTranslationProvider(env, text, sourceLang, targetLang) {
     }
   }
 
+  // 2.5. Free keyless Google GTX fallback (zero-AI, high quality EN/BN/ZH; cached in D1 so repeated queries never re-hit)
+  {
+    const sl = toProviderLang(sourceLang, 'google');
+    const tl = toProviderLang(targetLang, 'google');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 7000);
+    try {
+      const res = await fetch(
+        `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(sl)}&tl=${encodeURIComponent(tl)}&dt=t&q=${encodeURIComponent(text)}`,
+        {
+          headers: { 'user-agent': 'Mozilla/5.0' },
+          signal: controller.signal,
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const translated = Array.isArray(data?.[0])
+          ? data[0].map((seg) => (Array.isArray(seg) ? seg[0] : '')).join('').trim()
+          : '';
+        if (translated) {
+          return { translatedText: translated, provider: 'google-gtx' };
+        }
+      }
+    } catch {
+      // Fall through to MyMemory
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   // 3. Non-AI online fallback for multi-word sentences not in D1: MyMemory (supports en, bn, zh-CN)
   const pair = `${toProviderLang(sourceLang, 'mymemory')}|${toProviderLang(targetLang, 'mymemory')}`;
   const controller = new AbortController();
