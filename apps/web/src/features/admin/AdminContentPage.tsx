@@ -34,6 +34,7 @@ export interface AdminBook {
 export interface AdminChapter {
   id: string;
   book_id: string;
+  parent_chapter_id?: string | null;
   number: number;
   title: string;
   sort: number;
@@ -855,8 +856,8 @@ const BookDetailView: React.FC<{ bookId: string }> = ({ bookId }) => {
   }
   const allChapters = data.chapters.filter((c) => c.book_id === bookId);
   const wholeBookId = `${bookId}-full`;
-  const wholeBook = allChapters.find((c) => c.id === wholeBookId || c.number === 0);
-  const chapters = allChapters.filter((c) => c.id !== wholeBook?.id);
+  const wholeBook = allChapters.find((c) => !c.parent_chapter_id && (c.id === wholeBookId || c.number === 0));
+  const chapters = allChapters.filter((c) => !c.parent_chapter_id && c.id !== wholeBook?.id);
   const hasNotes = new Set(data.notes.map((n) => n.chapter_id));
 
   const openWholeBook = async () => {
@@ -894,7 +895,7 @@ const BookDetailView: React.FC<{ bookId: string }> = ({ bookId }) => {
           onClick={() => setEditing(null)}
           className="px-4 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold"
         >
-          New chapter / lesson
+          New chapter
         </button>
       </div>
 
@@ -935,7 +936,8 @@ const BookDetailView: React.FC<{ bookId: string }> = ({ bookId }) => {
           <thead>
             <tr className="bg-sanzar-surface2 text-sanzar-text2 text-left border-b border-sanzar-border">
               <th className="p-3 font-semibold">#</th>
-              <th className="p-3 font-semibold">Chapter / Lesson</th>
+              <th className="p-3 font-semibold">Chapter</th>
+              <th className="p-3 font-semibold">Lessons</th>
               <th className="p-3 font-semibold">Notes</th>
               <th className="p-3 font-semibold">Materials</th>
               <th className="p-3 font-semibold">Quiz</th>
@@ -944,7 +946,9 @@ const BookDetailView: React.FC<{ bookId: string }> = ({ bookId }) => {
             </tr>
           </thead>
           <tbody>
-            {chapters.map((c) => (
+            {chapters.map((c) => {
+              const lessonCount = allChapters.filter((l) => l.parent_chapter_id === c.id).length;
+              return (
               <tr key={c.id} className="border-b border-sanzar-border last:border-0">
                 <td className="p-3">{c.number}</td>
                 <td className="p-3">
@@ -958,6 +962,7 @@ const BookDetailView: React.FC<{ bookId: string }> = ({ bookId }) => {
                     {!!c.is_whole_chapter && <span className="sanzar-pill text-[10px]">Whole chapter</span>}
                   </div>
                 </td>
+                <td className="p-3 text-xs font-semibold text-sanzar-text2">{lessonCount}</td>
                 <td className="p-3">{hasNotes.has(c.id) ? '✓' : '—'}</td>
                 <td className="p-3">{data.resources.filter((r) => r.chapter_id === c.id).length}</td>
                 <td className="p-3">{data.questionCounts[c.id] ?? 0}</td>
@@ -977,7 +982,7 @@ const BookDetailView: React.FC<{ bookId: string }> = ({ bookId }) => {
                   </button>
                   <button
                     onClick={async () => {
-                      if (!window.confirm(`Delete chapter "${c.title}" and all its materials, notes, quiz & Q&A?`)) return;
+                      if (!window.confirm(`Delete chapter "${c.title}" and all its lessons, materials, notes, quiz & Q&A?`)) return;
                       try {
                         await apiRequest(`/v1/admin/chapters/${encodeURIComponent(c.id)}`, { method: 'DELETE' });
                         toast('Chapter deleted');
@@ -992,14 +997,15 @@ const BookDetailView: React.FC<{ bookId: string }> = ({ bookId }) => {
                   </button>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
 
       {editing !== undefined && (
         <Modal
-          title={editing ? `Edit chapter / lesson #${editing.number}` : 'New chapter / lesson'}
+          title={editing ? `Edit chapter #${editing.number}` : 'New chapter'}
           onClose={() => setEditing(undefined)}
         >
           <ChapterForm
@@ -1020,18 +1026,22 @@ const BookDetailView: React.FC<{ bookId: string }> = ({ bookId }) => {
 
 const ChapterForm: React.FC<{
   bookId: string;
+  parentChapterId?: string | null;
   chapter: AdminChapter | null;
   existingChapters: AdminChapter[];
   nextNumber: number;
   onDone: () => void;
 }> = ({
   bookId,
+  parentChapterId = null,
   chapter,
   existingChapters,
   nextNumber,
   onDone,
 }) => {
   const toast = useToast();
+  const isLesson = Boolean(parentChapterId || chapter?.parent_chapter_id);
+  const resolvedParentId = chapter?.parent_chapter_id ?? parentChapterId ?? null;
   const [n, setN] = useState(String(chapter?.number ?? nextNumber));
   const [title, setTitle] = useState(chapter?.title ?? '');
   const [status, setStatus] = useState(chapter?.status ?? 'published');
@@ -1046,15 +1056,15 @@ const ChapterForm: React.FC<{
     if (!title.trim()) return setErrors(['Title is required.']);
     if (thumb && !isValidThumbValue(thumb)) return setErrors(['Thumbnail must be an uploaded image or https:// URL']);
 
-    // Always generate a collision-free unique ID for new chapters/lessons (never overwrite existing ones!)
     let id = chapter?.id ?? '';
     if (!id) {
-      const prefix = bookId.slice(0, 42);
+      const base = (resolvedParentId || bookId).slice(0, 40);
+      const tag = isLesson ? 'ls' : 'ch';
       const suffix = Date.now().toString(36);
-      id = `${prefix}-l${String(numVal).padStart(2, '0')}-${suffix}`.slice(0, 64);
+      id = `${base}-${tag}${String(numVal).padStart(2, '0')}-${suffix}`.slice(0, 64);
       let salt = 1;
       while (existingChapters.some((c) => c.id === id)) {
-        id = `${prefix}-l${String(numVal).padStart(2, '0')}-${suffix}${salt++}`.slice(0, 64);
+        id = `${base}-${tag}${String(numVal).padStart(2, '0')}-${suffix}${salt++}`.slice(0, 64);
       }
     }
     if (!isId(id)) return setErrors(['Invalid id.']);
@@ -1065,14 +1075,15 @@ const ChapterForm: React.FC<{
         method: 'PUT',
         bodyJson: {
           book_id: bookId,
+          parent_chapter_id: resolvedParentId,
           number: numVal,
           title: title.trim(),
           status,
-          is_whole_chapter: isWholeChapter,
+          is_whole_chapter: isLesson ? false : isWholeChapter,
           thumbnail_url: thumb || null,
         },
       });
-      toast(chapter ? 'Updated' : 'Created');
+      toast(chapter ? 'Updated' : isLesson ? 'Lesson created' : 'Chapter created');
       onDone();
     } catch (e) {
       setErrors([errorText(e)]);
@@ -1105,19 +1116,21 @@ const ChapterForm: React.FC<{
           <input value={chapter?.id ?? 'Auto-generated unique ID'} disabled className="sanzar-input text-sm opacity-60" />
         </label>
         <ThumbnailField value={thumbnailUrl} onChange={setThumbnailUrl} className="sm:col-span-2" />
-        <label className="flex items-center gap-2 sm:col-span-2 cursor-pointer pt-1">
-          <input
-            type="checkbox"
-            checked={isWholeChapter}
-            onChange={(e) => setIsWholeChapter(e.target.checked)}
-            className="accent-sanzar-primary"
-          />
-          <span>Single unit / full chapter (all lessons bundled together)</span>
-        </label>
+        {!isLesson && (
+          <label className="flex items-center gap-2 sm:col-span-2 cursor-pointer pt-1">
+            <input
+              type="checkbox"
+              checked={isWholeChapter}
+              onChange={(e) => setIsWholeChapter(e.target.checked)}
+              className="accent-sanzar-primary"
+            />
+            <span>Whole chapter (single unit — no separate lessons needed)</span>
+          </label>
+        )}
       </div>
       <ErrorsBox list={errors} />
       <button onClick={submit} disabled={busy} className="px-5 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-sm font-semibold">
-        Save chapter / lesson
+        {isLesson ? 'Save lesson' : 'Save chapter'}
       </button>
     </div>
   );
@@ -1158,6 +1171,7 @@ const ChapterDetailView: React.FC<{ chapterId: string }> = ({ chapterId }) => {
       ),
   });
 
+  const [lessonModal, setLessonModal] = useState<AdminChapter | null | undefined>(undefined);
   const [resModal, setResModal] = useState<AdminResource | null | undefined>(undefined);
   const [qModal, setQModal] = useState<AdminQuestion | null | undefined>(undefined);
   const [qaModal, setQaModal] = useState<AdminQaItem | null | undefined>(undefined);
@@ -1171,23 +1185,145 @@ const ChapterDetailView: React.FC<{ chapterId: string }> = ({ chapterId }) => {
   const ch = c.chapters.find((x) => x.id === chapterId);
   if (!ch) return <ErrorRetry message="Chapter not found." />;
   const book = c.books.find((b) => b.id === ch.book_id);
+  const parentChapter = ch.parent_chapter_id ? c.chapters.find((x) => x.id === ch.parent_chapter_id) : null;
+  const lessons = c.chapters.filter((x) => x.parent_chapter_id === ch.id);
+  const hasNotes = new Set(c.notes.map((n) => n.chapter_id));
   const resources = c.resources.filter((r) => r.chapter_id === chapterId);
 
   return (
     <div className="space-y-6">
-      <Link
-        to={`/admin/content/book/${encodeURIComponent(ch.book_id)}`}
-        className="text-sm font-semibold text-sanzar-primary hover:underline"
-      >
-        ← {book?.title}
-      </Link>
+      <div className="flex items-center gap-2 text-sm font-semibold text-sanzar-primary flex-wrap">
+        <Link to={`/admin/content/book/${encodeURIComponent(ch.book_id)}`} className="hover:underline">
+          ← {book?.title}
+        </Link>
+        {parentChapter && (
+          <>
+            <span className="text-sanzar-muted">/</span>
+            <Link to={`/admin/content/chapter/${encodeURIComponent(parentChapter.id)}`} className="hover:underline">
+              Chapter {parentChapter.number}: {parentChapter.title}
+            </Link>
+          </>
+        )}
+      </div>
       <div className="flex items-center gap-3 flex-wrap">
         <h1 className="text-2xl font-extrabold">
-          {ch.number === 0 ? `Whole Book: ${ch.title}` : `Chapter ${ch.number}: ${ch.title}`}
+          {ch.number === 0
+            ? `Whole Book: ${ch.title}`
+            : parentChapter
+              ? `Lesson ${ch.number}: ${ch.title}`
+              : `Chapter ${ch.number}: ${ch.title}`}
         </h1>
-        {!!ch.is_whole_chapter && <span className="sanzar-pill">Whole chapter</span>}
+        {!!ch.is_whole_chapter && !parentChapter && <span className="sanzar-pill">Whole chapter</span>}
         <StatusPill s={ch.status} />
       </div>
+
+      {/* Lessons inside this Chapter (only for top-level chapters, not inside a lesson or whole book) */}
+      {!parentChapter && ch.number > 0 && (
+        <section className="space-y-2.5">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <h2 className="text-lg font-bold">Lessons in this chapter</h2>
+              <p className="text-xs text-sanzar-muted">
+                Add lessons inside Chapter {ch.number} — each lesson has its own notes, materials, quiz, and Q&amp;A.
+              </p>
+            </div>
+            <button
+              onClick={() => setLessonModal(null)}
+              className="px-4 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-semibold"
+            >
+              New lesson
+            </button>
+          </div>
+          {lessons.length === 0 ? (
+            <p className="text-xs text-sanzar-muted">
+              No lessons yet. Add lessons above, or add chapter-level notes &amp; materials below.
+            </p>
+          ) : (
+            <div className="sanzar-card overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-sanzar-surface2 text-sanzar-text2 text-left border-b border-sanzar-border">
+                    <th className="p-3 font-semibold">#</th>
+                    <th className="p-3 font-semibold">Lesson</th>
+                    <th className="p-3 font-semibold">Notes</th>
+                    <th className="p-3 font-semibold">Materials</th>
+                    <th className="p-3 font-semibold">Quiz</th>
+                    <th className="p-3 font-semibold">Status</th>
+                    <th className="p-3" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {lessons.map((l) => (
+                    <tr key={l.id} className="border-b border-sanzar-border last:border-0">
+                      <td className="p-3">{l.number}</td>
+                      <td className="p-3">
+                        <Link
+                          to={`/admin/content/chapter/${encodeURIComponent(l.id)}`}
+                          className="font-bold text-sanzar-primary hover:underline"
+                        >
+                          {l.title}
+                        </Link>
+                      </td>
+                      <td className="p-3">{hasNotes.has(l.id) ? '✓' : '—'}</td>
+                      <td className="p-3">{c.resources.filter((r) => r.chapter_id === l.id).length}</td>
+                      <td className="p-3">{c.questionCounts[l.id] ?? 0}</td>
+                      <td className="p-3"><StatusPill s={l.status} /></td>
+                      <td className="p-3 text-right space-x-2 whitespace-nowrap">
+                        <Link
+                          to={`/admin/content/chapter/${encodeURIComponent(l.id)}`}
+                          className="inline-block px-3 py-1 rounded-lg border border-sanzar-primary/50 text-sanzar-primary text-xs font-semibold hover:bg-sanzar-primarySoft"
+                        >
+                          Manage
+                        </Link>
+                        <button
+                          onClick={() => setLessonModal(l)}
+                          className="px-3 py-1 rounded-lg border border-sanzar-border text-xs font-semibold hover:bg-sanzar-surface2"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!window.confirm(`Delete lesson "${l.title}" and all its materials, notes, quiz & Q&A?`)) return;
+                            try {
+                              await apiRequest(`/v1/admin/chapters/${encodeURIComponent(l.id)}`, { method: 'DELETE' });
+                              toast('Lesson deleted');
+                              void qc.invalidateQueries({ queryKey: ['admin', 'content'] });
+                            } catch (e) {
+                              toast(errorText(e));
+                            }
+                          }}
+                          className="px-2.5 py-1 rounded-lg border border-sanzar-danger/40 text-sanzar-danger text-xs font-semibold hover:bg-sanzar-danger/10"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {lessonModal !== undefined && (
+            <Modal
+              title={lessonModal ? `Edit lesson #${lessonModal.number}` : `New lesson in Chapter ${ch.number}`}
+              onClose={() => setLessonModal(undefined)}
+            >
+              <ChapterForm
+                bookId={ch.book_id}
+                parentChapterId={ch.id}
+                chapter={lessonModal}
+                existingChapters={c.chapters}
+                nextNumber={Math.max(0, ...lessons.map((l) => l.number)) + 1}
+                onDone={() => {
+                  setLessonModal(undefined);
+                  void qc.invalidateQueries({ queryKey: ['admin', 'content'] });
+                }}
+              />
+            </Modal>
+          )}
+        </section>
+      )}
 
       {/* Notes */}
       <section className="space-y-2">

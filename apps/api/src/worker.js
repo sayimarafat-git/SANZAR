@@ -235,7 +235,7 @@ async function catalog(env, req) {
   const resBy = {};
   for (const r of resources.results) (resBy[r.chapter_id] ||= []).push({ id: r.id, type: r.type, title: r.title, pages: r.pages, url: r.video_asset_id ? vids[r.video_asset_id]?.url : url[r.id] || null, version: r.current_version });
   const chBy = {};
-  for (const c of chapters.results) (chBy[c.book_id] ||= []).push({ id: c.id, number: c.number, title: c.title, resources: resBy[c.id] || [], hasNotes: !!notesBy[c.id], questionCount: qCount[c.id] || 0 });
+  for (const c of chapters.results) (chBy[c.book_id] ||= []).push({ id: c.id, parentChapterId: c.parent_chapter_id || null, number: c.number, title: c.title, resources: resBy[c.id] || [], hasNotes: !!notesBy[c.id], questionCount: qCount[c.id] || 0 });
   const docByBook = {};
   for (const b of books.results) {
     const orderedChs = [...(chBy[b.id] || [])].sort((a, x) => (a.number === 0 && x.number !== 0 ? -1 : x.number === 0 && a.number !== 0 ? 1 : a.number - x.number));

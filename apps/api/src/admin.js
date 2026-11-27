@@ -182,30 +182,42 @@ async function putChapter(env, ctx, id, i) {
   slug(id, 'Chapter');
   const bookId = slug(i.book_id, 'Book');
   if (!(await env.DB.prepare('SELECT 1 FROM books WHERE id = ?').bind(bookId).first())) throw new HttpError(400, 'invalid-argument', 'Unknown book');
+  let parentChapterId = null;
+  if (i.parent_chapter_id) {
+    parentChapterId = slug(i.parent_chapter_id, 'Parent chapter');
+    if (parentChapterId === id) throw new HttpError(400, 'invalid-argument', 'Lesson cannot be its own parent');
+    const parent = await env.DB.prepare('SELECT book_id FROM chapters WHERE id = ?').bind(parentChapterId).first();
+    if (!parent || parent.book_id !== bookId) throw new HttpError(400, 'invalid-argument', 'Unknown parent chapter in this book');
+  }
   const n = num(i.number, 'Chapter number', 0, 500, 1);
   const isWhole = i.is_whole_chapter ? 1 : 0;
   const thumb = validateCoverImage(i.thumbnail_url) ?? null;
-  await env.DB.prepare(`INSERT INTO chapters (id, book_id, number, title, sort, status, is_whole_chapter, thumbnail_url, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET book_id = excluded.book_id, number = excluded.number, title = excluded.title, sort = excluded.sort, status = excluded.status, is_whole_chapter = excluded.is_whole_chapter, thumbnail_url = excluded.thumbnail_url, updated_at = excluded.updated_at`)
-    .bind(id, bookId, n, str(i.title, { min: 1, max: 200, field: 'Title' }), num(i.sort, 'Order', 0, 100000, n), status(i.status), isWhole, thumb, now()).run();
-  await audit(env, ctx, 'chapter.save', id);
+  await env.DB.prepare(`INSERT INTO chapters (id, book_id, parent_chapter_id, number, title, sort, status, is_whole_chapter, thumbnail_url, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET book_id = excluded.book_id, parent_chapter_id = excluded.parent_chapter_id, number = excluded.number, title = excluded.title, sort = excluded.sort, status = excluded.status, is_whole_chapter = excluded.is_whole_chapter, thumbnail_url = excluded.thumbnail_url, updated_at = excluded.updated_at`)
+    .bind(id, bookId, parentChapterId, n, str(i.title, { min: 1, max: 200, field: 'Title' }), num(i.sort, 'Order', 0, 100000, n), status(i.status), isWhole, thumb, now()).run();
+  await audit(env, ctx, 'chapter.save', id, parentChapterId ? { parent_chapter_id: parentChapterId } : undefined);
   return { id };
 }
 
 async function deleteChapter(env, ctx, id) {
   requireRole(ctx.user, 'teacher');
   slug(id, 'Chapter');
-  await env.DB.batch([
-    env.DB.prepare('PRAGMA defer_foreign_keys = ON'),
-    env.DB.prepare('DELETE FROM resource_versions WHERE resource_id IN (SELECT id FROM resources WHERE chapter_id = ?)').bind(id),
-    env.DB.prepare('DELETE FROM resources WHERE chapter_id = ?').bind(id),
-    env.DB.prepare('DELETE FROM note_versions WHERE chapter_id = ?').bind(id),
-    env.DB.prepare('DELETE FROM notes WHERE chapter_id = ?').bind(id),
-    env.DB.prepare('DELETE FROM question_versions WHERE question_id IN (SELECT id FROM questions WHERE chapter_id = ?)').bind(id),
-    env.DB.prepare('DELETE FROM questions WHERE chapter_id = ?').bind(id),
-    env.DB.prepare('DELETE FROM chapter_qa WHERE chapter_id = ?').bind(id),
-    env.DB.prepare('DELETE FROM chapters WHERE id = ?').bind(id),
-  ]);
+  const children = (await env.DB.prepare('SELECT id FROM chapters WHERE parent_chapter_id = ?').bind(id).all()).results;
+  const allIds = [...children.map((c) => c.id), id];
+  const stmts = [env.DB.prepare('PRAGMA defer_foreign_keys = ON')];
+  for (const cid of allIds) {
+    stmts.push(
+      env.DB.prepare('DELETE FROM resource_versions WHERE resource_id IN (SELECT id FROM resources WHERE chapter_id = ?)').bind(cid),
+      env.DB.prepare('DELETE FROM resources WHERE chapter_id = ?').bind(cid),
+      env.DB.prepare('DELETE FROM note_versions WHERE chapter_id = ?').bind(cid),
+      env.DB.prepare('DELETE FROM notes WHERE chapter_id = ?').bind(cid),
+      env.DB.prepare('DELETE FROM question_versions WHERE question_id IN (SELECT id FROM questions WHERE chapter_id = ?)').bind(cid),
+      env.DB.prepare('DELETE FROM questions WHERE chapter_id = ?').bind(cid),
+      env.DB.prepare('DELETE FROM chapter_qa WHERE chapter_id = ?').bind(cid),
+      env.DB.prepare('DELETE FROM chapters WHERE id = ?').bind(cid),
+    );
+  }
+  await env.DB.batch(stmts);
   await audit(env, ctx, 'chapter.delete', id);
   return { deleted: true, id };
 }

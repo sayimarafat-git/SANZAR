@@ -519,4 +519,11 @@ ALTER TABLE translation_cache ADD COLUMN reported INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE translation_cache ADD COLUMN report_note TEXT NOT NULL DEFAULT '';
 `,
   },
+  {
+    id: '0015_chapter_lessons',
+    sql: `
+ALTER TABLE chapters ADD COLUMN parent_chapter_id TEXT REFERENCES chapters(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS idx_chapters_parent ON chapters(parent_chapter_id, sort, number);
+`,
+  },
 ];

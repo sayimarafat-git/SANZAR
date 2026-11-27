@@ -62,6 +62,7 @@ export interface Resource {
 
 export interface Chapter {
   id: string;
+  parentChapterId?: string | null;
   number: number;
   title: string;
   hasNotes: boolean;

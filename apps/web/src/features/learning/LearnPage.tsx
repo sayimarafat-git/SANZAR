@@ -178,44 +178,106 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
           </div>
         </div>
 
-        <div className="space-y-2.5">
-          {book.chapters.map((c) => {
-            const notesDone = completedSet.has(`notes:${c.id}`);
-            return (
-              <Link
-                key={c.id}
-                to={`/learn/chapter/${book.id}/${c.id}`}
-                className="sanzar-card p-4 flex items-center gap-4 hover:border-sanzar-primary/50 transition"
-              >
-                <div
-                  style={{ backgroundColor: `${col}20`, color: col }}
-                  className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
+        <div className="space-y-3">
+          {book.chapters
+            .filter((c) => !c.parentChapterId)
+            .map((c) => {
+              const childLessons = book.chapters.filter((l) => l.parentChapterId === c.id);
+              const notesDone = completedSet.has(`notes:${c.id}`);
+              const hasDirectContent = c.hasNotes || c.resources.length > 0 || c.questionCount > 0;
+
+              if (childLessons.length > 0) {
+                return (
+                  <div key={c.id} className="sanzar-card overflow-hidden">
+                    <div className="p-4 flex items-center gap-4 bg-sanzar-surface2/50 border-b border-sanzar-border">
+                      <div
+                        style={{ backgroundColor: `${col}20`, color: col }}
+                        className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
+                      >
+                        {c.number}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h2 className="font-bold text-sm sm:text-base truncate">{c.title}</h2>
+                        <p className="text-xs text-sanzar-muted">{childLessons.length} lessons</p>
+                      </div>
+                      {hasDirectContent && (
+                        <Link
+                          to={`/learn/chapter/${book.id}/${c.id}`}
+                          className="text-xs font-semibold text-sanzar-primary hover:underline shrink-0"
+                        >
+                          Overview →
+                        </Link>
+                      )}
+                    </div>
+                    <div className="divide-y divide-sanzar-border/70">
+                      {childLessons.map((lesson) => {
+                        const lessonDone = completedSet.has(`notes:${lesson.id}`);
+                        return (
+                          <Link
+                            key={lesson.id}
+                            to={`/learn/chapter/${book.id}/${lesson.id}`}
+                            className="px-4 py-3 pl-8 flex items-center gap-3 hover:bg-sanzar-surface2/60 transition"
+                          >
+                            <span className="w-6 h-6 rounded-full bg-sanzar-primarySoft text-sanzar-primary text-xs font-bold flex items-center justify-center shrink-0">
+                              {lesson.number}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-semibold text-sm truncate">{lesson.title}</div>
+                              <p className="text-xs text-sanzar-muted">
+                                {[
+                                  lesson.hasNotes ? t('notes') : null,
+                                  lesson.resources.length > 0 ? `${lesson.resources.length} ${t('resources')}` : null,
+                                  lesson.questionCount > 0 ? t('questions', { n: lesson.questionCount }) : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(' · ')}
+                              </p>
+                            </div>
+                            {lessonDone && <CheckCircle2 className="w-4 h-4 text-sanzar-success shrink-0" />}
+                            <ChevronRight className="w-4 h-4 text-sanzar-muted shrink-0" />
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <Link
+                  key={c.id}
+                  to={`/learn/chapter/${book.id}/${c.id}`}
+                  className="sanzar-card p-4 flex items-center gap-4 hover:border-sanzar-primary/50 transition"
                 >
-                  {c.number === 0 ? '★' : c.number}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h2 className="font-bold text-sm sm:text-base truncate">
-                    {c.number === 0
-                      ? c.title.replace(/\s*\(Whole Book\)\s*$/i, '').trim() === book.title
-                        ? `${book.title} — Full Edition`
-                        : c.title.replace(/\(Whole Book\)/gi, 'Full Edition')
-                      : c.title}
-                  </h2>
-                  <p className="text-xs text-sanzar-muted">
-                    {[
-                      c.hasNotes ? t('notes') : null,
-                      c.resources.length > 0 ? `${c.resources.length} ${t('resources')}` : null,
-                      c.questionCount > 0 ? t('questions', { n: c.questionCount }) : null,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </p>
-                </div>
-                {notesDone && <CheckCircle2 className="w-5 h-5 text-sanzar-success shrink-0" />}
-                <ChevronRight className="w-4 h-4 text-sanzar-muted shrink-0" />
-              </Link>
-            );
-          })}
+                  <div
+                    style={{ backgroundColor: `${col}20`, color: col }}
+                    className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
+                  >
+                    {c.number === 0 ? '★' : c.number}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h2 className="font-bold text-sm sm:text-base truncate">
+                      {c.number === 0
+                        ? c.title.replace(/\s*\(Whole Book\)\s*$/i, '').trim() === book.title
+                          ? `${book.title} — Full Edition`
+                          : c.title.replace(/\(Whole Book\)/gi, 'Full Edition')
+                        : c.title}
+                    </h2>
+                    <p className="text-xs text-sanzar-muted">
+                      {[
+                        c.hasNotes ? t('notes') : null,
+                        c.resources.length > 0 ? `${c.resources.length} ${t('resources')}` : null,
+                        c.questionCount > 0 ? t('questions', { n: c.questionCount }) : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                  </div>
+                  {notesDone && <CheckCircle2 className="w-5 h-5 text-sanzar-success shrink-0" />}
+                  <ChevronRight className="w-4 h-4 text-sanzar-muted shrink-0" />
+                </Link>
+              );
+            })}
         </div>
       </div>
     );
@@ -246,7 +308,16 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
           >
             <ArrowLeft className="w-4 h-4" /> {book.title}
           </Link>
-          <span className="sanzar-pill">{ch.number === 0 ? 'Full Edition' : t('chapter', { n: ch.number })}</span>
+          <span className="sanzar-pill">
+            {ch.number === 0
+              ? 'Full Edition'
+              : ch.parentChapterId
+                ? (() => {
+                    const p = book.chapters.find((x) => x.id === ch.parentChapterId);
+                    return p ? `Chapter ${p.number} · Lesson ${ch.number}` : `Lesson ${ch.number}`;
+                  })()
+                : t('chapter', { n: ch.number })}
+          </span>
         </div>
 
         <div>
