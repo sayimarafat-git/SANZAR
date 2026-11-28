@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHandleSignInCallback } from '@logto/react';
 import { LoadingState } from '../../components/SanzarUI';
@@ -6,14 +6,8 @@ import { LoadingState } from '../../components/SanzarUI';
 export const CallbackPage: React.FC = () => {
   const navigate = useNavigate();
   const { isLoading, error } = useHandleSignInCallback(() => {
-    window.location.replace('/');
+    navigate('/', { replace: true });
   });
-
-  useEffect(() => {
-    if (!isLoading && !error) {
-      window.location.replace('/');
-    }
-  }, [isLoading, error]);
 
   if (error) {
     return (
@@ -31,6 +25,10 @@ export const CallbackPage: React.FC = () => {
         </div>
       </div>
     );
+  }
+
+  if (isLoading) {
+    return <LoadingState />;
   }
 
   return <LoadingState />;

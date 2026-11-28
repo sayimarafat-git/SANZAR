@@ -31,7 +31,7 @@ data class ApiResponse(
 }
 
 class ApiClient(
-    private val baseUrl: String = "https://sanzar-api.sanzar.workers.dev",
+    private val baseUrl: String = "https://api.sanzar.pro",
     private val tokenProvider: suspend () -> String? = { null }
 ) {
     private val client: OkHttpClient = OkHttpClient.Builder()

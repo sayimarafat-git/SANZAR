@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth-context';
 import { useSettings, type ThemeMode } from '../../lib/settings-context';
-import { apiRequest, fetchCatalogWithCache } from '../../lib/api-client';
+import { apiRequest, errorText, fetchCatalogWithCache } from '../../lib/api-client';
 import { localizedName, type Lang } from '../../lib/i18n';
 import { LEVELS, type AppNotification } from '../../lib/models';
 import { useToast } from '../../components/SanzarUI';
@@ -95,8 +95,8 @@ export const ProfilePage: React.FC = () => {
       });
       setLang(nativeLang);
       toast(t('saved'));
-    } catch {
-      toast(t('err.generic'));
+    } catch (err) {
+      toast(errorText(err));
     } finally {
       setSaving(false);
     }

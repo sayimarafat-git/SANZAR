@@ -141,7 +141,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, logtoLoading, getIdToken, getIdTokenClaims]);
+  }, [isAuthenticated, logtoLoading]);
 
   const refreshProfile = async () => {
     if (user) await fetchProfile(user);
