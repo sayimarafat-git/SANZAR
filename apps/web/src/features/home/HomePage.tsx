@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -12,18 +12,24 @@ import {
   CloudOff,
   BookOpen,
   BookA,
+  Pencil,
+  X,
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth-context';
-import { useSettings } from '../../lib/settings-context';
+import { DAILY_GOAL_MAX, DAILY_GOAL_MIN, useSettings } from '../../lib/settings-context';
 import { apiRequest, fetchCatalogWithCache } from '../../lib/api-client';
 import { colorForSubject, localizedName } from '../../lib/i18n';
 import { LEVELS, type ProgressData } from '../../lib/models';
-import { BookCover, BrandMark, LoadingState, SubjectIcon } from '../../components/SanzarUI';
+import { BookCover, BrandMark, LoadingState, SubjectIcon, useToast } from '../../components/SanzarUI';
 import { AnalogFocusTimer } from '../../components/AnalogFocusTimer';
+
+const GOAL_PRESETS = [10, 15, 30, 60] as const;
 
 export const HomePage: React.FC = () => {
   const { user, profile } = useAuth();
-  const { lang, dailyGoalMinutes, t } = useSettings();
+  const { lang, dailyGoalMinutes, setDailyGoalMinutes, t } = useSettings();
+  const toast = useToast();
+  const [goalEditorOpen, setGoalEditorOpen] = useState(false);
 
   const catQuery = useQuery({
     queryKey: ['catalog'],
@@ -132,6 +138,28 @@ export const HomePage: React.FC = () => {
   const todayMin = prog ? Math.floor(prog.todaySec / 60) : 0;
   const goalMin = dailyGoalMinutes ?? (prog ? Math.round((prog.goalSec || 3600) / 60) : 60);
   const goalPct = prog ? Math.min(100, Math.round((prog.todaySec / (goalMin * 60)) * 100)) : 0;
+  const [customGoalInput, setCustomGoalInput] = useState(() => String(goalMin));
+
+  useEffect(() => {
+    setCustomGoalInput(String(goalMin));
+  }, [goalMin]);
+
+  const applyDailyGoal = (minutes: number) => {
+    const saved = setDailyGoalMinutes(minutes);
+    setCustomGoalInput(String(saved));
+    setGoalEditorOpen(false);
+    toast(t('saved'));
+  };
+
+  const handleCustomGoalSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsed = Number(customGoalInput);
+    if (!Number.isFinite(parsed)) {
+      setCustomGoalInput(String(goalMin));
+      return;
+    }
+    applyDailyGoal(parsed);
+  };
 
   return (
     <div className="space-y-6">
@@ -184,13 +212,14 @@ export const HomePage: React.FC = () => {
       {/* Daily Study Goal & Analog Focus Timer (matched to Quick Actions height & 2-col mobile grid) */}
       <div className={`grid gap-3 sm:gap-4 ${prog ? 'grid-cols-2 items-stretch' : ''}`}>
         {prog && (
-          <Link
-            to="/progress"
-            className="sanzar-card p-3 sm:p-5 sm:min-h-[114px] hover:border-sanzar-primary/50 transition flex items-center min-w-0"
-          >
+          <div className="sanzar-card p-3 sm:p-5 sm:min-h-[114px] hover:border-sanzar-primary/50 transition flex flex-col justify-center gap-2.5 min-w-0">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 w-full min-w-0">
               <div className="flex items-center gap-2.5 sm:gap-4 min-w-0">
-                <div className="relative w-10 h-10 sm:w-16 sm:h-16 shrink-0 flex items-center justify-center">
+                <Link
+                  to="/progress"
+                  aria-label={t('progress')}
+                  className="relative w-10 h-10 sm:w-16 sm:h-16 shrink-0 flex items-center justify-center"
+                >
                   <svg className="w-full h-full -rotate-90" viewBox="0 0 80 80">
                     <circle
                       cx="40"
@@ -213,25 +242,94 @@ export const HomePage: React.FC = () => {
                     />
                   </svg>
                   <span className="absolute font-extrabold text-[11px] sm:text-sm">{todayMin}′</span>
-                </div>
+                </Link>
                 <div className="sm:hidden flex-1 min-w-0">
-                  <p className="font-bold text-xs truncate">{t('today')}</p>
+                  <div className="flex items-center justify-between gap-1">
+                    <Link to="/progress" className="font-bold text-xs truncate hover:text-sanzar-primary transition">
+                      {t('today')}
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => setGoalEditorOpen((v) => !v)}
+                      aria-expanded={goalEditorOpen}
+                      aria-label={t('dailyGoal')}
+                      className="p-1 rounded-md border border-sanzar-border text-sanzar-muted hover:text-sanzar-primary hover:border-sanzar-primary/50 transition shrink-0"
+                    >
+                      {goalEditorOpen ? <X className="w-3 h-3" /> : <Pencil className="w-3 h-3" />}
+                    </button>
+                  </div>
                   <p className="text-[11px] font-semibold text-sanzar-primary">{goalPct}%</p>
                 </div>
               </div>
               <div className="flex-1 min-w-0 space-y-1.5">
                 <div className="hidden sm:flex items-center justify-between gap-2">
-                  <span className="font-bold text-sm truncate">{t('today')}</span>
-                  <span className="text-xs font-semibold text-sanzar-primary shrink-0">{goalPct}%</span>
+                  <Link to="/progress" className="font-bold text-sm truncate hover:text-sanzar-primary transition">
+                    {t('today')}
+                  </Link>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-xs font-semibold text-sanzar-primary">{goalPct}%</span>
+                    <button
+                      type="button"
+                      onClick={() => setGoalEditorOpen((v) => !v)}
+                      aria-expanded={goalEditorOpen}
+                      aria-label={t('dailyGoal')}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-sanzar-border text-[10px] font-semibold text-sanzar-muted hover:text-sanzar-primary hover:border-sanzar-primary/50 transition"
+                    >
+                      {goalEditorOpen ? <X className="w-2.5 h-2.5" /> : <Pencil className="w-2.5 h-2.5" />}
+                      <span>Edit</span>
+                    </button>
+                  </div>
                 </div>
                 <p className="text-[11px] sm:text-xs text-sanzar-text2 truncate">{t('goalOf', { m: todayMin, g: goalMin })}</p>
                 <div className="h-1.5 sm:h-2 rounded-full bg-sanzar-primarySoft overflow-hidden">
                   <div className="h-full bg-brand-grad rounded-full transition-all" style={{ width: `${goalPct}%` }} />
                 </div>
               </div>
-              <ChevronRight className="hidden sm:block w-4 h-4 text-sanzar-muted shrink-0" />
+              <Link to="/progress" aria-label={t('seeProgress')} className="hidden sm:block text-sanzar-muted hover:text-sanzar-primary transition shrink-0">
+                <ChevronRight className="w-4 h-4" />
+              </Link>
             </div>
-          </Link>
+
+            {goalEditorOpen && (
+              <div className="pt-2 border-t border-sanzar-border/70 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-1">
+                  {GOAL_PRESETS.map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => applyDailyGoal(m)}
+                      className={`px-2 py-0.5 rounded-md text-[10px] sm:text-[11px] font-semibold border transition leading-tight ${
+                        goalMin === m
+                          ? 'bg-sanzar-primary text-sanzar-onPrimary border-sanzar-primary'
+                          : 'border-sanzar-border text-sanzar-text2 hover:border-sanzar-primary/50'
+                      }`}
+                    >
+                      {m}m
+                    </button>
+                  ))}
+                </div>
+
+                <form onSubmit={handleCustomGoalSubmit} className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    min={DAILY_GOAL_MIN}
+                    max={DAILY_GOAL_MAX}
+                    value={customGoalInput}
+                    onChange={(e) => setCustomGoalInput(e.target.value)}
+                    aria-label={t('customGoal')}
+                    placeholder={t('customGoal')}
+                    className="w-16 px-2 py-0.5 rounded-md border border-sanzar-border bg-sanzar-surface2 text-[11px] font-semibold text-sanzar-text focus:outline-none focus:border-sanzar-primary"
+                  />
+                  <button
+                    type="submit"
+                    className="px-2.5 py-0.5 rounded-md bg-sanzar-primarySoft text-sanzar-primary hover:bg-sanzar-primary hover:text-sanzar-onPrimary text-[11px] font-bold transition"
+                  >
+                    {t('apply')}
+                  </button>
+                </form>
+              </div>
+            )}
+          </div>
         )}
         <AnalogFocusTimer />
       </div>
@@ -243,7 +341,7 @@ export const HomePage: React.FC = () => {
           {[
             { to: '/library', label: t('library'), icon: BookOpen },
             { to: '/dictionary', label: t('dictionary'), icon: BookA },
-            { to: '/progress?tab=exams', label: t('exams'), icon: ClipboardCheck },
+            { to: '/exams', label: t('exams'), icon: ClipboardCheck },
             { to: '/progress?tab=leaderboard', label: t('leaderboard'), icon: Trophy },
           ].map((qa) => (
             <Link

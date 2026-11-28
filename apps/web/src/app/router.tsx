@@ -34,7 +34,7 @@ export const AppRouter: React.FC = () => {
           <Route path="learn/book/:bookId" element={<LearnPage mode="book" />} />
           <Route path="learn/chapter/:bookId/:chapterId" element={<LearnPage mode="chapter" />} />
           <Route path="learn/resource/:resourceId" element={<LearnPage mode="resource" />} />
-          <Route path="exams" element={<Navigate to="/progress?tab=exams" replace />} />
+          <Route path="exams" element={<ExamsPage />} />
           <Route path="exams/:examId" element={<ExamsPage view="run" />} />
           <Route path="attempts/:attemptId" element={<ExamsPage view="result" />} />
           <Route path="progress" element={<ProgressPage />} />

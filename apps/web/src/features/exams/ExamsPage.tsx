@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ClipboardCheck,
@@ -18,25 +18,21 @@ import { useStudyTracker } from '../../lib/study-tracker';
 import type { AttemptResult, AttemptSummary, ExamSession } from '../../lib/models';
 import { ErrorRetry, LoadingState, Modal, mmss, timeAgo, useToast } from '../../components/SanzarUI';
 
-export const ExamsPage: React.FC<{
-  view?: 'list' | 'run' | 'result';
-  embedded?: boolean;
-  activeTab?: 'tests' | 'history';
-}> = ({ view = 'list', embedded = false, activeTab }) => {
+export const ExamsPage: React.FC<{ view?: 'list' | 'run' | 'result' }> = ({ view = 'list' }) => {
   const { examId, attemptId } = useParams();
   if (view === 'run' && examId) return <ExamRunner examId={examId} />;
   if (view === 'result' && attemptId) return <AttemptReview attemptId={attemptId} />;
-  return <ExamsList embedded={embedded} activeTab={activeTab} />;
+  return <ExamsList />;
 };
 
-const ExamsList: React.FC<{ embedded?: boolean; activeTab?: 'tests' | 'history' }> = ({
-  embedded = false,
-  activeTab,
-}) => {
+const ExamsList: React.FC = () => {
   const { user, profile } = useAuth();
   const { t } = useSettings();
-  const [internalTab, setInternalTab] = useState<'tests' | 'history'>(activeTab ?? 'tests');
-  const tab = activeTab ?? internalTab;
+  const [params, setParams] = useSearchParams();
+  const tab: 'tests' | 'history' = params.get('tab') === 'history' ? 'history' : 'tests';
+  const setTab = (next: 'tests' | 'history') => {
+    setParams(next === 'history' ? { tab: 'history' } : {});
+  };
 
   const catQuery = useQuery({
     queryKey: ['catalog'],
@@ -84,30 +80,34 @@ const ExamsList: React.FC<{ embedded?: boolean; activeTab?: 'tests' | 'history' 
   });
 
   return (
-    <div className={embedded ? 'space-y-4' : 'space-y-5 max-w-4xl mx-auto'}>
-      {!embedded && (
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-2xl font-extrabold">{t('exams')}</h1>
-          <div className="flex rounded-xl border border-sanzar-border bg-sanzar-surface p-1 gap-1">
-            <button
-              onClick={() => setInternalTab('tests')}
-              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition ${
-                tab === 'tests' ? 'bg-sanzar-primary text-sanzar-onPrimary' : 'text-sanzar-text2'
-              }`}
-            >
-              {t('modelTests')}
-            </button>
-            <button
-              onClick={() => setInternalTab('history')}
-              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
-                tab === 'history' ? 'bg-sanzar-primary text-sanzar-onPrimary' : 'text-sanzar-text2'
-              }`}
-            >
-              <History className="w-3.5 h-3.5" /> {t('history')}
-            </button>
-          </div>
+    <div className="space-y-5 max-w-4xl mx-auto">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-extrabold">{t('exams')}</h1>
+        <div className="inline-flex rounded-xl sanzar-glass p-1 gap-1">
+          <button
+            type="button"
+            onClick={() => setTab('tests')}
+            className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+              tab === 'tests'
+                ? 'bg-sanzar-primary text-sanzar-onPrimary shadow-sm'
+                : 'text-sanzar-text2 hover:bg-white/40 dark:hover:bg-white/5'
+            }`}
+          >
+            <ClipboardCheck className="w-3.5 h-3.5" /> {t('exams')}
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('history')}
+            className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+              tab === 'history'
+                ? 'bg-sanzar-primary text-sanzar-onPrimary shadow-sm'
+                : 'text-sanzar-text2 hover:bg-white/40 dark:hover:bg-white/5'
+            }`}
+          >
+            <History className="w-3.5 h-3.5" /> {t('history')}
+          </button>
         </div>
-      )}
+      </div>
 
       {tab === 'tests' ? (
         catQuery.isLoading ? (
@@ -392,7 +392,7 @@ const AttemptReview: React.FC<{ attemptId: string }> = ({ attemptId }) => {
 
   return (
     <div className="max-w-3xl mx-auto space-y-5">
-      <Link to="/progress?tab=exams" className="inline-flex items-center gap-1.5 text-sm font-semibold text-sanzar-primary hover:underline">
+      <Link to="/exams" className="inline-flex items-center gap-1.5 text-sm font-semibold text-sanzar-primary hover:underline">
         <ArrowLeft className="w-4 h-4" /> {t('exams')}
       </Link>
 

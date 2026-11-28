@@ -12,8 +12,6 @@ import {
   CloudOff,
   RefreshCw,
   Target,
-  ClipboardCheck,
-  History,
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth-context';
 import { useFocusTimer } from '../../lib/focus-timer-context';
@@ -22,9 +20,8 @@ import { apiRequest, fetchCatalogWithCache } from '../../lib/api-client';
 import { colorForSubject, localizedName } from '../../lib/i18n';
 import type { LeaderEntry, ProgressData } from '../../lib/models';
 import { LoadingState, mmss, useToast } from '../../components/SanzarUI';
-import { ExamsPage } from '../exams/ExamsPage';
 
-type ProgressTab = 'overview' | 'leaderboard' | 'exams' | 'history';
+type ProgressTab = 'overview' | 'leaderboard';
 const GOAL_PRESETS = [10, 15, 30, 60] as const;
 
 const FALLBACK_PROGRESS: ProgressData = {
@@ -53,8 +50,7 @@ export const ProgressPage: React.FC = () => {
   const toast = useToast();
   const [params, setParams] = useSearchParams();
   const rawTab = params.get('tab');
-  const tab: ProgressTab =
-    rawTab === 'leaderboard' || rawTab === 'exams' || rawTab === 'history' ? rawTab : 'overview';
+  const tab: ProgressTab = rawTab === 'leaderboard' ? 'leaderboard' : 'overview';
   const setTab = (next: ProgressTab) => {
     setParams(next === 'overview' ? {} : { tab: next });
   };
@@ -156,8 +152,6 @@ export const ProgressPage: React.FC = () => {
             [
               { id: 'overview', label: t('overview'), icon: TrendingUp },
               { id: 'leaderboard', label: t('leaderboard'), icon: Trophy },
-              { id: 'exams', label: t('exams'), icon: ClipboardCheck },
-              { id: 'history', label: t('history'), icon: History },
             ] as const
           ).map((item) => (
             <button
@@ -412,8 +406,6 @@ export const ProgressPage: React.FC = () => {
             </section>
           </div>
         )
-      ) : tab === 'exams' || tab === 'history' ? (
-        <ExamsPage view="list" embedded activeTab={tab === 'history' ? 'history' : 'tests'} />
       ) : (
         /* Leaderboard */
         <div className="space-y-4">

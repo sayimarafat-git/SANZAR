@@ -18,6 +18,7 @@ import {
   Search,
   Trophy,
   Volume2,
+  XCircle,
   Link as LinkIcon,
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth-context';
@@ -25,7 +26,14 @@ import { useSettings } from '../../lib/settings-context';
 import { API_BASE, apiRequest, fetchCatalogWithCache } from '../../lib/api-client';
 import { colorForSubject } from '../../lib/i18n';
 import { useStudyTracker } from '../../lib/study-tracker';
-import type { ProgressData, Resource } from '../../lib/models';
+import {
+  type ActivityCompletion,
+  formatCompletedTimestamp,
+  getCompletedActivities,
+  recordQaCompletion,
+  recordQuizCompletion,
+} from '../../lib/activity-completion';
+import type { ChapterQaItem, ProgressData, Resource } from '../../lib/models';
 import { BookCover, ErrorRetry, LoadingState, useToast } from '../../components/SanzarUI';
 
 const PptxSlideViewer = React.lazy(() => import('./PptxSlideViewer'));
@@ -90,6 +98,31 @@ function embeddedUrlFor(resource: Resource): string | null {
   }
 }
 
+const ActivityStatusBadge: React.FC<{
+  record?: ActivityCompletion | null;
+  prefix?: string;
+  compact?: boolean;
+}> = ({ record, prefix, compact = false }) => {
+  if (!record) return null;
+  const isPassed = record.status === 'passed';
+  const formatted = formatCompletedTimestamp(record.completedAt);
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full font-bold border shrink-0 ${
+        compact ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs'
+      } ${
+        isPassed
+          ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+          : 'bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30'
+      }`}
+    >
+      {isPassed ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> : <XCircle className="w-3.5 h-3.5 shrink-0" />}
+      <span>{prefix ? `${prefix}: ${isPassed ? 'Passed' : 'Failed'}` : isPassed ? 'Passed' : 'Failed'}</span>
+      {formatted && <span className="font-medium opacity-80">• {formatted}</span>}
+    </span>
+  );
+};
+
 export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root' }> = ({ mode }) => {
   const { bookId, chapterId, resourceId } = useParams();
   const { user } = useAuth();
@@ -102,6 +135,21 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
   const [noteQuery, setNoteQuery] = useState('');
   const [openQaIds, setOpenQaIds] = useState<Record<string, boolean>>({});
   const [speakingIdx, setSpeakingIdx] = useState<number | null>(null);
+  const userKey = user?.uid ?? 'guest';
+  const [activityMap, setActivityMap] = useState<Record<string, ActivityCompletion>>(() =>
+    getCompletedActivities(user?.uid)
+  );
+
+  React.useEffect(() => {
+    const sync = () => setActivityMap(getCompletedActivities(userKey));
+    sync();
+    window.addEventListener('storage', sync);
+    window.addEventListener('focus', sync);
+    return () => {
+      window.removeEventListener('storage', sync);
+      window.removeEventListener('focus', sync);
+    };
+  }, [userKey]);
 
   React.useEffect(() => {
     setNoteQuery('');
@@ -138,6 +186,41 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
     () => new Set((progQuery.data?.completions ?? []).map((c) => c.itemId)),
     [progQuery.data]
   );
+
+  React.useEffect(() => {
+    const attempts = progQuery.data?.attempts;
+    const exams = cat?.exams;
+    if (!attempts?.length || !exams?.length) return;
+    const examById = new Map(exams.map((e) => [e.id, e]));
+    const latestByExam = new Map<string, (typeof attempts)[number]>();
+    for (const a of attempts) {
+      if ((a.status !== 'submitted' && a.status !== 'graded') || a.score == null || !a.total) continue;
+      const prev = latestByExam.get(a.examId);
+      if (!prev || (a.startedAt || 0) >= (prev.startedAt || 0)) {
+        latestByExam.set(a.examId, a);
+      }
+    }
+    if (!latestByExam.size) return;
+    let latestMap = getCompletedActivities(userKey);
+    let changed = false;
+    for (const [examId, a] of latestByExam.entries()) {
+      const exam = examById.get(examId);
+      if (!exam) continue;
+      const existing = latestMap[`quiz:${examId}`];
+      const ts = a.startedAt || Date.now();
+      if (existing && existing.completedAt >= ts && existing.score === a.score && existing.total === a.total) {
+        continue;
+      }
+      latestMap = recordQuizCompletion(userKey, examId, {
+        score: a.score ?? 0,
+        total: a.total ?? 0,
+        passPct: exam.pass_pct ?? 60,
+        completedAt: ts,
+      });
+      changed = true;
+    }
+    if (changed) setActivityMap(latestMap);
+  }, [progQuery.data?.attempts, cat?.exams, userKey]);
 
   // Locate book, chapter, resource
   const foundResource = useMemo(() => {
@@ -256,6 +339,11 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
                     <div className="divide-y divide-sanzar-border/70">
                       {childLessons.map((lesson) => {
                         const lessonDone = completedSet.has(`notes:${lesson.id}`);
+                        const lessonQuiz = cat?.exams.find(
+                          (e) => e.chapter_id === lesson.id && e.type === 'chapter_quiz'
+                        );
+                        const lessonQuizRecord = lessonQuiz ? activityMap[`quiz:${lessonQuiz.id}`] : undefined;
+                        const lessonQaRecord = activityMap[`qa:${lesson.id}`];
                         return (
                           <Link
                             key={lesson.id}
@@ -276,6 +364,12 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
                                   .filter(Boolean)
                                   .join(' · ')}
                               </p>
+                              {(lessonQuizRecord || lessonQaRecord) && (
+                                <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                                  <ActivityStatusBadge record={lessonQaRecord} prefix="Q&A" compact />
+                                  <ActivityStatusBadge record={lessonQuizRecord} prefix="Quiz" compact />
+                                </div>
+                              )}
                             </div>
                             {lessonDone && <CheckCircle2 className="w-4 h-4 text-sanzar-success shrink-0" />}
                             <ChevronRight className="w-4 h-4 text-sanzar-muted shrink-0" />
@@ -286,6 +380,10 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
                   </div>
                 );
               }
+
+              const chQuiz = cat?.exams.find((e) => e.chapter_id === c.id && e.type === 'chapter_quiz');
+              const chQuizRecord = chQuiz ? activityMap[`quiz:${chQuiz.id}`] : undefined;
+              const chQaRecord = activityMap[`qa:${c.id}`];
 
               return (
                 <Link
@@ -317,6 +415,12 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
                         .filter(Boolean)
                         .join(' · ')}
                     </p>
+                    {(chQuizRecord || chQaRecord) && (
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                        <ActivityStatusBadge record={chQaRecord} prefix="Q&A" compact />
+                        <ActivityStatusBadge record={chQuizRecord} prefix="Quiz" compact />
+                      </div>
+                    )}
                   </div>
                   {notesDone && <CheckCircle2 className="w-5 h-5 text-sanzar-success shrink-0" />}
                   <ChevronRight className="w-4 h-4 text-sanzar-muted shrink-0" />
@@ -387,13 +491,50 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
     };
 
     const quizAttempts = quiz
-      ? (progQuery.data?.attempts ?? []).filter((a) => a.examId === quiz.id && a.status === 'submitted' && a.score != null && a.total)
+      ? (progQuery.data?.attempts ?? []).filter(
+          (a) => a.examId === quiz.id && (a.status === 'submitted' || a.status === 'graded') && a.score != null && a.total
+        )
       : [];
     const bestAttempt = quizAttempts.reduce<{ pct: number; score: number; total: number } | null>((best, a) => {
       const pct = Math.round(((a.score || 0) / (a.total || 1)) * 100);
       if (!best || pct > best.pct) return { pct, score: a.score || 0, total: a.total || 0 };
       return best;
     }, null);
+    const quizRecord = quiz ? activityMap[`quiz:${quiz.id}`] : undefined;
+    const qaChapterRecord = activityMap[`qa:${ch.id}`];
+
+    const handleQaItemCheck = (qaId: string, passed: boolean) => {
+      let next = recordQaCompletion(userKey, qaId, { passed });
+      const allChecked = qaItems.length > 0 && qaItems.every((item) => Boolean(next[`qa:${item.id}`]));
+      if (allChecked) {
+        const passedCount = qaItems.filter((item) => next[`qa:${item.id}`]?.status === 'passed').length;
+        const pct = Math.round((passedCount / qaItems.length) * 100);
+        next = recordQaCompletion(userKey, ch.id, {
+          passed: pct >= 60,
+          score: passedCount,
+          total: qaItems.length,
+        });
+      }
+      setActivityMap(next);
+    };
+
+    const handleMarkQaReviewed = (items: ChapterQaItem[]) => {
+      const checked = items.filter((item) => Boolean(activityMap[`qa:${item.id}`]));
+      const passedCount =
+        checked.length > 0
+          ? items.filter((item) => activityMap[`qa:${item.id}`]?.status === 'passed').length
+          : items.length;
+      const total = items.length;
+      const pct = total > 0 ? Math.round((passedCount / total) * 100) : 100;
+      setActivityMap(
+        recordQaCompletion(userKey, ch.id, {
+          passed: pct >= 60,
+          score: passedCount,
+          total,
+        })
+      );
+      void markComplete(`qa:${ch.id}`);
+    };
 
     return (
       <div className="space-y-5 max-w-5xl mx-auto">
@@ -689,6 +830,7 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
                 <div className="space-y-2.5">
                   {qaItems.map((item, idx) => {
                     const isOpen = !!openQaIds[item.id];
+                    const itemRecord = activityMap[`qa:${item.id}`];
                     return (
                       <div key={item.id} className="sanzar-card overflow-hidden">
                         <button
@@ -704,15 +846,43 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
                               {item.question}
                             </span>
                           </div>
-                          {isOpen ? (
-                            <ChevronDown className="w-4 h-4 text-sanzar-primary shrink-0 mt-1" />
-                          ) : (
-                            <ChevronRight className="w-4 h-4 text-sanzar-muted shrink-0 mt-1" />
-                          )}
+                          <div className="flex items-center gap-2 shrink-0 mt-0.5">
+                            <ActivityStatusBadge record={itemRecord} compact />
+                            {isOpen ? (
+                              <ChevronDown className="w-4 h-4 text-sanzar-primary shrink-0" />
+                            ) : (
+                              <ChevronRight className="w-4 h-4 text-sanzar-muted shrink-0" />
+                            )}
+                          </div>
                         </button>
                         {isOpen && (
-                          <div className="px-4 pb-4 pt-2 border-t border-sanzar-border/60 bg-sanzar-surface2/30 text-sm text-sanzar-text2 leading-relaxed whitespace-pre-wrap select-text pl-13">
-                            {item.answer}
+                          <div className="px-4 pb-4 pt-2 border-t border-sanzar-border/60 bg-sanzar-surface2/30 text-sm text-sanzar-text2 leading-relaxed pl-13 space-y-3">
+                            <div className="whitespace-pre-wrap select-text">{item.answer}</div>
+                            <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-sanzar-border/40">
+                              <span className="text-xs font-semibold text-sanzar-muted mr-1">Self-check:</span>
+                              <button
+                                type="button"
+                                onClick={() => handleQaItemCheck(item.id, true)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold border inline-flex items-center gap-1 transition ${
+                                  itemRecord?.status === 'passed'
+                                    ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/40'
+                                    : 'border-sanzar-border text-sanzar-text2 hover:bg-emerald-500/10 hover:text-emerald-700 dark:hover:text-emerald-300'
+                                }`}
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" /> Got it
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleQaItemCheck(item.id, false)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold border inline-flex items-center gap-1 transition ${
+                                  itemRecord?.status === 'failed'
+                                    ? 'bg-red-500/20 text-red-700 dark:text-red-300 border-red-500/40'
+                                    : 'border-sanzar-border text-sanzar-text2 hover:bg-red-500/10 hover:text-red-700 dark:hover:text-red-300'
+                                }`}
+                              >
+                                <XCircle className="w-3.5 h-3.5" /> Missed
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -720,14 +890,15 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
                   })}
                 </div>
 
-                <div className="flex justify-center pt-2">
+                <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                  <ActivityStatusBadge record={qaChapterRecord} />
                   {qaDone ? (
                     <div className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-sanzar-success/15 text-sanzar-success font-bold text-sm">
                       <CheckCircle2 className="w-4 h-4" /> Q&A Reviewed
                     </div>
                   ) : (
                     <button
-                      onClick={() => markComplete(`qa:${ch.id}`)}
+                      onClick={() => handleMarkQaReviewed(qaItems)}
                       disabled={busyComplete}
                       className="px-6 py-3 rounded-xl bg-sanzar-primary text-sanzar-onPrimary font-bold text-sm shadow hover:opacity-95 disabled:opacity-50 flex items-center gap-2"
                     >
@@ -751,7 +922,10 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
               <div className="sanzar-card p-6 space-y-4 border-sanzar-jade/40">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="space-y-1">
-                    <span className="sanzar-pill text-sanzar-jade">{t('chapterQuiz')}</span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="sanzar-pill text-sanzar-jade">{t('chapterQuiz')}</span>
+                      <ActivityStatusBadge record={quizRecord} />
+                    </div>
                     <h2 className="text-xl font-extrabold">{quiz.title}</h2>
                     <p className="text-sm text-sanzar-muted">
                       {t('questions', { n: quiz.question_count })} · {t('minutes', { n: Math.ceil(quiz.duration_sec / 60) })} · Pass mark {quiz.pass_pct}%

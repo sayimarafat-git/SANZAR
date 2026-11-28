@@ -5,6 +5,7 @@ import {
   Home,
   BookOpen,
   BookA,
+  ClipboardCheck,
   TrendingUp,
   Users,
   Sparkles,
@@ -109,6 +110,7 @@ export const Layout: React.FC = () => {
     { to: '/', label: t('home'), icon: Home, end: true },
     { to: '/library', label: t('library'), icon: BookOpen },
     { to: '/dictionary', label: t('dictionary'), icon: BookA },
+    { to: '/exams', label: t('exams'), icon: ClipboardCheck },
     { to: '/progress', label: t('progress'), icon: TrendingUp },
     { to: '/community', label: t('community'), icon: Users },
   ];
