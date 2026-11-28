@@ -146,14 +146,19 @@ export async function fetchCatalogWithCache(): Promise<{ catalog: Catalog; offli
   const cachedRaw = localStorage.getItem(K_CAT);
   const cached = cachedRaw ? (JSON.parse(cachedRaw) as Catalog) : null;
   const etag = cached ? localStorage.getItem(K_ETAG) : null;
+  const isActuallyOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
 
-  const token = await getAuthToken();
+  let token = await getAuthToken();
   if (!token) {
-    if (cached) return { catalog: cached, offline: true };
+    await new Promise((r) => setTimeout(r, 400));
+    token = await getAuthToken();
+  }
+  if (!token) {
+    if (cached) return { catalog: cached, offline: isActuallyOffline() };
     throw new ApiError(401, 'unauthenticated', 'Sign in required');
   }
 
-  try {
+  const attemptFetch = async () => {
     const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
     if (etag) headers['If-None-Match'] = etag;
     const res = await fetchWithTimeout(`${API_BASE}/v1/catalog`, { headers });
@@ -170,8 +175,21 @@ export async function fetchCatalogWithCache(): Promise<{ catalog: Catalog; offli
     const nextEtag = res.headers.get('etag');
     if (nextEtag) localStorage.setItem(K_ETAG, nextEtag);
     return { catalog: parsed, offline: false };
+  };
+
+  try {
+    return await attemptFetch();
   } catch (e) {
-    if (cached) return { catalog: cached, offline: true };
+    // Retry once on transient network/deploy blips when browser is online
+    if (!isActuallyOffline() && !(e instanceof ApiError && e.status >= 400 && e.status < 500)) {
+      await new Promise((r) => setTimeout(r, 500));
+      try {
+        return await attemptFetch();
+      } catch {
+        // Fall through to cache fallback below
+      }
+    }
+    if (cached) return { catalog: cached, offline: isActuallyOffline() };
     if (e instanceof ApiError) throw e;
     throw new ApiError(0, 'network', 'Offline and no cached catalog', true);
   }
