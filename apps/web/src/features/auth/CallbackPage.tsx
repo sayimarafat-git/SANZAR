@@ -6,14 +6,14 @@ import { LoadingState } from '../../components/SanzarUI';
 export const CallbackPage: React.FC = () => {
   const navigate = useNavigate();
   const { isLoading, error } = useHandleSignInCallback(() => {
-    navigate('/', { replace: true });
+    window.location.replace('/');
   });
 
   useEffect(() => {
     if (!isLoading && !error) {
-      navigate('/', { replace: true });
+      window.location.replace('/');
     }
-  }, [isLoading, error, navigate]);
+  }, [isLoading, error]);
 
   if (error) {
     return (
