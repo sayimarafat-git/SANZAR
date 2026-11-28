@@ -17,6 +17,7 @@ interface AuthContextType {
   profile: UserProfile | null;
   profileLoaded: boolean;
   loading: boolean;
+  authError: string | null;
   isAdmin: boolean;
   isStaff: boolean;
   guestMode: boolean;
@@ -34,6 +35,7 @@ const AuthContext = createContext<AuthContextType>({
   profile: null,
   profileLoaded: false,
   loading: true,
+  authError: null,
   isAdmin: false,
   isStaff: false,
   guestMode: false,
@@ -50,6 +52,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const {
     isAuthenticated,
     isLoading: logtoLoading,
+    error: logtoError,
     getIdToken,
     getIdTokenClaims,
     signIn: logtoSignIn,
@@ -181,6 +184,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         profile,
         profileLoaded,
         loading,
+        authError: logtoError?.message ?? null,
         isAdmin,
         isStaff,
         guestMode,

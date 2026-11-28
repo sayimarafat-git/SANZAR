@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { AlertCircle, Compass, LogIn } from 'lucide-react';
 import { useAuth } from '../../lib/auth-context';
@@ -11,10 +11,17 @@ interface AuthPageProps {
 
 export const AuthPage: React.FC<AuthPageProps> = ({ mode }) => {
   const { t } = useSettings();
-  const { signIn, setGuestMode } = useAuth();
+  const { signIn, setGuestMode, authError } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (authError) {
+      setError(authError);
+      setLoading(false);
+    }
+  }, [authError]);
 
   const handleLogtoSignIn = async () => {
     setError(null);
