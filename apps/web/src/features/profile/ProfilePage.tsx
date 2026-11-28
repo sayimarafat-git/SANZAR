@@ -46,12 +46,13 @@ export const ProfilePage: React.FC = () => {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    setNativeLang(lang);
+  }, [lang]);
+
+  useEffect(() => {
     if (!profile) return;
     setName(profile.display_name || '');
     setLevelId(profile.level_id || '');
-    if (profile.locale === 'bn' || profile.locale === 'en' || profile.locale === 'zh') {
-      setNativeLang(profile.locale);
-    }
     setInstitution(profile.institution || '');
     setVisibility(profile.profile_visibility || 'private');
   }, [profile]);
@@ -221,6 +222,7 @@ export const ProfilePage: React.FC = () => {
               onChange={(e) => {
                 const v = e.target.value as Lang;
                 setLang(v);
+                setNativeLang(v);
                 void updateProfile({ locale: v }).catch(() => {});
               }}
               className="sanzar-input text-sm"
