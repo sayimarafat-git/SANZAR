@@ -20,7 +20,7 @@ import { apiRequest, errorText } from '../../lib/api-client';
 import type { Comment, Post, PostAttachment, PublicProfile } from '../../lib/models';
 import { ErrorRetry, LoadingState, Modal, timeAgo, useToast } from '../../components/SanzarUI';
 
-const HTTPS_URL_RE = /https:\/\/[^\s<>()]+/gi;
+const HTTPS_URL_RE = /https?:\/\/[^\s<>()]+/gi;
 
 function extractHttpsLinks(text: string): PostAttachment[] {
   const matches = text.match(HTTPS_URL_RE) || [];
@@ -30,7 +30,7 @@ function extractHttpsLinks(text: string): PostAttachment[] {
     const cleaned = raw.replace(/[.,!?;:'")\]}]+$/, '');
     try {
       const u = new URL(cleaned);
-      if (u.protocol === 'https:' && !seen.has(u.href)) {
+      if ((u.protocol === 'https:' || u.protocol === 'http:') && !seen.has(u.href)) {
         seen.add(u.href);
         out.push({ url: u.href, name: u.hostname, mime: 'text/uri-list' });
         if (out.length >= 5) break;
@@ -43,9 +43,9 @@ function extractHttpsLinks(text: string): PostAttachment[] {
 }
 
 function renderLinkedText(text: string): React.ReactNode {
-  const parts = text.split(/(https:\/\/[^\s<>()]+)/gi);
+  const parts = text.split(/(https?:\/\/[^\s<>()]+)/gi);
   return parts.map((part, idx) => {
-    if (/^https:\/\//i.test(part)) {
+    if (/^https?:\/\//i.test(part)) {
       const cleaned = part.replace(/[.,!?;:'")\]}]+$/, '');
       const trail = part.slice(cleaned.length);
       return (

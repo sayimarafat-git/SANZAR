@@ -515,7 +515,7 @@ async function postAttachments(env, ctx, input, origin) {
     } catch {
       throw new HttpError(400, 'invalid-argument', 'Attachment link must be a valid HTTPS URL');
     }
-    if (url.protocol !== 'https:' || url.username || url.password) {
+    if ((url.protocol !== 'https:' && url.protocol !== 'http:') || url.username || url.password) {
       throw new HttpError(400, 'invalid-argument', 'Attachment link must be a valid HTTPS URL');
     }
     if (!/^[\w.+-]+\/[\w.+-]+$/.test(mime)) {
