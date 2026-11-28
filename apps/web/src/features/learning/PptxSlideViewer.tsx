@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import JSZip from 'jszip';
+import * as UTIF from 'utif2';
 import {
   ChevronLeft,
   ChevronRight,
@@ -12,6 +13,11 @@ import {
   Presentation,
 } from 'lucide-react';
 
+const EMU_PER_PT = 12700;
+const REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+
+type ThemeColors = Record<string, string>;
+
 interface TextRun {
   text: string;
   bold?: boolean;
@@ -19,39 +25,57 @@ interface TextRun {
   underline?: boolean;
   color?: string;
   fontSizePt?: number;
+  superscript?: boolean;
+  subscript?: boolean;
 }
 
 interface TextParagraph {
   align?: 'left' | 'center' | 'right' | 'justify';
   bullet?: string;
+  marginLeftPt?: number;
+  indentPt?: number;
+  spaceBeforePt?: number;
+  spaceAfterPt?: number;
+  lineHeight?: number;
+  emptyFontSizePt?: number;
   runs: TextRun[];
 }
 
 interface SlideElement {
-  kind: 'image' | 'text' | 'table';
-  x: number; // % 0..100
-  y: number; // % 0..100
-  w: number; // % 0..100
-  h: number; // % 0..100
-  rot?: number; // degrees
+  kind: 'image' | 'shape' | 'line' | 'table';
+  x: number; // pt
+  y: number; // pt
+  w: number; // pt
+  h: number; // pt
+  rot?: number;
+  flipH?: boolean;
+  flipV?: boolean;
   src?: string;
   fill?: string;
-  border?: string;
+  gradient?: string;
+  borderColor?: string;
+  borderWidthPt?: number;
+  borderStyle?: 'solid' | 'dashed' | 'dotted';
+  borderRadiusPx?: string;
+  vAlign?: 'top' | 'center' | 'bottom';
+  wrap?: boolean;
+  pad?: [number, number, number, number]; // top, right, bottom, left in pt
   paragraphs?: TextParagraph[];
-  rows?: string[][];
+  rows?: { cells: { text: string; bg?: string; color?: string; bold?: boolean; align?: string }[] }[];
 }
 
 interface ParsedSlide {
   index: number;
   bgColor?: string;
+  bgGradient?: string;
   bgImage?: string;
   elements: SlideElement[];
   titlePreview: string;
 }
 
 interface ParsedDeck {
-  widthPx: number;
-  heightPx: number;
+  widthPt: number;
+  heightPt: number;
   slides: ParsedSlide[];
   blobUrls: string[];
 }
@@ -64,15 +88,33 @@ const MIME_BY_EXT: Record<string, string> = {
   webp: 'image/webp',
   svg: 'image/svg+xml',
   bmp: 'image/bmp',
-  emf: 'image/emf',
-  wmf: 'image/wmf',
+};
+
+const DEFAULT_THEME: ThemeColors = {
+  dk1: '#000000',
+  lt1: '#ffffff',
+  dk2: '#44546a',
+  lt2: '#e7e6e6',
+  accent1: '#4472c4',
+  accent2: '#ed7d31',
+  accent3: '#a5a5a5',
+  accent4: '#ffc000',
+  accent5: '#5b9bd5',
+  accent6: '#70ad47',
+  hlink: '#0563c1',
+  folHlink: '#954f72',
+  tx1: '#000000',
+  tx2: '#44546a',
+  bg1: '#ffffff',
+  bg2: '#e7e6e6',
 };
 
 function localName(node: Element): string {
   return node.localName || node.tagName.split(':').pop() || '';
 }
 
-function directChildren(parent: Element, name?: string): Element[] {
+function directChildren(parent: Element | null | undefined, name?: string): Element[] {
+  if (!parent) return [];
   const out: Element[] = [];
   for (let i = 0; i < parent.children.length; i++) {
     const ch = parent.children[i];
@@ -81,7 +123,16 @@ function directChildren(parent: Element, name?: string): Element[] {
   return out;
 }
 
-function firstDescendant(parent: Element, name: string): Element | null {
+function firstChild(parent: Element | null | undefined, name: string): Element | null {
+  if (!parent) return null;
+  for (let i = 0; i < parent.children.length; i++) {
+    if (localName(parent.children[i]) === name) return parent.children[i];
+  }
+  return null;
+}
+
+function firstDescendant(parent: Element | null | undefined, name: string): Element | null {
+  if (!parent) return null;
   const list = parent.getElementsByTagName('*');
   for (let i = 0; i < list.length; i++) {
     if (localName(list[i]) === name) return list[i];
@@ -89,22 +140,156 @@ function firstDescendant(parent: Element, name: string): Element | null {
   return null;
 }
 
-function parseColor(node: Element | null): string | undefined {
-  if (!node) return undefined;
-  const srgb = firstDescendant(node, 'srgbClr');
+function getRelId(el: Element | null | undefined, attr = 'embed'): string | null {
+  if (!el) return null;
+  return el.getAttribute(`r:${attr}`) || el.getAttributeNS(REL_NS, attr) || el.getAttribute(attr);
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const clean = hex.replace('#', '');
+  const n = parseInt(clean, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+  return (
+    '#' +
+    [clamp(r), clamp(g), clamp(b)]
+      .map((v) => v.toString(16).padStart(2, '0'))
+      .join('')
+  );
+}
+
+function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
+  r /= 255;
+  g /= 255;
+  b /= 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r:
+        h = (g - b) / d + (g < b ? 6 : 0);
+        break;
+      case g:
+        h = (b - r) / d + 2;
+        break;
+      case b:
+        h = (r - g) / d + 4;
+        break;
+    }
+    h /= 6;
+  }
+  return [h, s, l];
+}
+
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  if (s === 0) {
+    const v = Math.round(l * 255);
+    return [v, v, v];
+  }
+  const hue2rgb = (p: number, q: number, t: number) => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  return [
+    Math.round(hue2rgb(p, q, h + 1 / 3) * 255),
+    Math.round(hue2rgb(p, q, h) * 255),
+    Math.round(hue2rgb(p, q, h - 1 / 3) * 255),
+  ];
+}
+
+function applyColorTransforms(baseHex: string, colorEl: Element): string {
+  let [r, g, b] = hexToRgb(baseHex);
+  let [h, s, l] = rgbToHsl(r, g, b);
+  let alpha = 1;
+
+  for (const mod of directChildren(colorEl)) {
+    const ln = localName(mod);
+    const val = Number(mod.getAttribute('val') || 0) / 100000;
+    if (ln === 'lumMod') l *= val;
+    else if (ln === 'lumOff') l += val;
+    else if (ln === 'tint') {
+      r = r + (255 - r) * (1 - val);
+      g = g + (255 - g) * (1 - val);
+      b = b + (255 - b) * (1 - val);
+      [h, s, l] = rgbToHsl(r, g, b);
+    } else if (ln === 'shade') {
+      r *= val;
+      g *= val;
+      b *= val;
+      [h, s, l] = rgbToHsl(r, g, b);
+    } else if (ln === 'alpha') {
+      alpha = Math.max(0, Math.min(1, val));
+    }
+  }
+
+  l = Math.max(0, Math.min(1, l));
+  [r, g, b] = hslToRgb(h, s, l);
+  if (alpha < 0.999) {
+    return `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, ${alpha.toFixed(3)})`;
+  }
+  return rgbToHex(r, g, b);
+}
+
+function parseColor(container: Element | null | undefined, theme: ThemeColors): string | undefined {
+  if (!container) return undefined;
+  const srgb = firstChild(container, 'srgbClr') || firstDescendant(container, 'srgbClr');
   if (srgb) {
     const val = srgb.getAttribute('val');
-    if (val && /^[0-9A-Fa-f]{6}$/.test(val)) return `#${val}`;
+    if (val && /^[0-9A-Fa-f]{6}$/.test(val)) return applyColorTransforms(`#${val}`, srgb);
   }
-  const scheme = firstDescendant(node, 'schemeClr');
+  const sys = firstChild(container, 'sysClr') || firstDescendant(container, 'sysClr');
+  if (sys) {
+    const last = sys.getAttribute('lastClr');
+    const base = last && /^[0-9A-Fa-f]{6}$/.test(last) ? `#${last}` : '#000000';
+    return applyColorTransforms(base, sys);
+  }
+  const scheme = firstChild(container, 'schemeClr') || firstDescendant(container, 'schemeClr');
   if (scheme) {
-    const val = scheme.getAttribute('val');
-    if (val === 'bg1' || val === 'lt1') return '#ffffff';
-    if (val === 'tx1' || val === 'dk1') return '#1e293b';
-    if (val === 'accent1') return '#2563eb';
-    if (val === 'accent2') return '#dc2626';
+    const key = scheme.getAttribute('val') || '';
+    const base = theme[key] || DEFAULT_THEME[key] || '#1e293b';
+    return applyColorTransforms(base, scheme);
+  }
+  const prst = firstChild(container, 'prstClr') || firstDescendant(container, 'prstClr');
+  if (prst) {
+    const val = prst.getAttribute('val');
+    if (val === 'white') return '#ffffff';
+    if (val === 'black') return '#000000';
+    if (val === 'red') return '#dc2626';
   }
   return undefined;
+}
+
+function parseGradient(gradFill: Element | null | undefined, theme: ThemeColors): string | undefined {
+  if (!gradFill) return undefined;
+  const gsLst = firstChild(gradFill, 'gsLst');
+  if (!gsLst) return undefined;
+  const stops: { pos: number; color: string }[] = [];
+  for (const gs of directChildren(gsLst, 'gs')) {
+    const pos = Math.max(0, Math.min(100, Math.round(Number(gs.getAttribute('pos') || 0) / 1000)));
+    const col = parseColor(gs, theme);
+    if (col) stops.push({ pos, color: col });
+  }
+  if (stops.length < 2) return stops[0]?.color;
+  stops.sort((a, b) => a.pos - b.pos);
+  const lin = firstChild(gradFill, 'lin');
+  const angAttr = lin?.getAttribute('ang');
+  // OOXML angle: 0 = left-to-right (90deg in CSS), 5400000 = top-to-bottom (180deg in CSS)
+  const cssDeg = angAttr ? (Math.round(Number(angAttr) / 60000) + 90) % 360 : 180;
+  return `linear-gradient(${cssDeg}deg, ${stops.map((s) => `${s.color} ${s.pos}%`).join(', ')})`;
 }
 
 function resolveRelTarget(basePath: string, target: string): string {
@@ -118,117 +303,293 @@ function resolveRelTarget(basePath: string, target: string): string {
   return parts.join('/');
 }
 
-async function parseRels(zip: JSZip, relsPath: string, ownerPath: string): Promise<Record<string, string>> {
+interface RelEntry {
+  target: string;
+  type: string;
+}
+
+async function parseRelsFull(zip: JSZip, ownerPath: string): Promise<Record<string, RelEntry>> {
+  const relsPath = ownerPath.replace(/([^/]+)$/, '_rels/$1.rels');
   const file = zip.file(relsPath);
   if (!file) return {};
   const xml = await file.async('text');
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
-  const map: Record<string, string> = {};
+  const map: Record<string, RelEntry> = {};
   const rels = doc.getElementsByTagName('*');
   for (let i = 0; i < rels.length; i++) {
     const el = rels[i];
     if (localName(el) !== 'Relationship') continue;
     const id = el.getAttribute('Id');
     const target = el.getAttribute('Target');
-    if (id && target) map[id] = resolveRelTarget(ownerPath, target);
+    const type = el.getAttribute('Type') || '';
+    if (id && target) {
+      map[id] = {
+        target: target.startsWith('http') ? target : resolveRelTarget(ownerPath, target),
+        type,
+      };
+    }
   }
   return map;
 }
 
-function parseParagraphs(txBody: Element): TextParagraph[] {
+async function parseTheme(zip: JSZip, themePath: string): Promise<ThemeColors> {
+  const colors: ThemeColors = { ...DEFAULT_THEME };
+  const f = zip.file(themePath);
+  if (!f) return colors;
+  const xml = await f.async('text');
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  const clrScheme = firstDescendant(doc.documentElement, 'clrScheme');
+  if (clrScheme) {
+    for (const ch of directChildren(clrScheme)) {
+      const name = localName(ch);
+      const c = parseColor(ch, colors);
+      if (c) colors[name] = c;
+    }
+  }
+  colors.tx1 = colors.dk1;
+  colors.tx2 = colors.dk2;
+  colors.bg1 = colors.lt1;
+  colors.bg2 = colors.lt2;
+  return colors;
+}
+
+function applyClrMap(theme: ThemeColors, clrMapEl: Element | null): ThemeColors {
+  if (!clrMapEl) return theme;
+  const out = { ...theme };
+  for (const k of ['bg1', 'tx1', 'bg2', 'tx2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink']) {
+    const mapped = clrMapEl.getAttribute(k);
+    if (mapped && out[mapped]) out[k] = out[mapped];
+  }
+  return out;
+}
+
+async function decodeTiffToPngBlob(bytes: Uint8Array): Promise<Blob | null> {
+  try {
+    const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    const ifds = UTIF.decode(ab);
+    if (!ifds || ifds.length === 0) return null;
+    UTIF.decodeImage(ab, ifds[0]);
+    const rgba = UTIF.toRGBA8(ifds[0]);
+    const w = ifds[0].width;
+    const h = ifds[0].height;
+    if (!w || !h || !rgba) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    const imgData = new ImageData(new Uint8ClampedArray(rgba), w, h);
+    ctx.putImageData(imgData, 0, 0);
+    return await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), 'image/png'));
+  } catch {
+    return null;
+  }
+}
+
+function parseSpacingPts(spcContainer: Element | null | undefined, baseFontPt: number): number | undefined {
+  if (!spcContainer) return undefined;
+  const pts = firstChild(spcContainer, 'spcPts');
+  if (pts) return Number(pts.getAttribute('val') || 0) / 100;
+  const pct = firstChild(spcContainer, 'spcPct');
+  if (pct) return (Number(pct.getAttribute('val') || 0) / 100000) * baseFontPt;
+  return undefined;
+}
+
+function parseParagraphs(txBody: Element, theme: ThemeColors, defaultColor?: string, defaultFontPt = 18): TextParagraph[] {
   const out: TextParagraph[] = [];
   const pNodes = directChildren(txBody, 'p');
+
   for (const p of pNodes) {
-    const pPr = directChildren(p, 'pPr')[0];
+    const pPr = firstChild(p, 'pPr');
     let align: TextParagraph['align'];
     const algn = pPr?.getAttribute('algn');
     if (algn === 'ctr') align = 'center';
     else if (algn === 'r') align = 'right';
-    else if (algn === 'just') align = 'justify';
+    else if (algn === 'just' || algn === 'dist') align = 'justify';
     else if (algn === 'l') align = 'left';
 
+    const marL = pPr?.getAttribute('marL');
+    const indent = pPr?.getAttribute('indent');
+    const marginLeftPt = marL != null ? Number(marL) / EMU_PER_PT : undefined;
+    const indentPt = indent != null ? Number(indent) / EMU_PER_PT : undefined;
+
     let bullet: string | undefined;
-    if (pPr) {
-      const buChar = directChildren(pPr, 'buChar')[0];
-      const buAuto = directChildren(pPr, 'buAutoNum')[0];
+    if (pPr && !firstChild(pPr, 'buNone')) {
+      const buChar = firstChild(pPr, 'buChar');
+      const buAuto = firstChild(pPr, 'buAutoNum');
       if (buChar) bullet = buChar.getAttribute('char') || '•';
       else if (buAuto) bullet = '•';
     }
+
+    const defRPr = pPr ? firstChild(pPr, 'defRPr') : null;
+    const endParaRPr = firstChild(p, 'endParaRPr');
+    const fallbackSzAttr = defRPr?.getAttribute('sz') || endParaRPr?.getAttribute('sz');
+    const paraBasePt = fallbackSzAttr ? Math.max(6, Math.min(120, Number(fallbackSzAttr) / 100)) : defaultFontPt;
+
+    let lineHeight: number | undefined;
+    const lnSpc = pPr ? firstChild(pPr, 'lnSpc') : null;
+    if (lnSpc) {
+      const spcPct = firstChild(lnSpc, 'spcPct');
+      const spcPts = firstChild(lnSpc, 'spcPts');
+      if (spcPct) lineHeight = Math.max(0.85, Math.min(3, (Number(spcPct.getAttribute('val') || 100000) / 100000) * 1.2));
+      else if (spcPts) lineHeight = Math.max(0.85, (Number(spcPts.getAttribute('val') || 0) / 100) / paraBasePt);
+    }
+
+    const spaceBeforePt = pPr ? parseSpacingPts(firstChild(pPr, 'spcBef'), paraBasePt) : undefined;
+    const spaceAfterPt = pPr ? parseSpacingPts(firstChild(pPr, 'spcAft'), paraBasePt) : undefined;
 
     const runs: TextRun[] = [];
     for (const child of directChildren(p)) {
       const ln = localName(child);
       if (ln === 'r' || ln === 'fld') {
-        const tNode = directChildren(child, 't')[0];
+        const tNode = firstChild(child, 't');
         const text = tNode?.textContent ?? '';
         if (!text) continue;
-        const rPr = directChildren(child, 'rPr')[0];
-        const szAttr = rPr?.getAttribute('sz');
-        const fontSizePt = szAttr ? Math.max(8, Math.min(96, Number(szAttr) / 100)) : undefined;
-        const fillNode = rPr ? directChildren(rPr, 'solidFill')[0] : null;
+        const rPr = firstChild(child, 'rPr');
+        const szAttr = rPr?.getAttribute('sz') || defRPr?.getAttribute('sz');
+        const fontSizePt = szAttr ? Math.max(6, Math.min(120, Number(szAttr) / 100)) : paraBasePt;
+        const fillNode = (rPr && firstChild(rPr, 'solidFill')) || (defRPr && firstChild(defRPr, 'solidFill'));
+        const baseline = Number(rPr?.getAttribute('baseline') || 0);
         runs.push({
           text,
-          bold: rPr?.getAttribute('b') === '1',
-          italic: rPr?.getAttribute('i') === '1',
-          underline: rPr?.getAttribute('u') && rPr.getAttribute('u') !== 'none' ? true : false,
-          color: parseColor(fillNode ?? null),
+          bold: rPr?.getAttribute('b') === '1' || defRPr?.getAttribute('b') === '1',
+          italic: rPr?.getAttribute('i') === '1' || defRPr?.getAttribute('i') === '1',
+          underline: Boolean(rPr?.getAttribute('u') && rPr.getAttribute('u') !== 'none'),
+          color: parseColor(fillNode, theme) || defaultColor || theme.tx1 || '#1e293b',
           fontSizePt,
+          superscript: baseline > 0,
+          subscript: baseline < 0,
         });
       } else if (ln === 'br') {
-        runs.push({ text: '\n' });
+        runs.push({ text: '\n', fontSizePt: paraBasePt });
       }
     }
-    if (runs.length > 0) out.push({ align, bullet, runs });
+
+    // Preserve empty paragraphs (<a:p> spacers) so multi-line layouts keep exact vertical spacing!
+    out.push({
+      align,
+      bullet: runs.length > 0 ? bullet : undefined,
+      marginLeftPt,
+      indentPt,
+      spaceBeforePt,
+      spaceAfterPt,
+      lineHeight,
+      emptyFontSizePt: runs.length === 0 ? paraBasePt : undefined,
+      runs,
+    });
   }
+
   return out;
 }
 
-interface CoordBox {
+interface EmuBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rot?: number;
+  flipH?: boolean;
+  flipV?: boolean;
+}
+
+function parseXfrm(xfrm: Element | null | undefined, allowZeroExtent = false): EmuBox | null {
+  if (!xfrm) return null;
+  const off = firstChild(xfrm, 'off');
+  const ext = firstChild(xfrm, 'ext');
+  if (!off || !ext) return null;
+  const x = Number(off.getAttribute('x') || 0);
+  const y = Number(off.getAttribute('y') || 0);
+  const w = Number(ext.getAttribute('cx') || 0);
+  const h = Number(ext.getAttribute('cy') || 0);
+  if (!allowZeroExtent && (w <= 0 || h <= 0)) return null;
+  if (allowZeroExtent && w <= 0 && h <= 0) return null;
+  const rotAttr = xfrm.getAttribute('rot');
+  return {
+    x,
+    y,
+    w,
+    h,
+    rot: rotAttr ? Number(rotAttr) / 60000 : undefined,
+    flipH: xfrm.getAttribute('flipH') === '1',
+    flipV: xfrm.getAttribute('flipV') === '1',
+  };
+}
+
+interface PtBox {
   x: number;
   y: number;
   w: number;
   h: number;
 }
 
-function parseXfrm(xfrm: Element | null): { x: number; y: number; w: number; h: number; rot?: number } | null {
-  if (!xfrm) return null;
-  const off = directChildren(xfrm, 'off')[0];
-  const ext = directChildren(xfrm, 'ext')[0];
-  if (!off || !ext) return null;
-  const x = Number(off.getAttribute('x') || 0);
-  const y = Number(off.getAttribute('y') || 0);
-  const w = Number(ext.getAttribute('cx') || 0);
-  const h = Number(ext.getAttribute('cy') || 0);
-  if (w <= 0 || h <= 0) return null;
-  const rotAttr = xfrm.getAttribute('rot');
-  const rot = rotAttr ? Number(rotAttr) / 60000 : undefined;
-  return { x, y, w, h, rot };
+function mapBoxToPt(raw: EmuBox, parentPt: PtBox, childSpaceEmu: PtBox): PtBox {
+  const cw = childSpaceEmu.w || 1;
+  const ch = childSpaceEmu.h || 1;
+  return {
+    x: parentPt.x + ((raw.x - childSpaceEmu.x) / cw) * parentPt.w,
+    y: parentPt.y + ((raw.y - childSpaceEmu.y) / ch) * parentPt.h,
+    w: (raw.w / cw) * parentPt.w,
+    h: (raw.h / ch) * parentPt.h,
+  };
+}
+
+function isPlaceholderShape(sp: Element): boolean {
+  const nvSpPr = firstChild(sp, 'nvSpPr');
+  const nvPr = nvSpPr ? firstChild(nvSpPr, 'nvPr') : null;
+  return Boolean(nvPr && firstChild(nvPr, 'ph'));
+}
+
+function resolveBlipRelId(container: Element): string | null {
+  const blip = firstDescendant(container, 'blip');
+  if (!blip) return null;
+  // Prefer high-DPI vector SVG blip when Office provides both PNG + SVG
+  const svgBlip = firstDescendant(blip, 'svgBlip');
+  if (svgBlip) {
+    const svgId = getRelId(svgBlip, 'embed');
+    if (svgId) return svgId;
+  }
+  return getRelId(blip, 'embed') || getRelId(blip, 'link');
 }
 
 async function parsePptxBuffer(buffer: ArrayBuffer): Promise<ParsedDeck> {
   const zip = await JSZip.loadAsync(buffer);
   const blobUrls: string[] = [];
-  const mediaCache = new Map<string, string>();
+  const mediaCache = new Map<string, string | null>();
 
   async function getMediaUrl(zipPath: string): Promise<string | undefined> {
-    if (!zipPath) return undefined;
-    const cached = mediaCache.get(zipPath);
-    if (cached) return cached;
+    if (!zipPath || zipPath.startsWith('http')) return undefined;
+    if (mediaCache.has(zipPath)) return mediaCache.get(zipPath) || undefined;
     const f = zip.file(zipPath);
-    if (!f) return undefined;
+    if (!f) {
+      mediaCache.set(zipPath, null);
+      return undefined;
+    }
     const ext = zipPath.split('.').pop()?.toLowerCase() || '';
-    // Skip Windows metafile formats browsers cannot render natively in <img>
-    if (ext === 'emf' || ext === 'wmf') return undefined;
-    const mime = MIME_BY_EXT[ext] || 'application/octet-stream';
+    if (ext === 'emf' || ext === 'wmf' || ext === 'wdp' || ext === 'mp3' || ext === 'wav' || ext === 'm4a') {
+      mediaCache.set(zipPath, null);
+      return undefined;
+    }
     const bytes = await f.async('uint8array');
+    if (ext === 'tif' || ext === 'tiff') {
+      const pngBlob = await decodeTiffToPngBlob(bytes);
+      if (!pngBlob) {
+        mediaCache.set(zipPath, null);
+        return undefined;
+      }
+      const url = URL.createObjectURL(pngBlob);
+      mediaCache.set(zipPath, url);
+      blobUrls.push(url);
+      return url;
+    }
+    const mime = MIME_BY_EXT[ext] || 'image/png';
     const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime }));
     mediaCache.set(zipPath, url);
     blobUrls.push(url);
     return url;
   }
 
-  // 1. Read presentation.xml for slide dimensions and ordered slide list
-  let slideCx = 12192000; // default 16:9
+  // 1. Read presentation.xml for slide dimensions (EMUs) and slide order
+  let slideCx = 12192000;
   let slideCy = 6858000;
   let slidePaths: string[] = [];
 
@@ -245,30 +606,333 @@ async function parsePptxBuffer(buffer: ArrayBuffer): Promise<ParsedDeck> {
         slideCy = cy;
       }
     }
-    const presRels = await parseRels(zip, 'ppt/_rels/presentation.xml.rels', 'ppt/presentation.xml');
+    const presRels = await parseRelsFull(zip, 'ppt/presentation.xml');
     const sldIds = presDoc.getElementsByTagName('*');
     for (let i = 0; i < sldIds.length; i++) {
       if (localName(sldIds[i]) !== 'sldId') continue;
-      const rId =
-        sldIds[i].getAttribute('r:id') ||
-        sldIds[i].getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
-      if (rId && presRels[rId]) slidePaths.push(presRels[rId]);
+      const rId = getRelId(sldIds[i], 'id');
+      if (rId && presRels[rId]) slidePaths.push(presRels[rId].target);
     }
   }
 
   if (slidePaths.length === 0) {
     slidePaths = Object.keys(zip.files)
       .filter((k) => /^ppt\/slides\/slide\d+\.xml$/i.test(k))
-      .sort((a, b) => {
-        const na = Number(a.match(/slide(\d+)\.xml/i)?.[1] || 0);
-        const nb = Number(b.match(/slide(\d+)\.xml/i)?.[1] || 0);
-        return na - nb;
-      });
+      .sort((a, b) => Number(a.match(/slide(\d+)\.xml/i)?.[1] || 0) - Number(b.match(/slide(\d+)\.xml/i)?.[1] || 0));
   }
 
-  const widthPx = 960;
-  const heightPx = Math.round((widthPx * slideCy) / slideCx);
+  const widthPt = slideCx / EMU_PER_PT;
+  const heightPt = slideCy / EMU_PER_PT;
 
+  // Cache parsed master/theme per master path
+  const themeCache = new Map<string, ThemeColors>();
+  async function getMasterTheme(masterPath: string, masterDoc: Document): Promise<ThemeColors> {
+    if (themeCache.has(masterPath)) return themeCache.get(masterPath)!;
+    const masterRels = await parseRelsFull(zip, masterPath);
+    const themeRel = Object.values(masterRels).find((r) => r.type.endsWith('/theme'));
+    const rawTheme = themeRel ? await parseTheme(zip, themeRel.target) : { ...DEFAULT_THEME };
+    const clrMap = firstDescendant(masterDoc.documentElement, 'clrMap');
+    const mapped = applyClrMap(rawTheme, clrMap);
+    themeCache.set(masterPath, mapped);
+    return mapped;
+  }
+
+  async function extractBg(doc: Document, rels: Record<string, RelEntry>, theme: ThemeColors) {
+    const cSld = firstDescendant(doc.documentElement, 'cSld');
+    const bgNode = cSld ? firstChild(cSld, 'bg') : null;
+    if (!bgNode) return null;
+    const bgPr = firstChild(bgNode, 'bgPr');
+    const bgRef = firstChild(bgNode, 'bgRef');
+    const target = bgPr || bgRef;
+    if (!target) return null;
+
+    const blipFill = firstChild(target, 'blipFill');
+    if (blipFill) {
+      const rId = resolveBlipRelId(blipFill);
+      if (rId && rels[rId]) {
+        const bgImage = await getMediaUrl(rels[rId].target);
+        if (bgImage) return { bgImage };
+      }
+    }
+    const grad = firstChild(target, 'gradFill');
+    if (grad) {
+      const bgGradient = parseGradient(grad, theme);
+      if (bgGradient) return { bgGradient };
+    }
+    const solid = firstChild(target, 'solidFill') || bgRef;
+    const bgColor = parseColor(solid, theme);
+    if (bgColor) return { bgColor };
+    return null;
+  }
+
+  async function walkShapes(
+    container: Element,
+    rels: Record<string, RelEntry>,
+    theme: ThemeColors,
+    parentPt: PtBox,
+    childSpaceEmu: PtBox,
+    skipPlaceholders: boolean,
+    out: SlideElement[]
+  ) {
+    for (const node of directChildren(container)) {
+      // Unwrap mc:AlternateContent -> mc:Choice or mc:Fallback
+      if (localName(node) === 'AlternateContent') {
+        const choice = firstChild(node, 'Choice') || firstChild(node, 'Fallback');
+        if (choice) {
+          await walkShapes(choice, rels, theme, parentPt, childSpaceEmu, skipPlaceholders, out);
+        }
+        continue;
+      }
+
+      const ln = localName(node);
+
+      if (ln === 'grpSp') {
+        const grpSpPr = firstChild(node, 'grpSpPr');
+        const xfrm = grpSpPr ? firstChild(grpSpPr, 'xfrm') : null;
+        const raw = parseXfrm(xfrm);
+        if (raw && xfrm) {
+          const chOff = firstChild(xfrm, 'chOff');
+          const chExt = firstChild(xfrm, 'chExt');
+          const nextParentPt = mapBoxToPt(raw, parentPt, childSpaceEmu);
+          const nextChildEmu: PtBox = {
+            x: Number(chOff?.getAttribute('x') || 0),
+            y: Number(chOff?.getAttribute('y') || 0),
+            w: Number(chExt?.getAttribute('cx') || raw.w) || raw.w,
+            h: Number(chExt?.getAttribute('cy') || raw.h) || raw.h,
+          };
+          await walkShapes(node, rels, theme, nextParentPt, nextChildEmu, skipPlaceholders, out);
+        } else {
+          await walkShapes(node, rels, theme, parentPt, childSpaceEmu, skipPlaceholders, out);
+        }
+        continue;
+      }
+
+      if (ln === 'pic') {
+        if (skipPlaceholders && isPlaceholderShape(node)) continue;
+        const spPr = firstChild(node, 'spPr');
+        const xfrm = spPr ? firstChild(spPr, 'xfrm') : null;
+        const raw = parseXfrm(xfrm);
+        const rId = resolveBlipRelId(node);
+        if (raw && rId && rels[rId]) {
+          const pt = mapBoxToPt(raw, parentPt, childSpaceEmu);
+          // Skip off-canvas hidden media icons (e.g., y < 0 audio triggers)
+          if (pt.x + pt.w <= 0 || pt.y + pt.h <= 0 || pt.x >= widthPt || pt.y >= heightPt) continue;
+          const src = await getMediaUrl(rels[rId].target);
+          if (src) {
+            out.push({
+              kind: 'image',
+              ...pt,
+              rot: raw.rot,
+              flipH: raw.flipH,
+              flipV: raw.flipV,
+              src,
+            });
+          }
+        }
+        continue;
+      }
+
+      if (ln === 'cxnSp') {
+        const spPr = firstChild(node, 'spPr');
+        const xfrm = spPr ? firstChild(spPr, 'xfrm') : null;
+        const raw = parseXfrm(xfrm, true);
+        if (!raw) continue;
+        const pt = mapBoxToPt(raw, parentPt, childSpaceEmu);
+        const lnNode = spPr ? firstChild(spPr, 'ln') : null;
+        if (lnNode && firstChild(lnNode, 'noFill')) continue;
+        const styleLnRef = firstDescendant(node, 'lnRef');
+        const strokeColor =
+          parseColor(lnNode ? firstChild(lnNode, 'solidFill') : null, theme) ||
+          parseColor(styleLnRef, theme) ||
+          '#cbd5e1';
+        const wAttr = lnNode?.getAttribute('w');
+        const strokePt = wAttr ? Math.max(0.75, Number(wAttr) / EMU_PER_PT) : 1;
+        const dashVal = firstDescendant(lnNode, 'prstDash')?.getAttribute('val') || '';
+        const borderStyle: SlideElement['borderStyle'] = dashVal.includes('dot')
+          ? 'dotted'
+          : dashVal.includes('dash')
+            ? 'dashed'
+            : 'solid';
+        out.push({
+          kind: 'line',
+          ...pt,
+          rot: raw.rot,
+          borderColor: strokeColor,
+          borderWidthPt: strokePt,
+          borderStyle,
+        });
+        continue;
+      }
+
+      if (ln === 'sp') {
+        const isPh = isPlaceholderShape(node);
+        if (skipPlaceholders && isPh) continue;
+
+        const nvSpPr = firstChild(node, 'nvSpPr');
+        const cNvSpPr = nvSpPr ? firstChild(nvSpPr, 'cNvSpPr') : null;
+        const isTxBox = cNvSpPr?.getAttribute('txBox') === '1';
+
+        const spPr = firstChild(node, 'spPr');
+        const xfrm = spPr ? firstChild(spPr, 'xfrm') : null;
+        const raw = parseXfrm(xfrm, true);
+
+        const styleNode = firstChild(node, 'style');
+        const fillRef = styleNode ? firstChild(styleNode, 'fillRef') : null;
+        const lnRef = styleNode ? firstChild(styleNode, 'lnRef') : null;
+        const fontRef = styleNode ? firstChild(styleNode, 'fontRef') : null;
+        const styleFontColor = parseColor(fontRef, theme);
+
+        let fill: string | undefined;
+        let gradient: string | undefined;
+        let shapeImgSrc: string | undefined;
+
+        if (spPr && !firstChild(spPr, 'noFill')) {
+          const solid = firstChild(spPr, 'solidFill');
+          const grad = firstChild(spPr, 'gradFill');
+          const blipFill = firstChild(spPr, 'blipFill');
+          if (solid) fill = parseColor(solid, theme);
+          else if (grad) gradient = parseGradient(grad, theme);
+          else if (blipFill) {
+            const rId = resolveBlipRelId(blipFill);
+            if (rId && rels[rId]) shapeImgSrc = await getMediaUrl(rels[rId].target);
+          } else if (fillRef && Number(fillRef.getAttribute('idx') || 0) > 0) {
+            fill = parseColor(fillRef, theme);
+          }
+        }
+
+        let borderColor: string | undefined;
+        let borderWidthPt: number | undefined;
+        let borderStyle: SlideElement['borderStyle'] = 'solid';
+        const lnNode = spPr ? firstChild(spPr, 'ln') : null;
+        if (lnNode && !firstChild(lnNode, 'noFill')) {
+          borderColor = parseColor(firstChild(lnNode, 'solidFill'), theme);
+          if (!borderColor && lnRef && Number(lnRef.getAttribute('idx') || 0) > 0) {
+            borderColor = parseColor(lnRef, theme);
+          }
+          if (borderColor) {
+            const wAttr = lnNode.getAttribute('w');
+            borderWidthPt = wAttr ? Math.max(0.75, Number(wAttr) / EMU_PER_PT) : 1;
+            const dashVal = firstDescendant(lnNode, 'prstDash')?.getAttribute('val') || '';
+            if (dashVal.includes('dot')) borderStyle = 'dotted';
+            else if (dashVal.includes('dash')) borderStyle = 'dashed';
+          }
+        }
+
+        // Geometry radius (roundRect, ellipse, line)
+        const prstGeom = spPr ? firstChild(spPr, 'prstGeom') : null;
+        const prst = prstGeom?.getAttribute('prst') || 'rect';
+        if (prst === 'line' && raw) {
+          const pt = mapBoxToPt(raw, parentPt, childSpaceEmu);
+          out.push({
+            kind: 'line',
+            ...pt,
+            rot: raw.rot,
+            borderColor: borderColor || fill || '#cbd5e1',
+            borderWidthPt: borderWidthPt || 1,
+            borderStyle,
+          });
+          continue;
+        }
+
+        const txBody = firstChild(node, 'txBody');
+        const bodyPr = txBody ? firstChild(txBody, 'bodyPr') : null;
+        const paragraphs = txBody
+          ? parseParagraphs(txBody, theme, styleFontColor || (fill && !isTxBox ? '#ffffff' : undefined))
+          : [];
+        const hasVisibleText = paragraphs.some((p) => p.runs.some((r) => r.text.length > 0));
+
+        if (!raw) continue;
+        if (!hasVisibleText && !fill && !gradient && !borderColor && !shapeImgSrc) continue;
+
+        const pt = mapBoxToPt(raw, parentPt, childSpaceEmu);
+
+        let borderRadiusPx: string | undefined;
+        if (prst === 'ellipse') {
+          borderRadiusPx = '50%';
+        } else if (prst === 'roundRect') {
+          const gd = prstGeom ? firstDescendant(prstGeom, 'gd') : null;
+          const fmla = gd?.getAttribute('fmla') || '';
+          const m = fmla.match(/val\s+(\d+)/);
+          const adj = m ? Number(m[1]) / 100000 : 0.16667;
+          const rPt = Math.round(Math.min(pt.w, pt.h) * adj);
+          borderRadiusPx = `${Math.max(4, rPt)}px`;
+        }
+
+        const anchor = bodyPr?.getAttribute('anchor');
+        const vAlign: SlideElement['vAlign'] = anchor === 'ctr' ? 'center' : anchor === 'b' ? 'bottom' : 'top';
+        const wrapAttr = bodyPr?.getAttribute('wrap');
+        const wrap = wrapAttr !== 'none';
+
+        // Default PowerPoint text box insets: lIns=91440 (7.2pt), tIns=45720 (3.6pt)
+        // Clamp horizontal inset on narrow columns (e.g. single-syllable Pinyin boxes) so text never wraps prematurely
+        const defHorz = pt.w < 75 ? 1.5 : 6;
+        const defVert = pt.h < 32 ? 1 : 3.2;
+        const lIns = bodyPr?.getAttribute('lIns');
+        const rIns = bodyPr?.getAttribute('rIns');
+        const tIns = bodyPr?.getAttribute('tIns');
+        const bIns = bodyPr?.getAttribute('bIns');
+        const pad: [number, number, number, number] = [
+          tIns != null ? Number(tIns) / EMU_PER_PT : defVert,
+          rIns != null ? Number(rIns) / EMU_PER_PT : defHorz,
+          bIns != null ? Number(bIns) / EMU_PER_PT : defVert,
+          lIns != null ? Number(lIns) / EMU_PER_PT : defHorz,
+        ];
+
+        out.push({
+          kind: 'shape',
+          ...pt,
+          rot: raw.rot,
+          flipH: raw.flipH,
+          flipV: raw.flipV,
+          src: shapeImgSrc,
+          fill,
+          gradient,
+          borderColor,
+          borderWidthPt,
+          borderStyle,
+          borderRadiusPx,
+          vAlign,
+          wrap,
+          pad,
+          paragraphs: hasVisibleText ? paragraphs : undefined,
+        });
+        continue;
+      }
+
+      if (ln === 'graphicFrame') {
+        const xfrm = firstChild(node, 'xfrm');
+        const raw = parseXfrm(xfrm);
+        const tbl = firstDescendant(node, 'tbl');
+        if (raw && tbl) {
+          const pt = mapBoxToPt(raw, parentPt, childSpaceEmu);
+          const rows: NonNullable<SlideElement['rows']> = [];
+          for (const tr of directChildren(tbl, 'tr')) {
+            const cells: { text: string; bg?: string; color?: string; bold?: boolean; align?: string }[] = [];
+            for (const tc of directChildren(tr, 'tc')) {
+              if (tc.getAttribute('hMerge') === '1' || tc.getAttribute('vMerge') === '1') continue;
+              const tcPr = firstChild(tc, 'tcPr');
+              const bg = tcPr ? parseColor(firstChild(tcPr, 'solidFill'), theme) : undefined;
+              const txBody = firstChild(tc, 'txBody');
+              const ps = txBody ? parseParagraphs(txBody, theme) : [];
+              const firstRun = ps.flatMap((p) => p.runs)[0];
+              cells.push({
+                text: ps.map((p) => p.runs.map((r) => r.text).join('')).join('\n').trim(),
+                bg,
+                color: firstRun?.color,
+                bold: firstRun?.bold,
+                align: ps[0]?.align,
+              });
+            }
+            if (cells.length > 0) rows.push({ cells });
+          }
+          if (rows.length > 0) out.push({ kind: 'table', ...pt, rows });
+        }
+      }
+    }
+  }
+
+  const rootPt: PtBox = { x: 0, y: 0, w: widthPt, h: heightPt };
+  const rootEmu: PtBox = { x: 0, y: 0, w: slideCx, h: slideCy };
   const slides: ParsedSlide[] = [];
 
   for (let i = 0; i < slidePaths.length; i++) {
@@ -278,142 +942,68 @@ async function parsePptxBuffer(buffer: ArrayBuffer): Promise<ParsedDeck> {
 
     const sXml = await sFile.async('text');
     const sDoc = new DOMParser().parseFromString(sXml, 'application/xml');
-    const relsPath = sPath.replace(/([^/]+)$/, '_rels/$1.rels');
-    const rels = await parseRels(zip, relsPath, sPath);
+    const sRels = await parseRelsFull(zip, sPath);
 
-    // Background
-    let bgColor: string | undefined;
-    let bgImage: string | undefined;
-    const bgNode = firstDescendant(sDoc.documentElement, 'bg');
-    if (bgNode) {
-      const solid = firstDescendant(bgNode, 'solidFill');
-      if (solid) bgColor = parseColor(solid);
-      const blip = firstDescendant(bgNode, 'blip');
-      if (blip) {
-        const rId =
-          blip.getAttribute('r:embed') ||
-          blip.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'embed');
-        if (rId && rels[rId]) bgImage = await getMediaUrl(rels[rId]);
+    // Resolve SlideLayout & SlideMaster for accurate theme colors, backgrounds, and frame graphics
+    const layoutRel = Object.values(sRels).find((r) => r.type.endsWith('/slideLayout'));
+    let layoutDoc: Document | null = null;
+    let layoutRels: Record<string, RelEntry> = {};
+    let masterDoc: Document | null = null;
+    let masterRels: Record<string, RelEntry> = {};
+    let theme: ThemeColors = { ...DEFAULT_THEME };
+
+    if (layoutRel && zip.file(layoutRel.target)) {
+      layoutDoc = new DOMParser().parseFromString(await zip.file(layoutRel.target)!.async('text'), 'application/xml');
+      layoutRels = await parseRelsFull(zip, layoutRel.target);
+      const masterRel = Object.values(layoutRels).find((r) => r.type.endsWith('/slideMaster'));
+      if (masterRel && zip.file(masterRel.target)) {
+        masterDoc = new DOMParser().parseFromString(await zip.file(masterRel.target)!.async('text'), 'application/xml');
+        masterRels = await parseRelsFull(zip, masterRel.target);
+        theme = await getMasterTheme(masterRel.target, masterDoc);
       }
     }
+
+    // Background inheritance: Slide -> SlideLayout -> SlideMaster
+    const bg =
+      (await extractBg(sDoc, sRels, theme)) ||
+      (layoutDoc ? await extractBg(layoutDoc, layoutRels, theme) : null) ||
+      (masterDoc ? await extractBg(masterDoc, masterRels, theme) : null);
 
     const elements: SlideElement[] = [];
+    const slideShowMaster = sDoc.documentElement.getAttribute('showMasterSp') !== '0';
+    const layoutShowMaster = layoutDoc?.documentElement.getAttribute('showMasterSp') !== '0';
 
-    const mapToPct = (box: CoordBox, parent: CoordBox, childSpace: CoordBox): CoordBox => ({
-      x: parent.x + ((box.x - childSpace.x) / childSpace.w) * parent.w,
-      y: parent.y + ((box.y - childSpace.y) / childSpace.h) * parent.h,
-      w: (box.w / childSpace.w) * parent.w,
-      h: (box.h / childSpace.h) * parent.h,
-    });
-
-    const walkTree = async (container: Element, parentPct: CoordBox, childSpace: CoordBox) => {
-      for (const node of directChildren(container)) {
-        const ln = localName(node);
-
-        if (ln === 'pic') {
-          const spPr = directChildren(node, 'spPr')[0];
-          const xfrm = spPr ? directChildren(spPr, 'xfrm')[0] : null;
-          const raw = parseXfrm(xfrm);
-          const blip = firstDescendant(node, 'blip');
-          const rId =
-            blip?.getAttribute('r:embed') ||
-            blip?.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'embed');
-          if (raw && rId && rels[rId]) {
-            const src = await getMediaUrl(rels[rId]);
-            if (src) {
-              const pct = mapToPct(raw, parentPct, childSpace);
-              elements.push({ kind: 'image', ...pct, rot: raw.rot, src });
-            }
-          }
-        } else if (ln === 'sp') {
-          const spPr = directChildren(node, 'spPr')[0];
-          const xfrm = spPr ? directChildren(spPr, 'xfrm')[0] : null;
-          const raw = parseXfrm(xfrm);
-          const txBody = directChildren(node, 'txBody')[0];
-          const paragraphs = txBody ? parseParagraphs(txBody) : [];
-          const solidFill = spPr ? directChildren(spPr, 'solidFill')[0] : null;
-          const fill = parseColor(solidFill ?? null);
-          const lnNode = spPr ? directChildren(spPr, 'ln')[0] : null;
-          const border = lnNode ? parseColor(directChildren(lnNode, 'solidFill')[0] ?? null) : undefined;
-
-          if (raw && (paragraphs.length > 0 || fill || border)) {
-            const pct = mapToPct(raw, parentPct, childSpace);
-            elements.push({ kind: 'text', ...pct, rot: raw.rot, fill, border, paragraphs });
-          } else if (!raw && paragraphs.length > 0) {
-            // Inherited layout placeholder without explicit xfrm — place gracefully
-            const isFirst = elements.filter((e) => e.kind === 'text').length === 0;
-            elements.push({
-              kind: 'text',
-              x: 6,
-              y: isFirst ? 7 : 24,
-              w: 88,
-              h: isFirst ? 16 : 66,
-              paragraphs,
-            });
-          }
-        } else if (ln === 'graphicFrame') {
-          const xfrm = directChildren(node, 'xfrm')[0];
-          const raw = parseXfrm(xfrm);
-          const tbl = firstDescendant(node, 'tbl');
-          if (raw && tbl) {
-            const rows: string[][] = [];
-            for (const tr of directChildren(tbl, 'tr')) {
-              const row: string[] = [];
-              for (const tc of directChildren(tr, 'tc')) {
-                const txBody = directChildren(tc, 'txBody')[0];
-                const ps = txBody ? parseParagraphs(txBody) : [];
-                row.push(ps.map((p) => p.runs.map((r) => r.text).join('')).join('\n').trim());
-              }
-              if (row.length > 0) rows.push(row);
-            }
-            if (rows.length > 0) {
-              const pct = mapToPct(raw, parentPct, childSpace);
-              elements.push({ kind: 'table', ...pct, rows });
-            }
-          }
-        } else if (ln === 'grpSp') {
-          const grpSpPr = directChildren(node, 'grpSpPr')[0];
-          const xfrm = grpSpPr ? directChildren(grpSpPr, 'xfrm')[0] : null;
-          const raw = parseXfrm(xfrm);
-          if (raw && xfrm) {
-            const chOff = directChildren(xfrm, 'chOff')[0];
-            const chExt = directChildren(xfrm, 'chExt')[0];
-            const nextParent = mapToPct(raw, parentPct, childSpace);
-            const nextChildSpace: CoordBox = {
-              x: Number(chOff?.getAttribute('x') || 0),
-              y: Number(chOff?.getAttribute('y') || 0),
-              w: Number(chExt?.getAttribute('cx') || raw.w) || raw.w,
-              h: Number(chExt?.getAttribute('cy') || raw.h) || raw.h,
-            };
-            await walkTree(node, nextParent, nextChildSpace);
-          } else {
-            await walkTree(node, parentPct, childSpace);
-          }
-        }
-      }
-    };
-
-    const spTree = firstDescendant(sDoc.documentElement, 'spTree');
-    if (spTree) {
-      await walkTree(spTree, { x: 0, y: 0, w: 100, h: 100 }, { x: 0, y: 0, w: slideCx, h: slideCy });
+    if (slideShowMaster && layoutShowMaster && masterDoc) {
+      const mSpTree = firstDescendant(masterDoc.documentElement, 'spTree');
+      if (mSpTree) await walkShapes(mSpTree, masterRels, theme, rootPt, rootEmu, true, elements);
+    }
+    if (slideShowMaster && layoutDoc) {
+      const lSpTree = firstDescendant(layoutDoc.documentElement, 'spTree');
+      if (lSpTree) await walkShapes(lSpTree, layoutRels, theme, rootPt, rootEmu, true, elements);
     }
 
-    const firstText = elements
-      .filter((e) => e.kind === 'text' && e.paragraphs?.length)
+    const slideStartIdx = elements.length;
+    const sSpTree = firstDescendant(sDoc.documentElement, 'spTree');
+    if (sSpTree) await walkShapes(sSpTree, sRels, theme, rootPt, rootEmu, false, elements);
+
+    const slideOwnText = elements
+      .slice(slideStartIdx)
+      .filter((e) => e.kind === 'shape' && e.paragraphs?.length)
       .flatMap((e) => e.paragraphs!)
       .map((p) => p.runs.map((r) => r.text).join('').trim())
       .find((t) => t.length > 0);
 
     slides.push({
       index: i + 1,
-      bgColor,
-      bgImage,
+      bgColor: bg?.bgColor || theme.bg1 || '#ffffff',
+      bgGradient: bg?.bgGradient,
+      bgImage: bg?.bgImage,
       elements,
-      titlePreview: firstText ? firstText.slice(0, 42) : `Slide ${i + 1}`,
+      titlePreview: slideOwnText ? slideOwnText.replace(/\s+/g, ' ').slice(0, 42) : `Slide ${i + 1}`,
     });
   }
 
-  return { widthPx, heightPx, slides, blobUrls };
+  return { widthPt, heightPt, slides, blobUrls };
 }
 
 export interface PptxSlideViewerProps {
@@ -511,13 +1101,12 @@ export const PptxSlideViewer: React.FC<PptxSlideViewerProps> = ({ url, title }) 
     };
   }, [url, isLegacyPpt]);
 
-  // Responsive scale calculation for crisp slide rendering at any viewport width
   useEffect(() => {
     const el = stageWrapRef.current;
     if (!el || !deck) return;
     const update = () => {
       const w = el.clientWidth;
-      if (w > 0) setScale(w / deck.widthPx);
+      if (w > 0) setScale(w / deck.widthPt);
     };
     update();
     const ro = new ResizeObserver(update);
@@ -535,7 +1124,11 @@ export const PptxSlideViewer: React.FC<PptxSlideViewerProps> = ({ url, title }) 
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement
+      ) {
         return;
       }
       if (e.key === 'ArrowRight' || e.key === 'PageDown') {
@@ -623,7 +1216,7 @@ export const PptxSlideViewer: React.FC<PptxSlideViewerProps> = ({ url, title }) 
               {loadedMb} MB / {totalMb} MB ({pct}%)
             </p>
           ) : (
-            <p className="text-xs text-sanzar-muted">Preparing native slide deck</p>
+            <p className="text-xs text-sanzar-muted">Rendering slides, typography, and illustrations</p>
           )}
         </div>
         {pct !== null && (
@@ -701,7 +1294,7 @@ export const PptxSlideViewer: React.FC<PptxSlideViewerProps> = ({ url, title }) 
             aria-label="Jump to slide"
             value={slideIdx}
             onChange={(e) => setSlideIdx(Number(e.target.value))}
-            className="hidden sm:block max-w-[200px] px-2 py-1 rounded-lg border border-sanzar-border bg-sanzar-surface text-xs font-medium truncate"
+            className="hidden sm:block max-w-[220px] px-2 py-1 rounded-lg border border-sanzar-border bg-sanzar-surface text-xs font-medium truncate"
           >
             {deck.slides.map((s, idx) => (
               <option key={s.index} value={idx}>
@@ -739,32 +1332,42 @@ export const PptxSlideViewer: React.FC<PptxSlideViewerProps> = ({ url, title }) 
           ref={stageWrapRef}
           className="w-full max-w-[960px] mx-auto relative shadow-lg rounded-lg overflow-hidden border border-black/10 select-text"
           style={{
-            height: `${Math.round(deck.heightPx * scale)}px`,
+            height: `${Math.round(deck.heightPt * scale)}px`,
             backgroundColor: slide.bgColor || '#ffffff',
           }}
         >
           <div
             style={{
-              width: `${deck.widthPx}px`,
-              height: `${deck.heightPx}px`,
+              width: `${deck.widthPt}px`,
+              height: `${deck.heightPt}px`,
               transform: `scale(${scale})`,
               transformOrigin: 'top left',
               position: 'relative',
+              overflow: 'hidden',
               backgroundColor: slide.bgColor || '#ffffff',
-              backgroundImage: slide.bgImage ? `url(${slide.bgImage})` : undefined,
+              backgroundImage: slide.bgImage
+                ? `url(${slide.bgImage})`
+                : slide.bgGradient || undefined,
               backgroundSize: 'cover',
               backgroundPosition: 'center',
               color: '#1e293b',
+              fontFamily:
+                '"PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Hiragino Sans GB", system-ui, -apple-system, sans-serif',
             }}
           >
             {slide.elements.map((el, idx) => {
+              const transforms: string[] = [];
+              if (el.rot) transforms.push(`rotate(${el.rot}deg)`);
+              if (el.flipH) transforms.push('scaleX(-1)');
+              if (el.flipV) transforms.push('scaleY(-1)');
+
               const baseStyle: React.CSSProperties = {
                 position: 'absolute',
-                left: `${el.x}%`,
-                top: `${el.y}%`,
-                width: `${el.w}%`,
-                height: `${el.h}%`,
-                transform: el.rot ? `rotate(${el.rot}deg)` : undefined,
+                left: `${el.x}px`,
+                top: `${el.y}px`,
+                width: `${Math.max(el.w, 0)}px`,
+                height: `${Math.max(el.h, 0)}px`,
+                transform: transforms.length > 0 ? transforms.join(' ') : undefined,
                 boxSizing: 'border-box',
               };
 
@@ -776,23 +1379,52 @@ export const PptxSlideViewer: React.FC<PptxSlideViewerProps> = ({ url, title }) 
                     alt=""
                     style={{ ...baseStyle, objectFit: 'contain' }}
                     draggable={false}
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                );
+              }
+
+              if (el.kind === 'line') {
+                const isHoriz = el.w >= el.h;
+                return (
+                  <div
+                    key={idx}
+                    style={{
+                      ...baseStyle,
+                      width: isHoriz ? `${el.w}px` : '0px',
+                      height: isHoriz ? '0px' : `${el.h}px`,
+                      borderTop: isHoriz
+                        ? `${el.borderWidthPt || 1}px ${el.borderStyle || 'solid'} ${el.borderColor || '#cbd5e1'}`
+                        : undefined,
+                      borderLeft: !isHoriz
+                        ? `${el.borderWidthPt || 1}px ${el.borderStyle || 'solid'} ${el.borderColor || '#cbd5e1'}`
+                        : undefined,
+                    }}
                   />
                 );
               }
 
               if (el.kind === 'table' && el.rows) {
                 return (
-                  <div key={idx} style={{ ...baseStyle, overflow: 'auto' }}>
-                    <table className="w-full border-collapse text-[14px] bg-white/90 text-slate-900">
+                  <div key={idx} style={{ ...baseStyle, overflow: 'visible' }}>
+                    <table className="w-full h-full border-collapse text-[14px] bg-white/95 text-slate-900">
                       <tbody>
                         {el.rows.map((row, ri) => (
-                          <tr key={ri} className={ri === 0 ? 'bg-slate-100 font-bold' : ''}>
-                            {row.map((cell, ci) => (
+                          <tr key={ri} className={ri === 0 ? 'font-bold' : ''}>
+                            {row.cells.map((cell, ci) => (
                               <td
                                 key={ci}
-                                className="border border-slate-300 px-2 py-1 align-top whitespace-pre-wrap"
+                                style={{
+                                  backgroundColor: cell.bg || (ri === 0 ? '#f1f5f9' : undefined),
+                                  color: cell.color || '#1e293b',
+                                  fontWeight: cell.bold ? 700 : undefined,
+                                  textAlign: (cell.align as any) || 'left',
+                                }}
+                                className="border border-slate-300 px-2 py-1 align-middle whitespace-pre-wrap"
                               >
-                                {cell}
+                                {cell.text}
                               </td>
                             ))}
                           </tr>
@@ -803,16 +1435,35 @@ export const PptxSlideViewer: React.FC<PptxSlideViewerProps> = ({ url, title }) 
                 );
               }
 
+              const pad = el.pad || [3, 6, 3, 6];
+              const isStyledBox = Boolean(el.fill || el.gradient || el.borderColor || el.src);
+
               return (
                 <div
                   key={idx}
                   style={{
                     ...baseStyle,
                     backgroundColor: el.fill || 'transparent',
-                    border: el.border ? `1px solid ${el.border}` : undefined,
-                    padding: '4px 6px',
-                    overflow: 'hidden',
-                    lineHeight: 1.35,
+                    backgroundImage: el.src
+                      ? `url(${el.src})`
+                      : el.gradient || undefined,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                    border: el.borderColor
+                      ? `${el.borderWidthPt || 1}px ${el.borderStyle || 'solid'} ${el.borderColor}`
+                      : undefined,
+                    borderRadius: el.borderRadiusPx,
+                    padding: `${pad[0]}px ${pad[1]}px ${pad[2]}px ${pad[3]}px`,
+                    overflow: 'visible',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent:
+                      el.vAlign === 'center'
+                        ? 'center'
+                        : el.vAlign === 'bottom'
+                          ? 'flex-end'
+                          : 'flex-start',
+                    pointerEvents: isStyledBox && !el.paragraphs ? 'none' : undefined,
                   }}
                 >
                   {el.paragraphs?.map((p, pi) => (
@@ -820,28 +1471,44 @@ export const PptxSlideViewer: React.FC<PptxSlideViewerProps> = ({ url, title }) 
                       key={pi}
                       style={{
                         textAlign: p.align || 'left',
-                        marginBottom: '4px',
-                        wordBreak: 'break-word',
+                        marginTop: p.spaceBeforePt ? `${p.spaceBeforePt}px` : '0px',
+                        marginBottom: p.spaceAfterPt ? `${p.spaceAfterPt}px` : '0px',
+                        paddingLeft: p.marginLeftPt ? `${p.marginLeftPt}px` : undefined,
+                        textIndent: p.indentPt ? `${p.indentPt}px` : undefined,
+                        lineHeight: p.lineHeight || 1.22,
+                        whiteSpace: el.wrap === false ? 'pre' : 'pre-wrap',
+                        wordBreak: 'normal',
+                        overflowWrap: 'break-word',
+                        fontSize: p.emptyFontSizePt ? `${p.emptyFontSizePt}px` : undefined,
                       }}
                     >
-                      {p.bullet && <span className="mr-1.5">{p.bullet}</span>}
-                      {p.runs.map((r, ri) =>
-                        r.text === '\n' ? (
-                          <br key={ri} />
-                        ) : (
-                          <span
-                            key={ri}
-                            style={{
-                              fontWeight: r.bold ? 700 : 400,
-                              fontStyle: r.italic ? 'italic' : 'normal',
-                              textDecoration: r.underline ? 'underline' : 'none',
-                              color: r.color || '#1e293b',
-                              fontSize: r.fontSizePt ? `${Math.round(r.fontSizePt * 1.25)}px` : '18px',
-                            }}
-                          >
-                            {r.text}
-                          </span>
-                        )
+                      {p.runs.length === 0 ? (
+                        '\u00A0'
+                      ) : (
+                        <>
+                          {p.bullet && <span className="mr-1">{p.bullet}</span>}
+                          {p.runs.map((r, ri) =>
+                            r.text === '\n' ? (
+                              <br key={ri} />
+                            ) : (
+                              <span
+                                key={ri}
+                                style={{
+                                  fontWeight: r.bold ? 700 : 400,
+                                  fontStyle: r.italic ? 'italic' : 'normal',
+                                  textDecoration: r.underline ? 'underline' : 'none',
+                                  color: r.color || '#1e293b',
+                                  fontSize: r.fontSizePt
+                                    ? `${r.superscript || r.subscript ? Math.round(r.fontSizePt * 0.68) : r.fontSizePt}px`
+                                    : '18px',
+                                  verticalAlign: r.superscript ? 'super' : r.subscript ? 'sub' : undefined,
+                                }}
+                              >
+                                {r.text}
+                              </span>
+                            )
+                          )}
+                        </>
                       )}
                     </div>
                   ))}
