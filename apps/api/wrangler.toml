@@ -2,6 +2,10 @@ name = "sanzar-api"
 main = "src/worker.js"
 compatibility_date = "2024-09-01"
 
+routes = [
+  { pattern = "api.sanzar.pro", custom_domain = true }
+]
+
 [vars]
 LOGTO_ISSUER = "https://ugtpcv.logto.app/oidc"
 LOGTO_JWKS_URL = "https://ugtpcv.logto.app/oidc/jwks"
