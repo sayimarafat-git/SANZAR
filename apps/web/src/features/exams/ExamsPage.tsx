@@ -15,6 +15,7 @@ import { useSettings } from '../../lib/settings-context';
 import { apiRequest, errorText, fetchCatalogWithCache } from '../../lib/api-client';
 import { colorForSubject } from '../../lib/i18n';
 import { useStudyTracker } from '../../lib/study-tracker';
+import { buildQuizFlashcardsFromReview, upsertStudyFlashcards } from '../../lib/study-flashcards';
 import type { AttemptResult, AttemptSummary, ExamSession } from '../../lib/models';
 import { ErrorRetry, LoadingState, Modal, mmss, timeAgo, useToast } from '../../components/SanzarUI';
 import { ExamsFlashcardsBanner } from '../../components/FlashcardsSection';
@@ -187,10 +188,12 @@ const ExamsList: React.FC = () => {
 };
 
 const ExamRunner: React.FC<{ examId: string }> = ({ examId }) => {
+  const { user } = useAuth();
   const { t } = useSettings();
   const navigate = useNavigate();
   const toast = useToast();
   const qc = useQueryClient();
+  const uid = user?.uid || 'guest';
 
   const [session, setSession] = useState<ExamSession | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -245,6 +248,12 @@ const ExamRunner: React.FC<{ examId: string }> = ({ examId }) => {
         method: 'POST',
         bodyJson: { answers },
       });
+      const cards = buildQuizFlashcardsFromReview(
+        res.attempt.examId || examId,
+        res.attempt.title || session.attempt.title,
+        res.review
+      );
+      if (cards.length > 0) upsertStudyFlashcards(uid, cards);
       await qc.invalidateQueries({ queryKey: ['progress'] });
       navigate(`/attempts/${session.attempt.id}`, { replace: true, state: { result: res } });
     } catch {
@@ -381,11 +390,22 @@ const ExamRunner: React.FC<{ examId: string }> = ({ examId }) => {
 };
 
 const AttemptReview: React.FC<{ attemptId: string }> = ({ attemptId }) => {
+  const { user } = useAuth();
   const { t } = useSettings();
+  const uid = user?.uid || 'guest';
+  const syncedAttemptRef = React.useRef<string>('');
   const q = useQuery({
     queryKey: ['attempt', attemptId],
     queryFn: () => apiRequest<AttemptResult>(`/v1/attempts/${attemptId}`),
   });
+
+  useEffect(() => {
+    const data = q.data;
+    if (!data || syncedAttemptRef.current === data.attempt.id) return;
+    syncedAttemptRef.current = data.attempt.id;
+    const cards = buildQuizFlashcardsFromReview(data.attempt.examId, data.attempt.title, data.review);
+    if (cards.length > 0) upsertStudyFlashcards(uid, cards);
+  }, [q.data, uid]);
 
   if (q.isLoading) return <LoadingState />;
   if (q.isError || !q.data) return <ErrorRetry message={t('err.generic')} onRetry={() => q.refetch()} />;

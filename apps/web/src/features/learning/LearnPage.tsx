@@ -33,7 +33,13 @@ import {
   recordQaCompletion,
   recordQuizCompletion,
 } from '../../lib/activity-completion';
-import type { ChapterQaItem, ProgressData, Resource } from '../../lib/models';
+import {
+  buildQuizFlashcardsFromReview,
+  detectCardLang,
+  type StudyFlashcard,
+  upsertStudyFlashcards,
+} from '../../lib/study-flashcards';
+import type { AttemptResult, ChapterQaItem, ProgressData, Resource } from '../../lib/models';
 import { BookCover, ErrorRetry, LoadingState, useToast } from '../../components/SanzarUI';
 
 const PptxSlideViewer = React.lazy(() => import('./PptxSlideViewer'));
@@ -252,6 +258,83 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
     playing: playingVideo,
     onFlushed: () => qc.invalidateQueries({ queryKey: ['progress'] }),
   });
+
+  const openedLessonKeyRef = React.useRef<string>('');
+  React.useEffect(() => {
+    if (mode !== 'chapter' || !cat || !bookId || !chapterId) return;
+    const book = cat.books.find((b) => b.id === bookId);
+    const ch = book?.chapters.find((c) => c.id === chapterId);
+    if (!book || !ch) return;
+
+    const visitKey = `${userKey}:${book.id}:${ch.id}`;
+    if (openedLessonKeyRef.current === visitKey) return;
+    openedLessonKeyRef.current = visitKey;
+
+    const notes = cat.notes?.[ch.id] ?? [];
+    const qaItems = cat.qa?.[ch.id] ?? [];
+    const now = Date.now();
+    const cards: StudyFlashcard[] = [];
+
+    if (notes.length > 0) {
+      notes.slice(0, 15).forEach((note, idx) => {
+        const back = note.text.trim().slice(0, 600);
+        if (!back) return;
+        const front = note.heading ? `${ch.title} — ${note.heading}` : ch.title;
+        cards.push({
+          id: `lesson:${ch.id}:note:${idx}`,
+          source: 'lesson',
+          front,
+          back,
+          hint: note.page != null ? `${book.title} · p.${note.page}` : book.title,
+          lang: detectCardLang(`${front} ${back}`),
+          updatedAt: now,
+        });
+      });
+    } else if (qaItems.length > 0) {
+      qaItems.slice(0, 15).forEach((item) => {
+        if (!item.question.trim() || !item.answer.trim()) return;
+        cards.push({
+          id: `lesson:${ch.id}:qa:${item.id}`,
+          source: 'lesson',
+          front: item.question,
+          back: item.answer,
+          hint: `${book.title} · ${ch.title}`,
+          lang: detectCardLang(`${item.question} ${item.answer}`),
+          updatedAt: now,
+        });
+      });
+    }
+
+    if (cards.length > 0) {
+      upsertStudyFlashcards(userKey, cards);
+    }
+  }, [mode, cat, bookId, chapterId, userKey]);
+
+  const syncedQuizAttemptIdsRef = React.useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    if (mode !== 'chapter' || !cat || !chapterId || !progQuery.data?.attempts?.length) return;
+    const quiz = cat.exams.find((e) => e.chapter_id === chapterId && e.type === 'chapter_quiz');
+    if (!quiz) return;
+    const finished = progQuery.data.attempts
+      .filter((a) => a.examId === quiz.id && (a.status === 'submitted' || a.status === 'graded'))
+      .sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0))[0];
+    if (!finished || syncedQuizAttemptIdsRef.current.has(finished.id)) return;
+    syncedQuizAttemptIdsRef.current.add(finished.id);
+
+    let cancelled = false;
+    void apiRequest<AttemptResult>(`/v1/attempts/${finished.id}`)
+      .then((res) => {
+        if (cancelled) return;
+        const cards = buildQuizFlashcardsFromReview(quiz.id, res.attempt.title || quiz.title, res.review);
+        if (cards.length > 0) upsertStudyFlashcards(userKey, cards);
+      })
+      .catch(() => {
+        // Ignore background flashcard sync failure
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, cat, chapterId, progQuery.data?.attempts, userKey]);
 
   if (mode === 'root') return <Navigate to="/library" replace />;
   if (catQuery.isLoading) return <LoadingState />;
@@ -516,6 +599,22 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
         });
       }
       setActivityMap(next);
+
+      const qaItem = qaItems.find((item) => item.id === qaId);
+      if (qaItem) {
+        upsertStudyFlashcards(userKey, [
+          {
+            id: `qa:${qaItem.id}`,
+            source: 'qa',
+            front: qaItem.question,
+            back: qaItem.answer,
+            hint: ch.title,
+            lang: detectCardLang(`${qaItem.question} ${qaItem.answer}`),
+            missed: !passed,
+            updatedAt: Date.now(),
+          },
+        ]);
+      }
     };
 
     const handleMarkQaReviewed = (items: ChapterQaItem[]) => {
@@ -532,6 +631,20 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
           score: passedCount,
           total,
         })
+      );
+      const now = Date.now();
+      upsertStudyFlashcards(
+        userKey,
+        items.map((item) => ({
+          id: `qa:${item.id}`,
+          source: 'qa',
+          front: item.question,
+          back: item.answer,
+          hint: ch.title,
+          lang: detectCardLang(`${item.question} ${item.answer}`),
+          missed: activityMap[`qa:${item.id}`]?.status === 'failed',
+          updatedAt: now,
+        }))
       );
       void markComplete(`qa:${ch.id}`);
     };
