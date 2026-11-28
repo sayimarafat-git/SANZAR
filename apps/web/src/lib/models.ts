@@ -14,8 +14,8 @@ export const atLeast = (role: string | undefined | null, min: Role): boolean =>
   role !== undefined && role !== null && role in ROLE_RANK && ROLE_RANK[role as Role] >= ROLE_RANK[min];
 
 export const LEVELS = [
-  { id: 'zh', name: 'Chinese', name_bn: 'চীনা ভাষা', name_zh: '中文' },
-  { id: 'en', name: 'English', name_bn: 'ইংরেজি', name_zh: '英语' },
+  { id: 'zh', name: 'Chinese', name_bn: 'চীনা ভাষা', name_zh: '中文', name_id: 'Bahasa Mandarin' },
+  { id: 'en', name: 'English', name_bn: 'ইংরেজি', name_zh: '英语', name_id: 'Bahasa Inggris' },
 ];
 
 export interface UserProfile {
@@ -39,6 +39,7 @@ export interface Level {
   name_en: string;
   name_bn: string;
   name_zh: string;
+  name_id?: string;
 }
 
 export interface Subject {
@@ -46,6 +47,7 @@ export interface Subject {
   name_en: string;
   name_bn: string;
   name_zh: string;
+  name_id?: string;
   icon: string;
   color: string;
   sort?: number;
@@ -86,11 +88,11 @@ export interface Book {
   chapters: Chapter[];
 }
 
-export type DictLangCode = 'en' | 'bn' | 'zh-Hans';
+export type DictLangCode = 'en' | 'bn' | 'zh-Hans' | 'id';
 
 export interface DictionaryEntry {
   id: string;
-  language: 'zh' | 'en' | 'bn';
+  language: 'zh' | 'en' | 'bn' | 'id';
   language_code?: DictLangCode;
   word: string;
   phonetic: string;
@@ -98,6 +100,7 @@ export interface DictionaryEntry {
   meaning_en: string;
   meaning_bn: string;
   meaning_zh: string;
+  meaning_id?: string;
   example: string;
   example_translation: string;
   hsk_level: string;

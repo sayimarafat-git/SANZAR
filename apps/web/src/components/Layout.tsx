@@ -151,7 +151,7 @@ export const Layout: React.FC = () => {
                 aria-label={t('language')}
                 value={lang}
                 onChange={(e) => {
-                  const v = e.target.value as 'bn' | 'en' | 'zh';
+                  const v = e.target.value as 'bn' | 'en' | 'zh' | 'id';
                   setLang(v);
                   if (user) {
                     apiRequest('/v1/me', { method: 'PATCH', bodyJson: { locale: v } }).catch(() => {});
@@ -162,6 +162,7 @@ export const Layout: React.FC = () => {
                 <option value="bn">বাংলা</option>
                 <option value="en">EN</option>
                 <option value="zh">中文</option>
+                <option value="id">Bahasa Indonesia</option>
               </select>
             </div>
 

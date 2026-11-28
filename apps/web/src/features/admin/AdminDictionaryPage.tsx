@@ -145,6 +145,14 @@ export const AdminDictionaryPage: React.FC = () => {
                   {stats.byStatus.draft.toLocaleString()} draft
                 </span>
               )}
+              {stats.byLang && (
+                <>
+                  <span className="sanzar-pill text-[11px]">ZH {(stats.byLang.zh || 0).toLocaleString()}</span>
+                  <span className="sanzar-pill text-[11px]">EN {(stats.byLang.en || 0).toLocaleString()}</span>
+                  <span className="sanzar-pill text-[11px]">BN {(stats.byLang.bn || 0).toLocaleString()}</span>
+                  <span className="sanzar-pill text-[11px]">ID {(stats.byLang.id || 0).toLocaleString()}</span>
+                </>
+              )}
             </div>
             {hskFilter && (
               <button
@@ -253,7 +261,7 @@ export const AdminDictionaryPage: React.FC = () => {
                   </td>
                   <td className="p-3 text-xs font-semibold uppercase">{e.language}</td>
                   <td className="p-3 text-xs text-sanzar-text2 max-w-xs truncate">
-                    {[e.meaning_en, e.meaning_bn, e.meaning_zh].filter(Boolean).join(' · ')}
+                    {[e.meaning_en, e.meaning_bn, e.meaning_zh, e.meaning_id].filter(Boolean).join(' · ')}
                   </td>
                   <td className="p-3 text-xs">{e.hsk_level || '—'}</td>
                   <td className="p-3"><StatusPill s={e.status || 'published'} /></td>
@@ -568,13 +576,14 @@ const DictionaryForm: React.FC<{ entry: DictionaryEntry | null; onDone: () => vo
   const isNew = !entry;
   const [f, setF] = useState({
     id: entry?.id ?? '',
-    language: (entry?.language ?? 'zh') as 'zh' | 'en' | 'bn',
+    language: (entry?.language ?? 'zh') as 'zh' | 'en' | 'bn' | 'id',
     word: entry?.word ?? '',
     phonetic: entry?.phonetic ?? '',
     part_of_speech: entry?.part_of_speech ?? '',
     meaning_en: entry?.meaning_en ?? '',
     meaning_bn: entry?.meaning_bn ?? '',
     meaning_zh: entry?.meaning_zh ?? '',
+    meaning_id: entry?.meaning_id ?? '',
     example: entry?.example ?? '',
     example_translation: entry?.example_translation ?? '',
     hsk_level: entry?.hsk_level ?? '',
@@ -604,6 +613,7 @@ const DictionaryForm: React.FC<{ entry: DictionaryEntry | null; onDone: () => vo
           meaning_en: f.meaning_en.trim(),
           meaning_bn: f.meaning_bn.trim(),
           meaning_zh: f.meaning_zh.trim(),
+          meaning_id: f.meaning_id.trim(),
           example: f.example.trim(),
           example_translation: f.example_translation.trim(),
           hsk_level: f.hsk_level.trim(),
@@ -627,10 +637,11 @@ const DictionaryForm: React.FC<{ entry: DictionaryEntry | null; onDone: () => vo
       <div className="grid sm:grid-cols-2 gap-3">
         <label className="space-y-1">
           <span>Language</span>
-          <select value={f.language} onChange={(e) => setF({ ...f, language: e.target.value as 'zh' | 'en' | 'bn' })} className="sanzar-input text-sm">
+          <select value={f.language} onChange={(e) => setF({ ...f, language: e.target.value as 'zh' | 'en' | 'bn' | 'id' })} className="sanzar-input text-sm">
             <option value="zh">Chinese (简体中文)</option>
             <option value="en">English</option>
             <option value="bn">Bangla (বাংলা)</option>
+            <option value="id">Indonesian (Bahasa Indonesia)</option>
           </select>
         </label>
         <label className="space-y-1">
@@ -671,6 +682,10 @@ const DictionaryForm: React.FC<{ entry: DictionaryEntry | null; onDone: () => vo
         <input value={f.meaning_zh} onChange={(e) => setF({ ...f, meaning_zh: e.target.value })} className="sanzar-input text-sm" />
       </label>
       <label className="block space-y-1">
+        <span>Indonesian meaning</span>
+        <input value={f.meaning_id} onChange={(e) => setF({ ...f, meaning_id: e.target.value })} className="sanzar-input text-sm" />
+      </label>
+      <label className="block space-y-1">
         <span>Example sentence</span>
         <input value={f.example} onChange={(e) => setF({ ...f, example: e.target.value })} className="sanzar-input text-sm" />
       </label>
@@ -709,6 +724,7 @@ interface ImportRow {
   meaning_en?: string;
   meaning_bn?: string;
   meaning_zh?: string;
+  meaning_id?: string;
   example?: string;
   example_translation?: string;
   hsk_level?: string;
@@ -742,6 +758,7 @@ function parseCsvOrJson(raw: string): ImportRow[] {
       meaning_en: obj.meaning_en || '',
       meaning_bn: obj.meaning_bn || '',
       meaning_zh: obj.meaning_zh || '',
+      meaning_id: obj.meaning_id || '',
       example: obj.example || '',
       example_translation: obj.example_translation || '',
       hsk_level: obj.hsk_level || '',
@@ -766,7 +783,7 @@ const BulkImportForm: React.FC<{ existingWords: Set<string>; onDone: () => void 
     parseErr = errorText(e);
   }
 
-  const validLangs = new Set(['en', 'bn', 'zh', 'zh-hans', 'zh-Hans']);
+  const validLangs = new Set(['en', 'bn', 'zh', 'zh-hans', 'zh-Hans', 'id']);
   const preview = parsed.map((row, idx) => {
     const langOk = validLangs.has(String(row.language || '').trim());
     const wordOk = Boolean(String(row.word || '').trim());
@@ -867,7 +884,7 @@ const BulkImportForm: React.FC<{ existingWords: Set<string>; onDone: () => void 
           setFileName(null);
           setRaw(e.target.value);
         }}
-        placeholder={'language,word,phonetic,part_of_speech,meaning_en,meaning_bn,hsk_level\nzh,你好,nǐ hǎo,phrase,hello,হ্যালো,HSK 1'}
+        placeholder={'language,word,phonetic,part_of_speech,meaning_en,meaning_bn,meaning_id,hsk_level\nzh,你好,nǐ hǎo,phrase,hello,হ্যালো,halo,HSK 1'}
         className="sanzar-input font-mono text-xs"
       />
       <div className="flex items-center justify-between gap-2">

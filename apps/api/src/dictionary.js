@@ -24,16 +24,17 @@ export function stripPinyinTones(input) {
     .trim();
 }
 
-/** Normalizes incoming language code to canonical API code: 'en' | 'bn' | 'zh-Hans'. */
+/** Normalizes incoming language code to canonical API code: 'en' | 'bn' | 'zh-Hans' | 'id'. */
 export function normalizeApiLang(lang) {
   const v = String(lang || '').trim().toLowerCase();
   if (v === 'en' || v === 'english') return 'en';
   if (v === 'bn' || v === 'bangla' || v === 'bengali') return 'bn';
   if (v === 'zh' || v === 'zh-hans' || v === 'zh-cn' || v === 'chinese') return 'zh-Hans';
+  if (v === 'id' || v === 'indonesian' || v === 'bahasa' || v === 'bahasa indonesia') return 'id';
   return null;
 }
 
-/** Maps canonical API code to DB storage code ('zh' | 'en' | 'bn') to preserve compatibility. */
+/** Maps canonical API code to DB storage code ('zh' | 'en' | 'bn' | 'id') to preserve compatibility. */
 export function toDbLang(lang) {
   const norm = normalizeApiLang(lang);
   if (!norm) return null;
@@ -208,12 +209,12 @@ export async function searchDictionary(env, url) {
   }
   if (q) {
     where.push(
-      `(lower(word) LIKE ? OR lower(phonetic) LIKE ? OR phonetic_plain LIKE ? OR replace(phonetic_plain, ' ', '') LIKE ? OR lower(meaning_en) LIKE ? OR lower(meaning_bn) LIKE ? OR lower(meaning_zh) LIKE ?)`
+      `(lower(word) LIKE ? OR lower(phonetic) LIKE ? OR phonetic_plain LIKE ? OR replace(phonetic_plain, ' ', '') LIKE ? OR lower(meaning_en) LIKE ? OR lower(meaning_bn) LIKE ? OR lower(meaning_zh) LIKE ? OR lower(meaning_id) LIKE ?)`
     );
     const like = `%${q}%`;
     const likePlain = `%${qPlain}%`;
     const likeCompact = `%${qCompact}%`;
-    args.push(like, like, likePlain, likeCompact, like, like, like);
+    args.push(like, like, likePlain, likeCompact, like, like, like, like);
   }
 
   const fetchLimit = limit + 1;
@@ -225,7 +226,7 @@ export async function searchDictionary(env, url) {
       WHEN phonetic_plain = ? OR replace(phonetic_plain, ' ', '') = ? THEN 1
       WHEN lower(word) LIKE ? THEN 2
       WHEN phonetic_plain LIKE ? OR replace(phonetic_plain, ' ', '') LIKE ? THEN 3
-      WHEN lower(meaning_en) LIKE ? OR lower(meaning_bn) LIKE ? OR lower(meaning_zh) LIKE ? THEN 4
+      WHEN lower(meaning_en) LIKE ? OR lower(meaning_bn) LIKE ? OR lower(meaning_zh) LIKE ? OR lower(meaning_id) LIKE ? THEN 4
       ELSE 5
     END, word ASC, id ASC LIMIT ? OFFSET ?`;
     orderArgs = [
@@ -235,6 +236,7 @@ export async function searchDictionary(env, url) {
       `${q}%`,
       `${qPlain}%`,
       `${qCompact}%`,
+      `%${q}%`,
       `%${q}%`,
       `%${q}%`,
       `%${q}%`,
@@ -248,7 +250,7 @@ export async function searchDictionary(env, url) {
 
   const rows = (
     await env.DB.prepare(
-      `SELECT id, language, word, phonetic, part_of_speech, meaning_en, meaning_bn, meaning_zh, example, example_translation, hsk_level, synonyms_json, antonyms_json, collocations_json, grammar_note, updated_at
+      `SELECT id, language, word, phonetic, part_of_speech, meaning_en, meaning_bn, meaning_zh, meaning_id, example, example_translation, hsk_level, synonyms_json, antonyms_json, collocations_json, grammar_note, updated_at
        FROM dictionary_entries WHERE ${where.join(' AND ')} ${orderSql}`
     )
       .bind(...args, ...orderArgs)
@@ -292,7 +294,7 @@ export async function getDictionaryEntryDetails(env, url) {
     const placeholders = hanziChars.map(() => '?').join(', ');
     const charRows = (
       await env.DB.prepare(
-        `SELECT id, language, word, phonetic, part_of_speech, meaning_en, meaning_bn, meaning_zh, hsk_level
+        `SELECT id, language, word, phonetic, part_of_speech, meaning_en, meaning_bn, meaning_zh, meaning_id, hsk_level
          FROM dictionary_entries
          WHERE status = 'published' AND language = 'zh' AND word IN (${placeholders})`
       )
@@ -305,7 +307,7 @@ export async function getDictionaryEntryDetails(env, url) {
     const likeArgs = hanziChars.map((ch) => `%${ch}%`);
     const relRows = (
       await env.DB.prepare(
-        `SELECT id, language, word, phonetic, part_of_speech, meaning_en, meaning_bn, meaning_zh, hsk_level
+        `SELECT id, language, word, phonetic, part_of_speech, meaning_en, meaning_bn, meaning_zh, meaning_id, hsk_level
          FROM dictionary_entries
          WHERE status = 'published' AND language = 'zh' AND word != ? AND (${likeClauses})
          ORDER BY length(word) ASC, word ASC LIMIT 8`
@@ -478,7 +480,7 @@ async function callTranslationProvider(env, text, sourceLang, targetLang) {
     }
   }
 
-  // 3. Non-AI online fallback for multi-word sentences not in D1: MyMemory (supports en, bn, zh-CN)
+  // 3. Non-AI online fallback for multi-word sentences not in D1: MyMemory (supports en, bn, id, zh-CN)
   const pair = `${toProviderLang(sourceLang, 'mymemory')}|${toProviderLang(targetLang, 'mymemory')}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
@@ -601,7 +603,7 @@ async function lookupChineseSegments(env, text) {
   const placeholders = hanziSet.map(() => '?').join(', ');
   const rows = (
     await env.DB.prepare(
-      `SELECT word, phonetic, meaning_en, meaning_bn, hsk_level FROM dictionary_entries
+      `SELECT word, phonetic, meaning_en, meaning_bn, meaning_id, hsk_level FROM dictionary_entries
        WHERE status = 'published' AND language = 'zh' AND length(word) <= 4 AND substr(word, 1, 1) IN (${placeholders})`
     )
       .bind(...hanziSet)
@@ -638,11 +640,12 @@ async function lookupChineseSegments(env, text) {
         pinyin: matchedRow.phonetic || '',
         meaningEn: matchedRow.meaning_en || '',
         meaningBn: matchedRow.meaning_bn || '',
+        meaningId: matchedRow.meaning_id || '',
         hskLevel: matchedRow.hsk_level || '',
       });
       i += matchedLen;
     } else {
-      segments.push({ word: ch, pinyin: '', meaningEn: '', meaningBn: '', hskLevel: '' });
+      segments.push({ word: ch, pinyin: '', meaningEn: '', meaningBn: '', meaningId: '', hskLevel: '' });
       i++;
     }
   }
@@ -760,7 +763,7 @@ export async function handleTranslate(env, input) {
   const text = str(input.text, { min: 1, max: 2000, field: 'Text' });
   const targetLang = normalizeApiLang(input.targetLanguage || input.target_language);
   if (!targetLang) {
-    throw new HttpError(400, 'unsupported-language', 'Target language must be en, bn, or zh-Hans');
+    throw new HttpError(400, 'unsupported-language', 'Target language must be en, bn, id, or zh-Hans');
   }
 
   let sourceLang = input.sourceLanguage && input.sourceLanguage !== 'auto'
@@ -838,11 +841,12 @@ export async function handleTranslate(env, input) {
       let directTargetPinyin = '';
       if (targetLang === 'en' && top.meaning_en) directTranslated = top.meaning_en;
       else if (targetLang === 'bn' && top.meaning_bn) directTranslated = top.meaning_bn;
+      else if (targetLang === 'id' && top.meaning_id) directTranslated = top.meaning_id;
       else if (targetLang === 'zh-Hans' && top.meaning_zh) directTranslated = top.meaning_zh;
 
-      // Reverse lookup in Chinese HSK entries when translating EN/BN -> ZH and meaning_zh wasn't filled
+      // Reverse lookup in Chinese HSK entries when translating EN/BN/ID -> ZH and meaning_zh wasn't filled
       if (targetLang === 'zh-Hans' && !directTranslated) {
-        const revField = sourceLang === 'bn' ? 'meaning_bn' : 'meaning_en';
+        const revField = sourceLang === 'bn' ? 'meaning_bn' : sourceLang === 'id' ? 'meaning_id' : 'meaning_en';
         const rev = await env.DB.prepare(
           `SELECT word, phonetic FROM dictionary_entries
            WHERE status = 'published' AND language = 'zh' AND (lower(${revField}) = ? OR lower(${revField}) LIKE ? OR lower(${revField}) LIKE ?)
@@ -969,7 +973,7 @@ export function handleDetectLanguage(input) {
   };
 }
 
-/** Public TTS audio proxy for English, Bangla, and Simplified Chinese (fixes missing OS voices & enables exact playbackRate). */
+/** Public TTS audio proxy for English, Bangla, Indonesian, and Simplified Chinese (fixes missing OS voices & enables exact playbackRate). */
 export async function handleDictionaryTts(url) {
   const text = (url.searchParams.get('text') || '').trim().slice(0, 200);
   if (!text) throw new HttpError(400, 'invalid-argument', 'Text is required');
@@ -1269,6 +1273,7 @@ export async function adminBulkImportDictionary(env, ctx, input) {
     const meaningEn = String(r.meaning_en || '').trim().slice(0, 500);
     const meaningBn = String(r.meaning_bn || '').trim().slice(0, 500);
     const meaningZh = String(r.meaning_zh || '').trim().slice(0, 500);
+    const meaningId = String(r.meaning_id || '').trim().slice(0, 500);
     const example = String(r.example || '').trim().slice(0, 500);
     const exampleTranslation = String(r.example_translation || '').trim().slice(0, 500);
     const hskLevel = String(r.hsk_level || '').trim().slice(0, 30);
@@ -1280,17 +1285,17 @@ export async function adminBulkImportDictionary(env, ctx, input) {
 
     await env.DB.prepare(
       `INSERT INTO dictionary_entries
-        (id, language, word, phonetic, phonetic_plain, part_of_speech, meaning_en, meaning_bn, meaning_zh, example, example_translation, hsk_level, synonyms_json, antonyms_json, collocations_json, grammar_note, status, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, language, word, phonetic, phonetic_plain, part_of_speech, meaning_en, meaning_bn, meaning_zh, meaning_id, example, example_translation, hsk_level, synonyms_json, antonyms_json, collocations_json, grammar_note, status, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
         language=excluded.language, word=excluded.word, phonetic=excluded.phonetic, phonetic_plain=excluded.phonetic_plain,
         part_of_speech=excluded.part_of_speech, meaning_en=excluded.meaning_en, meaning_bn=excluded.meaning_bn,
-        meaning_zh=excluded.meaning_zh, example=excluded.example, example_translation=excluded.example_translation,
+        meaning_zh=excluded.meaning_zh, meaning_id=excluded.meaning_id, example=excluded.example, example_translation=excluded.example_translation,
         hsk_level=excluded.hsk_level, synonyms_json=excluded.synonyms_json, antonyms_json=excluded.antonyms_json,
         collocations_json=excluded.collocations_json, grammar_note=excluded.grammar_note,
         status=excluded.status, updated_at=excluded.updated_at`
     )
-      .bind(id, dbLang, word, phonetic, phoneticPlain, partOfSpeech, meaningEn, meaningBn, meaningZh, example, exampleTranslation, hskLevel, synonymsJson, antonymsJson, collocationsJson, grammarNote, status, ctx.user.uid, t, t)
+      .bind(id, dbLang, word, phonetic, phoneticPlain, partOfSpeech, meaningEn, meaningBn, meaningZh, meaningId, example, exampleTranslation, hskLevel, synonymsJson, antonymsJson, collocationsJson, grammarNote, status, ctx.user.uid, t, t)
       .run();
     imported++;
   }
@@ -1638,6 +1643,44 @@ function buildFallbackGrammar(text, language) {
       summary: isCorrect
         ? 'Analyzed Bangla register, word order, and grammatical particles.'
         : 'Detected a Bangla verb-register mismatch and suggested a correction.',
+      points,
+      tips,
+    };
+  }
+
+  if (language === 'id') {
+    if (/\bdi(rumah|sini|sana|situ|sekolah|kantor|pasar|kota|jalan)\b/i.test(correctedText)) {
+      correctedText = correctedText.replace(/\bdi(rumah|sini|sana|situ|sekolah|kantor|pasar|kota|jalan)\b/gi, 'di $1');
+      isCorrect = false;
+      points.push({
+        title: 'Preposition "di" is written separately',
+        explanation: 'Write "di" separately before place nouns (e.g., "di rumah", "di sekolah"), unlike passive verb prefixes (e.g., "dibaca").',
+        example: 'Saya belajar di rumah.',
+      });
+    }
+    if (/\btidak\s+(saya|kamu|dia|buku|rumah|guru|siswa|mahasiswa|orang)\b/i.test(correctedText)) {
+      correctedText = correctedText.replace(/\btidak\s+(saya|kamu|dia|buku|rumah|guru|siswa|mahasiswa|orang)\b/gi, 'bukan $1');
+      isCorrect = false;
+      points.push({
+        title: 'Negate nouns with "bukan", not "tidak"',
+        explanation: 'Use "tidak" to negate verbs and adjectives, and "bukan" to negate nouns or noun phrases.',
+        example: 'Ini bukan buku saya.',
+      });
+    }
+    if (points.length === 0) {
+      points.push({
+        title: 'Indonesian SVO word order & modifiers',
+        explanation: 'Standard Indonesian follows Subject + Verb + Object, and adjectives/modifiers follow the noun (e.g., "buku baru" = new book).',
+        example: 'Saya belajar bahasa Indonesia setiap hari.',
+      });
+    }
+    tips.push('Use "tidak" for verbs/adjectives, "bukan" for nouns, and separate "di" before locations.');
+    return {
+      isCorrect,
+      correctedText,
+      summary: isCorrect
+        ? 'Analyzed Indonesian sentence structure, negation, and prepositions.'
+        : 'Detected a common Indonesian grammar issue and suggested a fix.',
       points,
       tips,
     };
@@ -2079,7 +2122,7 @@ export async function reportTranslation(env, ctx, input) {
   const sourceText = str(input.sourceText || input.source_text || input.text, { min: 1, max: 500, field: 'Source text' });
   const note = String(input.note || '').trim().slice(0, 300);
   if (!sourceLang || !targetLang) {
-    throw new HttpError(400, 'unsupported-language', 'Source and target languages must be en, bn, or zh-Hans');
+    throw new HttpError(400, 'unsupported-language', 'Source and target languages must be en, bn, id, or zh-Hans');
   }
   const cacheKey = buildTranslationCacheKey(sourceLang, targetLang, sourceText);
   const t = now();

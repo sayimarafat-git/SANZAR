@@ -1,0 +1,222 @@
+[
+  {
+    "id": "id-gr-001",
+    "language": "id",
+    "pattern": "",
+    "title": "SVO Word Order (Subjek + Predikat + Objek)",
+    "explanation": "Standard Indonesian follows Subject-Verb-Object order with no verb conjugation for tense or person. Time words clarify when an action happens.",
+    "example": "Saya membaca buku setiap malam.",
+    "example_translation": "I read a book every night.",
+    "level_tag": "A1",
+    "sort": 1
+  },
+  {
+    "id": "id-gr-002",
+    "language": "id",
+    "pattern": "\\b(tidak|bukan)\\b",
+    "title": "Negation: tidak vs. bukan",
+    "explanation": "Use 'tidak' before verbs and adjectives (tidak makan, tidak mahal). Use 'bukan' before nouns and noun phrases (bukan guru, bukan buku saya).",
+    "example": "Dia bukan dokter; dia tidak bekerja di rumah sakit.",
+    "example_translation": "He is not a doctor; he does not work at a hospital.",
+    "level_tag": "A1",
+    "sort": 2
+  },
+  {
+    "id": "id-gr-003",
+    "language": "id",
+    "pattern": "\\b(sudah|belum|sedang|akan)\\b",
+    "title": "Aspect & Time Markers (sudah / belum / sedang / akan)",
+    "explanation": "Indonesian verbs do not change form for tense. Place 'sudah' (already), 'belum' (not yet), 'sedang' (currently), or 'akan' (will) directly before the verb.",
+    "example": "Saya sudah makan, tetapi adik belum makan.",
+    "example_translation": "I have already eaten, but younger sibling has not eaten yet.",
+    "level_tag": "A1",
+    "sort": 3
+  },
+  {
+    "id": "id-gr-004",
+    "language": "id",
+    "pattern": "\\b(di|ke|dari)\\b",
+    "title": "Core Location Prepositions (di / ke / dari)",
+    "explanation": "Use 'di' for location (at/in), 'ke' for destination (to), and 'dari' for origin (from). Always write a space between the preposition and place noun (di rumah, not dirumah).",
+    "example": "Saya pergi ke kampus dari rumah.",
+    "example_translation": "I go to campus from home.",
+    "level_tag": "A1",
+    "sort": 4
+  },
+  {
+    "id": "id-gr-005",
+    "language": "id",
+    "pattern": "\\b(kami|kita)\\b",
+    "title": "Inclusive 'kita' vs. Exclusive 'kami'",
+    "explanation": "Both mean 'we', but 'kita' includes the person you are speaking to, whereas 'kami' excludes the listener.",
+    "example": "Kami berangkat sekarang. Sampai jumpa, semoga kita bertemu lagi!",
+    "example_translation": "We (excluding you) are leaving now. See you, hope we (all) meet again!",
+    "level_tag": "A1",
+    "sort": 5
+  },
+  {
+    "id": "id-gr-006",
+    "language": "id",
+    "pattern": "\\b(ini|itu)\\b",
+    "title": "Noun + Modifier Order (Head-Initial)",
+    "explanation": "Adjectives, possessives, and demonstratives ('ini' this, 'itu' that) come AFTER the noun they modify.",
+    "example": "Buku baru saya itu sangat menarik.",
+    "example_translation": "That new book of mine is very interesting.",
+    "level_tag": "A1",
+    "sort": 6
+  },
+  {
+    "id": "id-gr-007",
+    "language": "id",
+    "pattern": "\\bapakah\\b",
+    "title": "Yes/No Questions with 'Apakah'",
+    "explanation": "Place 'Apakah' at the start of a declarative sentence to form a polite yes/no question. In casual speech, rising intonation alone is common.",
+    "example": "Apakah Anda tinggal di Jakarta?",
+    "example_translation": "Do you live in Jakarta?",
+    "level_tag": "A1",
+    "sort": 7
+  },
+  {
+    "id": "id-gr-008",
+    "language": "id",
+    "pattern": "\\bada\\b",
+    "title": "Existential 'ada' (There is / Have)",
+    "explanation": "Use 'ada' to express existence ('there is/are') or presence. In informal speech, it can also mean 'to have'.",
+    "example": "Di meja ada dua gelas air.",
+    "example_translation": "On the table there are two glasses of water.",
+    "level_tag": "A1",
+    "sort": 8
+  },
+  {
+    "id": "id-gr-009",
+    "language": "id",
+    "pattern": "\\byang\\b",
+    "title": "Relative & Focus Marker 'yang'",
+    "explanation": "Use 'yang' ('that/which/who') to introduce descriptive clauses or emphasize a specific adjective.",
+    "example": "Pelajar yang rajin akan cepat maju.",
+    "example_translation": "Students who are diligent will progress quickly.",
+    "level_tag": "A2",
+    "sort": 9
+  },
+  {
+    "id": "id-gr-010",
+    "language": "id",
+    "pattern": "\\b[a-z]+-[a-z]+\\b",
+    "title": "Reduplication for Plurals (Kata Ulang)",
+    "explanation": "Doubling a noun (buku-buku, teman-teman) indicates explicit plurality or variety. Do not double the noun when a number or 'banyak' already precedes it.",
+    "example": "Anak-anak bermain di taman, dan ada tiga kucing.",
+    "example_translation": "The children play in the park, and there are three cats.",
+    "level_tag": "A2",
+    "sort": 10
+  },
+  {
+    "id": "id-gr-011",
+    "language": "id",
+    "pattern": "\\bber[a-z]+\\b",
+    "title": "Intransitive Prefix 'ber-'",
+    "explanation": "The prefix 'ber-' forms intransitive verbs meaning 'to have', 'to wear', or 'to perform an activity' (berjalan, berbicara, belajar).",
+    "example": "Mereka berbicara tentang rencana liburan.",
+    "example_translation": "They are talking about vacation plans.",
+    "level_tag": "A2",
+    "sort": 11
+  },
+  {
+    "id": "id-gr-012",
+    "language": "id",
+    "pattern": "\\b(mem|men|meng|meny|me)[a-z]+\\b",
+    "title": "Active Transitive Prefix 'meN-'",
+    "explanation": "The 'meN-' prefix creates active transitive verbs. Its nasal sound assimilates to the root's first letter, and initial p/t/k/s normally drops (tulis → menulis, baca → membaca).",
+    "example": "Ibu memasak sup dan ayah membaca koran.",
+    "example_translation": "Mother cooks soup and father reads the newspaper.",
+    "level_tag": "B1",
+    "sort": 12
+  },
+  {
+    "id": "id-gr-013",
+    "language": "id",
+    "pattern": "\\bdi[a-z]{3,}\\b",
+    "title": "Passive Voice Prefix 'di-'",
+    "explanation": "Replace 'meN-' with 'di-' (written without a space before the verb!) to form the 3rd-person passive voice, optionally followed by 'oleh' (by).",
+    "example": "Buku ini ditulis oleh penulis terkenal.",
+    "example_translation": "This book was written by a famous author.",
+    "level_tag": "B1",
+    "sort": 13
+  },
+  {
+    "id": "id-gr-014",
+    "language": "id",
+    "pattern": "\\b[a-z]+nya\\b",
+    "title": "Suffix '-nya' (Possessive & Definite Marker)",
+    "explanation": "Attach '-nya' to a noun to mean 'his/her/its' or 'the (specific/known)'. On adjectives or verbs, it can nominalize the word.",
+    "example": "Rumahnya dekat pasar, dan udaranya sejuk.",
+    "example_translation": "His/her house is near the market, and the air is cool.",
+    "level_tag": "B1",
+    "sort": 14
+  },
+  {
+    "id": "id-gr-015",
+    "language": "id",
+    "pattern": "\\b(lebih|paling|ter[a-z]+)\\b",
+    "title": "Comparatives & Superlatives (lebih / paling / ter-)",
+    "explanation": "Use 'lebih + adj + daripada' for 'more ... than', and 'paling + adj' or prefix 'ter-' for 'the most ...'.",
+    "example": "Kereta lebih cepat daripada bus, tetapi pesawat paling cepat.",
+    "example_translation": "Trains are faster than buses, but planes are the fastest.",
+    "level_tag": "B1",
+    "sort": 15
+  },
+  {
+    "id": "id-gr-016",
+    "language": "id",
+    "pattern": "\\bter[a-z]{3,}\\b",
+    "title": "Accidental & Stative Prefix 'ter-'",
+    "explanation": "Besides superlatives, 'ter-' on verbs expresses accidental/unintentional actions or a resulting state (terbuka = open, tertidur = fell asleep).",
+    "example": "Pintu kelas terbuka karena angin kencang.",
+    "example_translation": "The classroom door opened because of the strong wind.",
+    "level_tag": "B1",
+    "sort": 16
+  },
+  {
+    "id": "id-gr-017",
+    "language": "id",
+    "pattern": "\\b(ke[a-z]+an|pe[a-z]+an)\\b",
+    "title": "Abstract Noun Circumfixes 'ke-...-an' & 'peN-...-an'",
+    "explanation": "'ke-...-an' forms state/quality nouns (kesehatan = health, kebebasan = freedom), while 'peN-...-an' forms process nouns (pendidikan = education, penelitian = research).",
+    "example": "Pendidikan dan kesehatan adalah kunci kemajuan.",
+    "example_translation": "Education and health are the keys to progress.",
+    "level_tag": "B2",
+    "sort": 17
+  },
+  {
+    "id": "id-gr-018",
+    "language": "id",
+    "pattern": "\\b(me[a-z]+kan|di[a-z]+kan)\\b",
+    "title": "Causative & Benefactive Suffix '-kan'",
+    "explanation": "Adding '-kan' to a verb often makes it causative ('make something become X': menjelaskan = make clear/explain) or benefactive ('do X for someone').",
+    "example": "Guru menjelaskan materi baru kepada siswa.",
+    "example_translation": "The teacher explained the new material to the students.",
+    "level_tag": "B2",
+    "sort": 18
+  },
+  {
+    "id": "id-gr-019",
+    "language": "id",
+    "pattern": "\\b(walaupun|meskipun|sehingga|namun)\\b",
+    "title": "Concessive & Result Connectors",
+    "explanation": "Use 'walaupun/meskipun' (although) to introduce contrast, 'sehingga' (so that/resulting in) for consequence, and 'namun' (however) at the start of a formal clause.",
+    "example": "Walaupun hujan deras, acara tetap berlangsung sehingga semua peserta puas.",
+    "example_translation": "Although it rained heavily, the event still took place so all participants were satisfied.",
+    "level_tag": "B2",
+    "sort": 19
+  },
+  {
+    "id": "id-gr-020",
+    "language": "id",
+    "pattern": "\\b(orang|buah|ekor)\\b",
+    "title": "Common Noun Classifiers (Kata Penggolong)",
+    "explanation": "Use 'orang' for people (tiga orang guru), 'ekor' for animals (dua ekor kucing), and 'buah' for general objects/fruits (sebuah buku).",
+    "example": "Saya membeli sebuah kamus dan dua buah apel.",
+    "example_translation": "I bought one dictionary and two apples.",
+    "level_tag": "A2",
+    "sort": 20
+  }
+]

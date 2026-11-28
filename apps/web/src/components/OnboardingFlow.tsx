@@ -61,6 +61,7 @@ export const FirstVisitOnboarding: React.FC<{ onDone: (goTo?: '/login' | '/regis
                 <option value="en">EN</option>
                 <option value="bn">বাংলা</option>
                 <option value="zh">中文</option>
+                <option value="id">Bahasa Indonesia</option>
               </select>
             </div>
             <button
@@ -225,6 +226,7 @@ export const PostLoginOnboarding: React.FC<{ onCompleted: () => void }> = ({ onC
                   <option value="en">English</option>
                   <option value="bn">বাংলা</option>
                   <option value="zh">中文</option>
+                  <option value="id">Bahasa Indonesia</option>
                 </select>
               </label>
               <label className="block space-y-1 text-xs font-semibold text-sanzar-text2">
@@ -250,7 +252,8 @@ export const PostLoginOnboarding: React.FC<{ onCompleted: () => void }> = ({ onC
             <div className="grid sm:grid-cols-2 gap-3">
               {LEVELS.map((l) => {
                 const selected = levelId === l.id;
-                const label = lang === 'bn' ? l.name_bn : lang === 'zh' ? l.name_zh : l.name;
+                const label =
+                  lang === 'bn' ? l.name_bn : lang === 'zh' ? l.name_zh : lang === 'id' ? l.name_id : l.name;
                 return (
                   <button
                     key={l.id}

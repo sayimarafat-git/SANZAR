@@ -18,6 +18,7 @@ interface LanguageInsightsPanelProps {
 function langName(code: DictLangCode): string {
   if (code === 'zh-Hans') return '简体中文';
   if (code === 'bn') return 'বাংলা';
+  if (code === 'id') return 'Bahasa Indonesia';
   return 'English';
 }
 

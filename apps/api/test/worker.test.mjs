@@ -84,7 +84,7 @@ before(async () => {
     APP_ENV: 'test',
   };
   const migration = await migrate(env);
-  assert.deepEqual(migration.applied, ['0001_init', '0002_existing_profiles', '0003_sync_and_resources', '0004_learning_languages', '0005_admin_enhancements', '0006_book_thumbnails', '0007_dictionary', '0008_exam_targeting_and_timezone', '0009_dictionary_translator_sync', '0010_teacher_role', '0011_content_enhancements', '0012_dictionary_insights_columns', '0013_translation_cache_and_quota', '0014_grammar_cache_and_reports', '0015_chapter_lessons', '0016_audio_resources', '0017_doc_resources']);
+  assert.deepEqual(migration.applied, ['0001_init', '0002_existing_profiles', '0003_sync_and_resources', '0004_learning_languages', '0005_admin_enhancements', '0006_book_thumbnails', '0007_dictionary', '0008_exam_targeting_and_timezone', '0009_dictionary_translator_sync', '0010_teacher_role', '0011_content_enhancements', '0012_dictionary_insights_columns', '0013_translation_cache_and_quota', '0014_grammar_cache_and_reports', '0015_chapter_lessons', '0016_audio_resources', '0017_doc_resources', '0018_indonesian_language']);
   const preserved = await DB.prepare('SELECT uid, email, display_name, created_at FROM users WHERE uid = ?').bind('preserved-profile').first();
   assert.equal(preserved.uid, 'preserved-profile');
   assert.equal(preserved.email, 'preserved@example.test');
@@ -96,7 +96,7 @@ before(async () => {
 test('health reports completed schema migrations', async () => {
   const { response, data } = await call('GET', '/v1/health');
   assert.equal(response.status, 200);
-  assert.equal(data.schema, '17/17');
+  assert.equal(data.schema, '18/18');
 });
 
 test('catalog starts with platform levels and no imported course data', async () => {
@@ -393,10 +393,11 @@ test('onboarding, single notification read, community search, dictionary, and bo
 
   const patchedMe = await call('PATCH', '/v1/me', {
     auth: ownerToken,
-    body: { onboarding_completed: true, level_id: 'zh' },
+    body: { onboarding_completed: true, level_id: 'zh', locale: 'id' },
   });
   assert.equal(patchedMe.response.status, 200);
   assert.equal(patchedMe.data.user.onboarding_completed, true);
+  assert.equal(patchedMe.data.user.locale, 'id');
 
   await env.DB.prepare('INSERT INTO notifications (id, uid, title, body, read, created_at) VALUES (?, ?, ?, ?, 0, ?)').bind('n-single-1', 'owner-user', 'First', 'One', 1000).run();
   await env.DB.prepare('INSERT INTO notifications (id, uid, title, body, read, created_at) VALUES (?, ?, ?, ?, 0, ?)').bind('n-single-2', 'owner-user', 'Second', 'Two', 2000).run();
@@ -449,6 +450,26 @@ test('onboarding, single notification read, community search, dictionary, and bo
 
   const dictDel = await call('DELETE', '/v1/admin/dictionary/zh-ni-hao', { auth: ownerToken });
   assert.equal(dictDel.response.status, 200);
+
+  const idDictPut = await call('PUT', '/v1/admin/dictionary/id-selamat-pagi', {
+    auth: ownerToken,
+    body: {
+      language: 'id',
+      word: 'selamat pagi',
+      part_of_speech: 'greeting',
+      meaning_en: 'Good morning',
+      meaning_id: 'Sapaan pagi hari',
+      status: 'published',
+    },
+  });
+  assert.equal(idDictPut.response.status, 200);
+  const idDictSearch = await call('GET', '/v1/dictionary?q=Sapaan&lang=id', { auth: ownerToken });
+  assert.equal(idDictSearch.response.status, 200);
+  assert.equal(idDictSearch.data.entries.length, 1);
+  assert.equal(idDictSearch.data.entries[0].word, 'selamat pagi');
+  assert.equal(idDictSearch.data.entries[0].meaning_id, 'Sapaan pagi hari');
+  const idDictDel = await call('DELETE', '/v1/admin/dictionary/id-selamat-pagi', { auth: ownerToken });
+  assert.equal(idDictDel.response.status, 200);
 
   const targetedExam = await call('PUT', '/v1/admin/exams/zh-quiz-targeted', {
     auth: ownerToken,

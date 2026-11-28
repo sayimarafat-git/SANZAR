@@ -76,7 +76,7 @@ export const ProfilePage: React.FC = () => {
 
   const levels = catQuery.data?.catalog.levels?.length
     ? catQuery.data.catalog.levels
-    : LEVELS.map((l) => ({ id: l.id, name_en: l.name, name_bn: l.name_bn, name_zh: l.name_zh }));
+    : LEVELS.map((l) => ({ id: l.id, name_en: l.name, name_bn: l.name_bn, name_zh: l.name_zh, name_id: l.name_id }));
 
   const saveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -169,7 +169,7 @@ export const ProfilePage: React.FC = () => {
             </select>
           </label>
           <label className="block space-y-1 text-xs font-semibold text-sanzar-text2">
-            <span>{lang === 'bn' ? 'মাতৃভাষা' : lang === 'zh' ? '母语' : 'Native Language'}</span>
+            <span>{lang === 'bn' ? 'মাতৃভাষা' : lang === 'zh' ? '母语' : lang === 'id' ? 'Bahasa Ibu' : 'Native Language'}</span>
             <select
               value={nativeLang}
               onChange={(e) => setNativeLang(e.target.value as Lang)}
@@ -178,6 +178,7 @@ export const ProfilePage: React.FC = () => {
               <option value="bn">বাংলা (Bangla)</option>
               <option value="en">English</option>
               <option value="zh">中文 (Chinese)</option>
+              <option value="id">Bahasa Indonesia</option>
             </select>
           </label>
           <label className="block space-y-1 text-xs font-semibold text-sanzar-text2">
@@ -230,6 +231,7 @@ export const ProfilePage: React.FC = () => {
               <option value="bn">বাংলা</option>
               <option value="en">English</option>
               <option value="zh">中文</option>
+              <option value="id">Bahasa Indonesia</option>
             </select>
           </label>
           <label className="block space-y-1 text-xs font-semibold text-sanzar-text2">

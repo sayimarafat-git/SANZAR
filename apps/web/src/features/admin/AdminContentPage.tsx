@@ -95,6 +95,7 @@ export interface AdminSubject {
   name_en: string;
   name_bn: string;
   name_zh?: string;
+  name_id?: string;
   icon?: string;
   color?: string;
   sort?: number;
@@ -549,6 +550,7 @@ const BookForm: React.FC<{ book: Partial<AdminBook> | null; content: AdminConten
             name_en: customSubName,
             name_bn: customSubName,
             name_zh: '',
+            name_id: '',
             icon: 'book',
             color: f.c1 || '#176B4B',
             sort: content.subjects.length,
@@ -748,6 +750,7 @@ const SubjectForm: React.FC<{ subject: AdminSubject | null; subjects: AdminSubje
   const [f, setF] = useState({
     id: subject?.id ?? '',
     name_en: subject?.name_en ?? '',
+    name_id: subject?.name_id ?? '',
     color: subject?.color ?? '#247754',
     sort: String(subject?.sort ?? 0),
     thumbnail_url: subject?.thumbnail_url ?? '',
@@ -774,6 +777,7 @@ const SubjectForm: React.FC<{ subject: AdminSubject | null; subjects: AdminSubje
           name_en: rawName,
           name_bn: '',
           name_zh: '',
+          name_id: f.name_id.trim(),
           color: f.color,
           sort: Number(f.sort) || 0,
           thumbnail_url: thumb || null,
@@ -794,6 +798,10 @@ const SubjectForm: React.FC<{ subject: AdminSubject | null; subjects: AdminSubje
         <label className="space-y-1 sm:col-span-2">
           <span>Name (any language)</span>
           <input value={f.name_en} onChange={(e) => setF({ ...f, name_en: e.target.value })} className="sanzar-input text-sm" />
+        </label>
+        <label className="space-y-1 sm:col-span-2">
+          <span>Indonesian name <small className="font-normal text-sanzar-muted">(optional)</small></span>
+          <input value={f.name_id} onChange={(e) => setF({ ...f, name_id: e.target.value })} className="sanzar-input text-sm" />
         </label>
         <label className="space-y-1">
           <span>ID <small className="font-normal text-sanzar-muted">{isNew ? '(auto or custom ASCII)' : '(locked)'}</small></span>

@@ -14,7 +14,7 @@ import { stripPinyinTones, toDbLang } from './dictionary.js';
 const STATUS = new Set(['draft', 'published', 'archived']);
 const LEVEL_IDS = new Set(['zh', 'en']);
 const RES_TYPES = new Set(['video', 'audio', 'pdf', 'ppt', 'doc', 'link']);
-const DICT_LANGS = new Set(['zh', 'en']);
+const DICT_LANGS = new Set(['zh', 'en', 'bn', 'id']);
 const MAX_PREVIEW_BYTES = 15 * 1024 * 1024;
 const slug = (v, field) => {
   if (typeof v !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/i.test(v)) throw new HttpError(400, 'invalid-argument', `${field} id may use letters, digits, dot, dash and underscore (max 64)`);
@@ -88,10 +88,11 @@ async function putSubject(env, ctx, id, i) {
   slug(id, 'Subject');
   const name = str(i.name_en, { min: 2, max: 80, field: 'Name' });
   const thumb = validateCoverImage(i.thumbnail_url) ?? null;
-  await env.DB.prepare(`INSERT INTO subjects (id, name_en, name_bn, name_zh, icon, color, sort, thumbnail_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET name_en = excluded.name_en, name_bn = excluded.name_bn, name_zh = excluded.name_zh,
+  await env.DB.prepare(`INSERT INTO subjects (id, name_en, name_bn, name_zh, name_id, icon, color, sort, thumbnail_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET name_en = excluded.name_en, name_bn = excluded.name_bn, name_zh = excluded.name_zh, name_id = excluded.name_id,
       icon = excluded.icon, color = excluded.color, sort = excluded.sort, thumbnail_url = excluded.thumbnail_url`)
     .bind(id, name, str(i.name_bn ?? '', { max: 80, field: 'Bengali name' }), str(i.name_zh ?? '', { max: 80, field: 'Chinese name' }),
+      str(i.name_id ?? '', { max: 80, field: 'Indonesian name' }),
       str(i.icon ?? '', { max: 40, field: 'Icon' }), color(i.color, '#247754'), num(i.sort, 'Order', 0, 100000, 0), thumb).run();
   await audit(env, ctx, 'subject.save', id);
   return { id };
@@ -482,8 +483,8 @@ async function listDictionary(env, ctx, url) {
   }
   if (q) {
     const like = `%${q}%`;
-    where.push('(lower(word) LIKE ? OR lower(phonetic) LIKE ? OR phonetic_plain LIKE ? OR lower(meaning_en) LIKE ? OR lower(meaning_bn) LIKE ?)');
-    args.push(like, like, like, like, like);
+    where.push('(lower(word) LIKE ? OR lower(phonetic) LIKE ? OR phonetic_plain LIKE ? OR lower(meaning_en) LIKE ? OR lower(meaning_bn) LIKE ? OR lower(meaning_id) LIKE ?)');
+    args.push(like, like, like, like, like, like);
   }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
@@ -517,7 +518,7 @@ async function putDictionary(env, ctx, id, i) {
   requireRole(ctx.user, 'teacher');
   slug(id, 'Dictionary entry');
   const language = toDbLang(i.language);
-  if (!language) throw new HttpError(400, 'invalid-argument', 'Language must be zh, en, or bn');
+  if (!language) throw new HttpError(400, 'invalid-argument', 'Language must be zh, en, bn, or id');
   const word = str(i.word, { min: 1, max: 120, field: 'Word' });
   const phonetic = str(i.phonetic ?? '', { max: 120, field: 'Phonetic' });
   const phoneticPlain = stripPinyinTones(phonetic);
@@ -527,11 +528,11 @@ async function putDictionary(env, ctx, id, i) {
   const grammarNote = str(i.grammar_note ?? '', { max: 600, field: 'Grammar note' });
   const t = now();
   await env.DB.prepare(`INSERT INTO dictionary_entries
-    (id, language, word, phonetic, phonetic_plain, part_of_speech, meaning_en, meaning_bn, meaning_zh, example, example_translation, hsk_level, synonyms_json, antonyms_json, collocations_json, grammar_note, status, created_by, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, language, word, phonetic, phonetic_plain, part_of_speech, meaning_en, meaning_bn, meaning_zh, meaning_id, example, example_translation, hsk_level, synonyms_json, antonyms_json, collocations_json, grammar_note, status, created_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       language = excluded.language, word = excluded.word, phonetic = excluded.phonetic, phonetic_plain = excluded.phonetic_plain,
-      part_of_speech = excluded.part_of_speech, meaning_en = excluded.meaning_en, meaning_bn = excluded.meaning_bn, meaning_zh = excluded.meaning_zh,
+      part_of_speech = excluded.part_of_speech, meaning_en = excluded.meaning_en, meaning_bn = excluded.meaning_bn, meaning_zh = excluded.meaning_zh, meaning_id = excluded.meaning_id,
       example = excluded.example, example_translation = excluded.example_translation, hsk_level = excluded.hsk_level,
       synonyms_json = excluded.synonyms_json, antonyms_json = excluded.antonyms_json, collocations_json = excluded.collocations_json, grammar_note = excluded.grammar_note,
       status = excluded.status, updated_at = excluded.updated_at`)
@@ -541,6 +542,7 @@ async function putDictionary(env, ctx, id, i) {
       str(i.meaning_en ?? '', { max: 400, field: 'English meaning' }),
       str(i.meaning_bn ?? '', { max: 400, field: 'Bengali meaning' }),
       str(i.meaning_zh ?? '', { max: 400, field: 'Chinese meaning' }),
+      str(i.meaning_id ?? '', { max: 400, field: 'Indonesian meaning' }),
       str(i.example ?? '', { max: 500, field: 'Example' }),
       str(i.example_translation ?? '', { max: 500, field: 'Example translation' }),
       str(i.hsk_level ?? '', { max: 20, field: 'HSK level' }),

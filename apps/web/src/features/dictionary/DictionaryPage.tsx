@@ -62,11 +62,13 @@ const LANG_OPTIONS: { code: DictLangCode; label: string; short: string }[] = [
   { code: 'bn', label: 'বাংলা', short: 'BN' },
   { code: 'en', label: 'English', short: 'EN' },
   { code: 'zh-Hans', label: '简体中文', short: '中文' },
+  { code: 'id', label: 'Bahasa Indonesia', short: 'ID' },
 ];
 
 const QUICK_SAMPLES: { text: string; hint: string; target: DictLangCode }[] = [
   { text: '你好', hint: '中文', target: 'bn' },
   { text: 'ধন্যবাদ', hint: 'বাংলা', target: 'en' },
+  { text: 'Terima kasih', hint: 'ID', target: 'en' },
   { text: 'Knowledge', hint: 'EN', target: 'zh-Hans' },
   { text: '学习', hint: 'HSK 1', target: 'en' },
 ];
@@ -79,18 +81,21 @@ const POS_OPTIONS = ['', 'noun', 'verb', 'adjective', 'adverb', 'phrase'];
 function langLabel(code: string): string {
   if (code === 'zh' || code === 'zh-Hans') return '简体中文';
   if (code === 'bn') return 'বাংলা';
+  if (code === 'id') return 'Bahasa Indonesia';
   return 'English';
 }
 
 function langShort(code: string): string {
   if (code === 'zh' || code === 'zh-Hans') return '中文';
   if (code === 'bn') return 'BN';
+  if (code === 'id') return 'ID';
   return 'EN';
 }
 
 function toCanonicalLang(code: string): DictLangCode {
   if (code === 'zh' || code === 'zh-Hans') return 'zh-Hans';
   if (code === 'bn') return 'bn';
+  if (code === 'id') return 'id';
   return 'en';
 }
 
@@ -100,6 +105,9 @@ function langBadgeClass(code: string): string {
   }
   if (code === 'bn') {
     return 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/25';
+  }
+  if (code === 'id') {
+    return 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/25';
   }
   return 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/25';
 }
@@ -232,7 +240,14 @@ const TTS_AUDIO_CACHE_NAME = 'sanzar-tts-v1';
 
 function getPreferredDeviceVoice(langCode: DictLangCode | 'zh', rate: number): SpeechSynthesisVoice | null {
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
-  const targetLang = langCode === 'zh-Hans' || langCode === 'zh' ? 'zh-CN' : langCode === 'bn' ? 'bn-BD' : 'en-US';
+  const targetLang =
+    langCode === 'zh-Hans' || langCode === 'zh'
+      ? 'zh-CN'
+      : langCode === 'bn'
+        ? 'bn-BD'
+        : langCode === 'id'
+          ? 'id-ID'
+          : 'en-US';
   const langPrefix = targetLang.split('-')[0].toLowerCase();
   const voices = window.speechSynthesis.getVoices();
   const matching = voices.filter((v) => v.lang.toLowerCase().startsWith(langPrefix));
@@ -247,7 +262,14 @@ function getPreferredDeviceVoice(langCode: DictLangCode | 'zh', rate: number): S
 function browserSpeak(text: string, langCode: DictLangCode | 'zh', rate: number, voice?: SpeechSynthesisVoice | null) {
   if (typeof window === 'undefined' || !('speechSynthesis' in window) || !text.trim()) return;
   const synth = window.speechSynthesis;
-  const targetLang = langCode === 'zh-Hans' || langCode === 'zh' ? 'zh-CN' : langCode === 'bn' ? 'bn-BD' : 'en-US';
+  const targetLang =
+    langCode === 'zh-Hans' || langCode === 'zh'
+      ? 'zh-CN'
+      : langCode === 'bn'
+        ? 'bn-BD'
+        : langCode === 'id'
+          ? 'id-ID'
+          : 'en-US';
   if (speakTimer !== null) {
     window.clearTimeout(speakTimer);
     speakTimer = null;
@@ -434,7 +456,7 @@ function renderClickableChineseExample(example: string, onSelectWord: (w: string
 }
 
 function buildAdhocEntry(target: string): DictionaryEntry {
-  const adhocLang: 'zh' | 'bn' | 'en' = /[\u4e00-\u9fff]/.test(target)
+  const adhocLang: 'zh' | 'bn' | 'en' | 'id' = /[\u4e00-\u9fff]/.test(target)
     ? 'zh'
     : /[\u0980-\u09ff]/.test(target)
       ? 'bn'
@@ -448,6 +470,7 @@ function buildAdhocEntry(target: string): DictionaryEntry {
     meaning_en: '',
     meaning_bn: '',
     meaning_zh: '',
+    meaning_id: '',
     example: '',
     example_translation: '',
     hsk_level: '',
@@ -470,7 +493,7 @@ export const DictionaryPage: React.FC = () => {
   const [targetLang, setTargetLang] = useState<DictLangCode>(() => {
     try {
       const saved = typeof window !== 'undefined' ? window.localStorage.getItem(TARGET_LANG_STORAGE_KEY) : null;
-      if (saved === 'bn' || saved === 'en' || saved === 'zh-Hans') return saved;
+      if (saved === 'bn' || saved === 'en' || saved === 'zh-Hans' || saved === 'id') return saved;
     } catch {
       // ignore storage errors
     }
@@ -835,7 +858,7 @@ export const DictionaryPage: React.FC = () => {
       return;
     }
     const nowMs = Date.now();
-    const meaning = [entry.meaning_en, entry.meaning_bn, entry.meaning_zh].filter(Boolean).join(' · ');
+    const meaning = [entry.meaning_en, entry.meaning_bn, entry.meaning_zh, entry.meaning_id].filter(Boolean).join(' · ');
     const newItem: SavedVocabularyItem = {
       id: `sv_${entry.id}`,
       dictionary_entry_id: entry.id,
@@ -1250,7 +1273,7 @@ export const DictionaryPage: React.FC = () => {
 
             {/* Row 2: Stretched Target Language Switcher (beside Translate button on mobile, full-width on sm+) */}
             <div className="flex items-center gap-2">
-              <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-emerald-950/[0.06] dark:bg-black/25 border border-emerald-900/30 dark:border-white/25 flex-1">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 p-1 rounded-xl bg-emerald-950/[0.06] dark:bg-black/25 border border-emerald-900/30 dark:border-white/25 flex-1">
                 {LANG_OPTIONS.map((l) => {
                   const selected = targetLang === l.code;
                   return (
@@ -1528,7 +1551,13 @@ export const DictionaryPage: React.FC = () => {
               >
                 <HanziStrokeStudio
                   word={translation.translatedText.trim()}
-                  language={translation.targetLanguage === 'zh-Hans' ? 'zh' : translation.targetLanguage}
+                  language={
+                    translation.targetLanguage === 'zh-Hans'
+                      ? 'zh'
+                      : translation.targetLanguage === 'id'
+                        ? 'en'
+                        : translation.targetLanguage
+                  }
                   phonetic={translation.targetPinyin || ''}
                   charEntries={[]}
                   relatedWords={[]}
@@ -1611,6 +1640,7 @@ export const DictionaryPage: React.FC = () => {
                       { k: 'zh-Hans', label: '简体中文' },
                       { k: 'en', label: 'English' },
                       { k: 'bn', label: 'বাংলা' },
+                      { k: 'id', label: 'Bahasa Indonesia' },
                     ] as const
                   ).map((tab) => (
                     <button
@@ -1630,10 +1660,19 @@ export const DictionaryPage: React.FC = () => {
               </div>
               <div className="space-y-1.5">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-sanzar-muted">
-                  {langFilter === 'en' || langFilter === 'bn' ? 'CEFR Level' : langFilter === 'zh-Hans' ? 'HSK Level' : 'Level (HSK / CEFR)'}
+                  {langFilter === 'en' || langFilter === 'bn' || langFilter === 'id'
+                    ? 'CEFR Level'
+                    : langFilter === 'zh-Hans'
+                      ? 'HSK Level'
+                      : 'Level (HSK / CEFR)'}
                 </p>
                 <div className="flex flex-wrap gap-1.5">
-                  {(langFilter === 'en' || langFilter === 'bn' ? CEFR_OPTIONS : langFilter === 'zh-Hans' ? HSK_OPTIONS : ALL_LEVEL_OPTIONS).map((h) => (
+                  {(langFilter === 'en' || langFilter === 'bn' || langFilter === 'id'
+                    ? CEFR_OPTIONS
+                    : langFilter === 'zh-Hans'
+                      ? HSK_OPTIONS
+                      : ALL_LEVEL_OPTIONS
+                  ).map((h) => (
                     <button
                       key={h || 'all'}
                       type="button"
@@ -1825,6 +1864,16 @@ export const DictionaryPage: React.FC = () => {
                               </span>
                               <p className="text-sanzar-text2 leading-snug">
                                 {highlightMatch(entry.meaning_zh, debouncedQuery)}
+                              </p>
+                            </div>
+                          )}
+                          {entry.meaning_id && (
+                            <div className="flex items-baseline gap-2.5">
+                              <span className="w-8 shrink-0 text-[10px] font-extrabold uppercase tracking-wider text-rose-600 dark:text-rose-400">
+                                ID
+                              </span>
+                              <p className="text-sanzar-text2 leading-snug">
+                                {highlightMatch(entry.meaning_id, debouncedQuery)}
                               </p>
                             </div>
                           )}
@@ -2218,8 +2267,8 @@ export const DictionaryPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Trilingual Meaning Cards */}
-            {(detailEntry.meaning_en || detailEntry.meaning_bn || detailEntry.meaning_zh) && (
+            {/* Multilingual Meaning Cards */}
+            {(detailEntry.meaning_en || detailEntry.meaning_bn || detailEntry.meaning_zh || detailEntry.meaning_id) && (
               <div className="space-y-2.5">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-sanzar-muted">
                   Meanings {detailEntry.part_of_speech ? `· ${detailEntry.part_of_speech}` : ''}
@@ -2241,6 +2290,12 @@ export const DictionaryPage: React.FC = () => {
                     <div className="p-3.5 rounded-xl bg-sanzar-surface2/70 border border-sanzar-border flex items-baseline gap-3">
                       <span className="text-xs font-extrabold text-emerald-600 dark:text-emerald-400 w-10 shrink-0">中文</span>
                       <span className="text-sm font-medium text-sanzar-text">{detailEntry.meaning_zh}</span>
+                    </div>
+                  )}
+                  {detailEntry.meaning_id && (
+                    <div className="p-3.5 rounded-xl bg-sanzar-surface2/70 border border-sanzar-border flex items-baseline gap-3">
+                      <span className="text-xs font-extrabold text-rose-600 dark:text-rose-400 w-10 shrink-0">ID</span>
+                      <span className="text-sm font-medium text-sanzar-text">{detailEntry.meaning_id}</span>
                     </div>
                   )}
                 </div>
@@ -2285,12 +2340,12 @@ export const DictionaryPage: React.FC = () => {
               >
                 <HanziStrokeStudio
                   word={detailEntry.word}
-                  language={detailEntry.language}
+                  language={detailEntry.language === 'id' ? 'en' : detailEntry.language}
                   phonetic={detailEntry.phonetic}
                   charEntries={charEntries}
                   relatedWords={relatedWords}
                   onSelectWord={(w) => jumpToWord(w, false)}
-                  defaultCollapsed={detailEntry.language === 'en' && !forcePractice}
+                  defaultCollapsed={(detailEntry.language === 'en' || detailEntry.language === 'id') && !forcePractice}
                 />
               </Suspense>
             )}

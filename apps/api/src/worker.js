@@ -200,7 +200,7 @@ export async function migrate(env) {
 const PROFILE_FIELDS = ['uid', 'email', 'email_verified', 'display_name', 'photo_url', 'level_id', 'grp', 'institution', 'locale', 'role', 'blocked', 'profile_visibility', 'created_at'];
 const pick = (o, keys) => Object.fromEntries(keys.filter((k) => k in o).map((k) => [k, o[k]]));
 const LEVELS = new Set(['zh', 'en']);
-const LOCALES = new Set(['bn', 'en', 'zh']);
+const LOCALES = new Set(['bn', 'en', 'zh', 'id']);
 
 function parseSettings(raw) {
   if (typeof raw !== 'string' || !raw) return {};

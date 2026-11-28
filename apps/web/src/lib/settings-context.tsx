@@ -43,7 +43,8 @@ const normalizeDailyGoal = (raw: string | null): number | null => {
 };
 
 const normalizeTheme = (raw: string | null): ThemeMode => (raw === 'dark' ? 'dark' : 'light');
-const normalizeLang = (raw: string | null): Lang => (raw === 'bn' || raw === 'en' || raw === 'zh' ? raw : 'en');
+const normalizeLang = (raw: string | null): Lang =>
+  raw === 'bn' || raw === 'en' || raw === 'zh' || raw === 'id' ? raw : 'en';
 
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [lang, setLangState] = useState<Lang>(() => normalizeLang(localStorage.getItem(K_LANG)));
