@@ -1240,12 +1240,9 @@ export const DictionaryPage: React.FC = () => {
                 className="hidden sm:flex px-4 py-2.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-extrabold disabled:opacity-45 transition items-center gap-2 shadow-sm shrink-0 hover:opacity-95"
               >
                 {translating ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin shrink-0" />
                 ) : (
-                  <span className="relative inline-flex items-center">
-                    <Languages className="w-4 h-4" />
-                    <Search className="w-2.5 h-2.5 -ml-1 mt-1.5 stroke-[2.75]" />
-                  </span>
+                  <Languages className="w-4 h-4 shrink-0" />
                 )}
                 Translate
               </button>
@@ -1285,12 +1282,9 @@ export const DictionaryPage: React.FC = () => {
                 className="sm:hidden px-3.5 py-2.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-extrabold disabled:opacity-45 transition inline-flex items-center gap-2 shadow-sm shrink-0 hover:opacity-95"
               >
                 {translating ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin shrink-0" />
                 ) : (
-                  <span className="relative inline-flex items-center">
-                    <Languages className="w-4 h-4" />
-                    <Search className="w-2.5 h-2.5 -ml-1 mt-1.5 stroke-[2.75]" />
-                  </span>
+                  <Languages className="w-4 h-4 shrink-0" />
                 )}
                 Translate
               </button>
