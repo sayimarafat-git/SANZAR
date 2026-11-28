@@ -38,6 +38,7 @@ export const ProfilePage: React.FC = () => {
 
   const [name, setName] = useState(profile?.display_name || '');
   const [levelId, setLevelId] = useState(profile?.level_id || '');
+  const [nativeLang, setNativeLang] = useState<Lang>((profile?.locale as Lang) || lang);
   const [institution, setInstitution] = useState(profile?.institution || '');
   const [visibility, setVisibility] = useState<'public' | 'followers' | 'private'>(
     profile?.profile_visibility || 'private'
@@ -48,6 +49,9 @@ export const ProfilePage: React.FC = () => {
     if (!profile) return;
     setName(profile.display_name || '');
     setLevelId(profile.level_id || '');
+    if (profile.locale === 'bn' || profile.locale === 'en' || profile.locale === 'zh') {
+      setNativeLang(profile.locale);
+    }
     setInstitution(profile.institution || '');
     setVisibility(profile.profile_visibility || 'private');
   }, [profile]);
@@ -85,8 +89,10 @@ export const ProfilePage: React.FC = () => {
         display_name: name.trim(),
         institution: institution.trim(),
         ...(levelId ? { level_id: levelId } : {}),
+        locale: nativeLang,
         profile_visibility: visibility,
       });
+      setLang(nativeLang);
       toast(t('saved'));
     } catch {
       toast(t('err.generic'));
@@ -159,6 +165,18 @@ export const ProfilePage: React.FC = () => {
                   {localizedName(l, lang, l.id)}
                 </option>
               ))}
+            </select>
+          </label>
+          <label className="block space-y-1 text-xs font-semibold text-sanzar-text2">
+            <span>{lang === 'bn' ? 'মাতৃভাষা' : lang === 'zh' ? '母语' : 'Native Language'}</span>
+            <select
+              value={nativeLang}
+              onChange={(e) => setNativeLang(e.target.value as Lang)}
+              className="sanzar-input text-sm"
+            >
+              <option value="bn">বাংলা (Bangla)</option>
+              <option value="en">English</option>
+              <option value="zh">中文 (Chinese)</option>
             </select>
           </label>
           <label className="block space-y-1 text-xs font-semibold text-sanzar-text2">
