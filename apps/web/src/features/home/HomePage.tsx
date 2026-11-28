@@ -18,10 +18,11 @@ import {
 import { useAuth } from '../../lib/auth-context';
 import { DAILY_GOAL_MAX, DAILY_GOAL_MIN, useSettings } from '../../lib/settings-context';
 import { apiRequest, fetchCatalogWithCache } from '../../lib/api-client';
-import { colorForSubject, localizedName } from '../../lib/i18n';
+import { localizedName } from '../../lib/i18n';
 import { LEVELS, type ProgressData } from '../../lib/models';
-import { BookCover, BrandMark, LoadingState, SubjectIcon, useToast } from '../../components/SanzarUI';
+import { BookCover, BrandMark, LoadingState, useToast } from '../../components/SanzarUI';
 import { AnalogFocusTimer } from '../../components/AnalogFocusTimer';
+import { HomeFlashcardsSection } from '../../components/FlashcardsSection';
 
 const GOAL_PRESETS = [10, 15, 30, 60] as const;
 
@@ -130,10 +131,6 @@ export const HomePage: React.FC = () => {
   const featuredBooks = booksForLevel
     .filter((b) => b.featuredRank != null)
     .sort((a, b) => (a.featuredRank ?? 999) - (b.featuredRank ?? 999));
-
-  const activeSubjects = cat
-    ? cat.subjects.filter((s) => booksForLevel.some((b) => b.subjectId === s.id))
-    : [];
 
   const todayMin = prog ? Math.floor(prog.todaySec / 60) : 0;
   const goalMin = dailyGoalMinutes ?? (prog ? Math.round((prog.goalSec || 3600) / 60) : 60);
@@ -358,6 +355,9 @@ export const HomePage: React.FC = () => {
         </div>
       </section>
 
+      {/* Synced Flashcards */}
+      <HomeFlashcardsSection />
+
       {catQuery.isLoading ? (
         <LoadingState />
       ) : catQuery.isError && !cat ? (
@@ -383,35 +383,6 @@ export const HomePage: React.FC = () => {
                     <p className="text-xs text-sanzar-text2 line-clamp-3 leading-relaxed">{a.body}</p>
                   </div>
                 ))}
-              </div>
-            </section>
-          )}
-
-          {/* Subjects Grid */}
-          {activeSubjects.length > 0 && (
-            <section className="space-y-3">
-              <h2 className="text-base font-bold">{t('subjects')}</h2>
-              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
-                {activeSubjects.map((sub) => {
-                  const col = colorForSubject(sub.id);
-                  return (
-                    <Link
-                      key={sub.id}
-                      to={`/library?subject=${encodeURIComponent(sub.id)}`}
-                      className="sanzar-card p-3 flex flex-col items-center text-center gap-2 hover:border-sanzar-primary/50 transition"
-                    >
-                      <div
-                        style={{ backgroundColor: `${col}22` }}
-                        className="w-12 h-12 rounded-2xl flex items-center justify-center"
-                      >
-                        <SubjectIcon icon={sub.icon} color={col} className="w-6 h-6" />
-                      </div>
-                      <span className="text-xs font-semibold line-clamp-2">
-                        {localizedName(sub, lang)}
-                      </span>
-                    </Link>
-                  );
-                })}
               </div>
             </section>
           )}

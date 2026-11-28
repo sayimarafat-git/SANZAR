@@ -17,6 +17,7 @@ import { colorForSubject } from '../../lib/i18n';
 import { useStudyTracker } from '../../lib/study-tracker';
 import type { AttemptResult, AttemptSummary, ExamSession } from '../../lib/models';
 import { ErrorRetry, LoadingState, Modal, mmss, timeAgo, useToast } from '../../components/SanzarUI';
+import { ExamsFlashcardsBanner } from '../../components/FlashcardsSection';
 
 export const ExamsPage: React.FC<{ view?: 'list' | 'run' | 'result' }> = ({ view = 'list' }) => {
   const { examId, attemptId } = useParams();
@@ -81,6 +82,8 @@ const ExamsList: React.FC = () => {
 
   return (
     <div className="space-y-5 max-w-4xl mx-auto">
+      <ExamsFlashcardsBanner />
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-extrabold">{t('exams')}</h1>
         <div className="inline-flex rounded-xl sanzar-glass p-1 gap-1">

@@ -1,5 +1,6 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeftRight,
   ArrowRight,
@@ -481,11 +482,22 @@ export const DictionaryPage: React.FC = () => {
   const { user } = useAuth();
   const { t } = useSettings();
   const toast = useToast();
+  const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const uid = user?.uid || '';
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const [activeTab, setActiveTab] = useState<'dictionary' | 'saved' | 'history'>('dictionary');
+  const [activeTab, setActiveTab] = useState<'dictionary' | 'saved' | 'history'>(() => {
+    const tabParam = searchParams.get('tab');
+    return tabParam === 'saved' || tabParam === 'history' ? tabParam : 'dictionary';
+  });
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'saved' || tabParam === 'history') {
+      setActiveTab(tabParam);
+    }
+  }, [searchParams]);
 
   // Unified search + inline translation state (initialized from URL ?q=...)
   const [query, setQuery] = useState(() => searchParams.get('q') || '');
@@ -844,6 +856,15 @@ export const DictionaryPage: React.FC = () => {
     window.setTimeout(() => setCopiedId((prev) => (prev === id ? null : prev)), 1600);
   };
 
+  const syncAndRefreshSaved = useCallback(() => {
+    void qc.invalidateQueries({ queryKey: ['saved-vocabulary'] });
+    if (!uid) return;
+    void syncSavedVocabulary(uid).then((synced) => {
+      setSavedItems(synced);
+      qc.setQueryData(['saved-vocabulary', uid], synced);
+    });
+  }, [qc, uid]);
+
   const handleToggleSaveEntry = async (entry: DictionaryEntry) => {
     if (!uid) {
       toast('Sign in to save vocabulary');
@@ -854,7 +875,7 @@ export const DictionaryPage: React.FC = () => {
       await deleteLocalVocabularyItem(uid, existing.id);
       setSavedItems((prev) => prev.filter((x) => x.id !== existing.id));
       toast('Removed from saved vocabulary');
-      void syncSavedVocabulary(uid).then(setSavedItems);
+      syncAndRefreshSaved();
       return;
     }
     const nowMs = Date.now();
@@ -876,7 +897,7 @@ export const DictionaryPage: React.FC = () => {
     await saveLocalVocabularyItem(uid, newItem);
     setSavedItems((prev) => [newItem, ...prev]);
     toast(`Saved "${entry.word}"`);
-    void syncSavedVocabulary(uid).then(setSavedItems);
+    syncAndRefreshSaved();
   };
 
   const handleSaveTranslationResult = async (srcWord?: string, tgtMeaning?: string, srcLang?: DictLangCode, tgtLang?: DictLangCode) => {
@@ -906,7 +927,7 @@ export const DictionaryPage: React.FC = () => {
     setSavedItems((prev) => [newItem, ...prev]);
     setSavedTranslationKey(key);
     toast('Saved translation to vocabulary');
-    void syncSavedVocabulary(uid).then(setSavedItems);
+    syncAndRefreshSaved();
   };
 
   const handleReportTranslationResult = async () => {
@@ -940,7 +961,7 @@ export const DictionaryPage: React.FC = () => {
     await deleteLocalVocabularyItem(uid, id);
     setSavedItems((prev) => prev.filter((x) => x.id !== id));
     toast('Removed from saved');
-    void syncSavedVocabulary(uid).then(setSavedItems);
+    syncAndRefreshSaved();
   };
 
   const handleDeleteHistory = async (id: string) => {
