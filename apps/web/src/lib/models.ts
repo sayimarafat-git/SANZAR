@@ -66,6 +66,7 @@ export interface Chapter {
   number: number;
   title: string;
   hasNotes: boolean;
+  qaCount?: number;
   questionCount: number;
   resources: Resource[];
 }
@@ -230,11 +231,19 @@ export interface ExamInfo {
   closes_at?: number | null;
 }
 
+export interface ChapterQaItem {
+  id: string;
+  question: string;
+  answer: string;
+  sort?: number;
+}
+
 export interface Catalog {
   levels: Level[];
   subjects: Subject[];
   books: Book[];
   notes: Record<string, NoteSection[]>;
+  qa?: Record<string, ChapterQaItem[]>;
   announcements: Announcement[];
   config: Record<string, unknown>;
   exams: ExamInfo[];

@@ -5,18 +5,24 @@ import {
   ArrowLeft,
   BookOpen,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   ExternalLink,
+  Eye,
+  EyeOff,
   FileText,
   HelpCircle,
+  MessageCircleQuestion,
   PlayCircle,
   Presentation,
+  Search,
+  Trophy,
   Volume2,
   Link as LinkIcon,
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth-context';
 import { useSettings } from '../../lib/settings-context';
-import { apiRequest, fetchCatalogWithCache } from '../../lib/api-client';
+import { API_BASE, apiRequest, fetchCatalogWithCache } from '../../lib/api-client';
 import { colorForSubject } from '../../lib/i18n';
 import { useStudyTracker } from '../../lib/study-tracker';
 import type { ProgressData, Resource } from '../../lib/models';
@@ -77,6 +83,26 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
   const qc = useQueryClient();
   const [busyComplete, setBusyComplete] = useState(false);
   const [playingVideo, setPlayingVideo] = useState(false);
+  const [lessonTab, setLessonTab] = useState<'materials' | 'notes' | 'qa' | 'quiz'>('materials');
+  const [noteQuery, setNoteQuery] = useState('');
+  const [openQaIds, setOpenQaIds] = useState<Record<string, boolean>>({});
+  const [speakingIdx, setSpeakingIdx] = useState<number | null>(null);
+
+  React.useEffect(() => {
+    setNoteQuery('');
+    setOpenQaIds({});
+    setSpeakingIdx(null);
+  }, [chapterId]);
+
+  const speakChinese = (text: string, idx: number) => {
+    const zh = text.match(/[\u4e00-\u9fff，。！？、；：“”（）\s]{2,}/g)?.join(' ').trim().slice(0, 140);
+    if (!zh) return;
+    setSpeakingIdx(idx);
+    const audio = new Audio(`${API_BASE}/v1/dictionary/tts?lang=zh&text=${encodeURIComponent(zh)}`);
+    audio.onended = () => setSpeakingIdx((cur) => (cur === idx ? null : cur));
+    audio.onerror = () => setSpeakingIdx((cur) => (cur === idx ? null : cur));
+    audio.play().catch(() => setSpeakingIdx((cur) => (cur === idx ? null : cur)));
+  };
 
   const catQuery = useQuery({
     queryKey: ['catalog'],
@@ -270,6 +296,7 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
                       {[
                         c.hasNotes ? t('notes') : null,
                         c.resources.length > 0 ? `${c.resources.length} ${t('resources')}` : null,
+                        (c.qaCount ?? 0) > 0 ? `${c.qaCount} Q&A` : null,
                         c.questionCount > 0 ? t('questions', { n: c.questionCount }) : null,
                       ]
                         .filter(Boolean)
@@ -286,14 +313,16 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
     );
   }
 
-  /* ---------------- CHAPTER NOTES VIEWER ---------------- */
+  /* ---------------- CHAPTER / LESSON VIEWER ---------------- */
   if (mode === 'chapter') {
     const book = cat?.books.find((b) => b.id === bookId);
     const ch = book?.chapters.find((c) => c.id === chapterId);
     if (!book || !ch) return <ErrorRetry message={t('noNotes')} />;
     const notes = cat?.notes?.[ch.id] ?? [];
+    const qaItems = cat?.qa?.[ch.id] ?? [];
     const quiz = cat?.exams.find((e) => e.chapter_id === ch.id && e.type === 'chapter_quiz');
     const done = completedSet.has(`notes:${ch.id}`);
+    const qaDone = completedSet.has(`qa:${ch.id}`);
 
     const iconForRes = (type: string) => {
       if (type === 'video') return PlayCircle;
@@ -305,9 +334,46 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
 
     const audioResources = ch.resources.filter((r) => r.type === 'audio' && r.url);
     const otherResources = ch.resources.filter((r) => r.type !== 'audio');
+    const primaryPpt = otherResources.find(
+      (r) => r.type === 'ppt' && r.url && !/docs\.google\.com|drive\.google\.com/i.test(r.url)
+    );
+    const hasMaterials = ch.resources.length > 0;
+
+    const tabs: { id: 'materials' | 'notes' | 'qa' | 'quiz'; label: string; count?: number; icon: React.ComponentType<{ className?: string }> }[] = [
+      ...(hasMaterials ? [{ id: 'materials' as const, label: primaryPpt ? 'Slides' : t('resources'), count: ch.resources.length, icon: Presentation }] : []),
+      { id: 'notes', label: t('notes'), count: notes.length || undefined, icon: BookOpen },
+      { id: 'qa', label: 'Q&A', count: qaItems.length || undefined, icon: MessageCircleQuestion },
+      { id: 'quiz', label: t('chapterQuiz'), count: quiz?.question_count || ch.questionCount || undefined, icon: HelpCircle },
+    ];
+    const activeTab = tabs.some((tb) => tb.id === lessonTab) ? lessonTab : tabs[0].id;
+
+    const qNorm = noteQuery.trim().toLowerCase();
+    const filteredNotes = qNorm
+      ? notes.filter((n) => n.heading.toLowerCase().includes(qNorm) || n.text.toLowerCase().includes(qNorm))
+      : notes;
+
+    const allQaOpen = qaItems.length > 0 && qaItems.every((item) => openQaIds[item.id]);
+    const toggleAllQa = () => {
+      if (allQaOpen) {
+        setOpenQaIds({});
+      } else {
+        const next: Record<string, boolean> = {};
+        for (const item of qaItems) next[item.id] = true;
+        setOpenQaIds(next);
+      }
+    };
+
+    const quizAttempts = quiz
+      ? (progQuery.data?.attempts ?? []).filter((a) => a.examId === quiz.id && a.status === 'submitted' && a.score != null && a.total)
+      : [];
+    const bestAttempt = quizAttempts.reduce<{ pct: number; score: number; total: number } | null>((best, a) => {
+      const pct = Math.round(((a.score || 0) / (a.total || 1)) * 100);
+      if (!best || pct > best.pct) return { pct, score: a.score || 0, total: a.total || 0 };
+      return best;
+    }, null);
 
     return (
-      <div className="space-y-6 max-w-4xl mx-auto">
+      <div className="space-y-5 max-w-5xl mx-auto">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <Link
             to={`/learn/book/${book.id}`}
@@ -338,146 +404,350 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
           <p className="text-sm text-sanzar-muted">{book.title}</p>
         </div>
 
-        {/* Inline Listening Audio Tracks */}
-        {audioResources.length > 0 && (
-          <section className="space-y-2.5">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-sanzar-muted flex items-center gap-1.5">
-              <Volume2 className="w-4 h-4 text-sanzar-primary" /> Listening Audio ({audioResources.length})
-            </h2>
-            <div className="space-y-2.5">
-              {audioResources.map((r) => {
-                const audioEmbed = embeddedUrlFor(r);
-                const rDone = completedSet.has(r.id);
-                return (
-                  <div key={r.id} className="sanzar-card p-3.5 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-semibold text-sm flex items-center gap-2 min-w-0">
-                        <Volume2 className="w-4 h-4 text-sanzar-primary shrink-0" />
-                        <span className="truncate">{r.title || 'Audio track'}</span>
+        {/* Lesson Section Tabs */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-sanzar-border">
+          {tabs.map((tb) => {
+            const Icon = tb.icon;
+            const active = activeTab === tb.id;
+            return (
+              <button
+                key={tb.id}
+                type="button"
+                onClick={() => setLessonTab(tb.id)}
+                className={`px-3.5 py-2 rounded-t-xl text-xs sm:text-sm font-bold inline-flex items-center gap-1.5 shrink-0 border-b-2 transition ${
+                  active
+                    ? 'border-sanzar-primary text-sanzar-primary bg-sanzar-primarySoft/40'
+                    : 'border-transparent text-sanzar-muted hover:text-sanzar-text hover:bg-sanzar-surface2/60'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                <span>{tb.label}</span>
+                {tb.count != null && tb.count > 0 && (
+                  <span
+                    className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                      active ? 'bg-sanzar-primary text-sanzar-onPrimary' : 'bg-sanzar-surface2 text-sanzar-muted'
+                    }`}
+                  >
+                    {tb.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* TAB 1: SLIDES & MATERIALS */}
+        {activeTab === 'materials' && (
+          <div className="space-y-5">
+            {primaryPpt && primaryPpt.url && (
+              <div className="sanzar-card overflow-hidden">
+                <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-sanzar-border bg-sanzar-surface2/60">
+                  <span className="font-bold text-xs sm:text-sm flex items-center gap-2 truncate">
+                    <Presentation className="w-4 h-4 text-sanzar-primary shrink-0" />
+                    <span className="truncate">{primaryPpt.title || 'Presentation Slides'}</span>
+                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {completedSet.has(primaryPpt.id) ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-bold text-sanzar-success">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> {t('done')}
                       </span>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {rDone ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-sanzar-success">
-                            <CheckCircle2 className="w-3.5 h-3.5" /> {t('done')}
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => markComplete(primaryPpt.id)}
+                        disabled={busyComplete}
+                        className="px-2.5 py-1 rounded-lg bg-sanzar-primary text-sanzar-onPrimary text-xs font-bold hover:opacity-95 disabled:opacity-50"
+                      >
+                        {t('markDone')}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <Suspense fallback={<LoadingState />}>
+                  <PptxSlideViewer url={primaryPpt.url} title={primaryPpt.title || ch.title} />
+                </Suspense>
+              </div>
+            )}
+
+            {audioResources.length > 0 && (
+              <section className="space-y-2.5">
+                <h2 className="text-sm font-bold uppercase tracking-wider text-sanzar-muted flex items-center gap-1.5">
+                  <Volume2 className="w-4 h-4 text-sanzar-primary" /> Listening Audio ({audioResources.length})
+                </h2>
+                <div className="space-y-2.5">
+                  {audioResources.map((r) => {
+                    const audioEmbed = embeddedUrlFor(r);
+                    const rDone = completedSet.has(r.id);
+                    return (
+                      <div key={r.id} className="sanzar-card p-3.5 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-sm flex items-center gap-2 min-w-0">
+                            <Volume2 className="w-4 h-4 text-sanzar-primary shrink-0" />
+                            <span className="truncate">{r.title || 'Audio track'}</span>
                           </span>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {rDone ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-sanzar-success">
+                                <CheckCircle2 className="w-3.5 h-3.5" /> {t('done')}
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => markComplete(r.id)}
+                                disabled={busyComplete}
+                                className="text-[11px] font-semibold text-sanzar-primary hover:underline disabled:opacity-50"
+                              >
+                                {t('markDone')}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        {audioEmbed ? (
+                          <iframe
+                            src={audioEmbed}
+                            title={r.title || 'Audio'}
+                            className="w-full h-[72px] rounded-xl border border-sanzar-border/60 bg-sanzar-surface2"
+                            allow="autoplay"
+                          />
                         ) : (
+                          <audio controls preload="metadata" src={r.url || ''} className="w-full h-10" />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            {otherResources.filter((r) => r.id !== primaryPpt?.id).length > 0 && (
+              <section className="space-y-2.5">
+                <h2 className="text-sm font-bold uppercase tracking-wider text-sanzar-muted">
+                  Additional Materials
+                </h2>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  {otherResources
+                    .filter((r) => r.id !== primaryPpt?.id)
+                    .map((r) => {
+                      const Icon = iconForRes(r.type);
+                      const rDone = completedSet.has(r.id);
+                      return (
+                        <Link
+                          key={r.id}
+                          to={`/learn/resource/${r.id}`}
+                          className="sanzar-card p-3.5 flex items-center gap-3 hover:border-sanzar-primary/50 transition"
+                        >
+                          <Icon className="w-5 h-5 text-sanzar-primary shrink-0" />
+                          <span className="font-semibold text-sm flex-1 truncate">
+                            {r.title || r.type.toUpperCase()}
+                          </span>
+                          {rDone ? (
+                            <CheckCircle2 className="w-4 h-4 text-sanzar-success shrink-0" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4 text-sanzar-muted shrink-0" />
+                          )}
+                        </Link>
+                      );
+                    })}
+                </div>
+              </section>
+            )}
+          </div>
+        )}
+
+        {/* TAB 2: STUDY NOTES */}
+        {activeTab === 'notes' && (
+          <section className="space-y-3">
+            {notes.length > 3 && (
+              <div className="relative">
+                <Search className="w-4 h-4 text-sanzar-muted absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="search"
+                  value={noteQuery}
+                  onChange={(e) => setNoteQuery(e.target.value)}
+                  placeholder="Search vocabulary, pinyin, or grammar in these notes…"
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-sanzar-border bg-sanzar-surface text-sm focus:outline-none focus:border-sanzar-primary"
+                />
+              </div>
+            )}
+
+            {filteredNotes.length === 0 ? (
+              <div className="sanzar-card p-6 text-sm text-sanzar-muted">
+                {notes.length === 0 ? t('noNotes') : 'No matching note sections found.'}
+              </div>
+            ) : (
+              filteredNotes.map((n, idx) => {
+                const hasZh = /[\u4e00-\u9fff]{2,}/.test(`${n.heading} ${n.text}`);
+                return (
+                  <article key={idx} className="sanzar-card p-5 space-y-2.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="font-bold text-base flex items-center gap-2">
+                        <BookOpen className="w-4 h-4 text-sanzar-primary shrink-0" />
+                        {n.heading}
+                      </h3>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {hasZh && (
                           <button
                             type="button"
-                            onClick={() => markComplete(r.id)}
-                            disabled={busyComplete}
-                            className="text-[11px] font-semibold text-sanzar-primary hover:underline disabled:opacity-50"
+                            onClick={() => speakChinese(`${n.heading} ${n.text}`, idx)}
+                            className={`px-2 py-1 rounded-lg border border-sanzar-border text-xs font-semibold inline-flex items-center gap-1 hover:bg-sanzar-primarySoft transition ${
+                              speakingIdx === idx ? 'bg-sanzar-primarySoft text-sanzar-primary' : 'text-sanzar-muted'
+                            }`}
+                            title="Listen to Chinese pronunciation"
                           >
-                            {t('markDone')}
+                            <Volume2 className="w-3.5 h-3.5" /> Listen
                           </button>
+                        )}
+                        {n.page != null && (
+                          <span className="sanzar-pill shrink-0">{t('page', { n: n.page })}</span>
                         )}
                       </div>
                     </div>
-                    {audioEmbed ? (
-                      <iframe
-                        src={audioEmbed}
-                        title={r.title || 'Audio'}
-                        className="w-full h-[72px] rounded-xl border border-sanzar-border/60 bg-sanzar-surface2"
-                        allow="autoplay"
-                      />
-                    ) : (
-                      <audio controls preload="metadata" src={r.url || ''} className="w-full h-10" />
-                    )}
-                  </div>
+                    <div className="text-sm text-sanzar-text2 leading-relaxed whitespace-pre-wrap select-text">
+                      {n.text}
+                    </div>
+                  </article>
                 );
-              })}
-            </div>
-          </section>
-        )}
+              })
+            )}
 
-        {/* Resources & Quiz */}
-        {(otherResources.length > 0 || quiz) && (
-          <section className="space-y-2.5">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-sanzar-muted">
-              {t('resources')}
-            </h2>
-            <div className="grid sm:grid-cols-2 gap-3">
-              {otherResources.map((r) => {
-                const Icon = iconForRes(r.type);
-                const rDone = completedSet.has(r.id);
-                return (
-                  <Link
-                    key={r.id}
-                    to={`/learn/resource/${r.id}`}
-                    className="sanzar-card p-3.5 flex items-center gap-3 hover:border-sanzar-primary/50 transition"
+            {notes.length > 0 && (
+              <div className="flex justify-center pt-2">
+                {done ? (
+                  <div className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-sanzar-success/15 text-sanzar-success font-bold text-sm">
+                    <CheckCircle2 className="w-4 h-4" /> {t('done')}
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => markComplete(`notes:${ch.id}`)}
+                    disabled={busyComplete}
+                    className="px-6 py-3 rounded-xl bg-sanzar-primary text-sanzar-onPrimary font-bold text-sm shadow hover:opacity-95 disabled:opacity-50 flex items-center gap-2"
                   >
-                    <Icon className="w-5 h-5 text-sanzar-primary shrink-0" />
-                    <span className="font-semibold text-sm flex-1 truncate">
-                      {r.title || r.type.toUpperCase()}
-                    </span>
-                    {rDone ? (
-                      <CheckCircle2 className="w-4 h-4 text-sanzar-success shrink-0" />
-                    ) : (
-                      <ChevronRight className="w-4 h-4 text-sanzar-muted shrink-0" />
-                    )}
-                  </Link>
-                );
-              })}
-              {quiz && (
-                <Link
-                  to={`/exams/${quiz.id}`}
-                  className="sanzar-card p-3.5 flex items-center gap-3 border-sanzar-jade/40 hover:border-sanzar-primary transition"
-                >
-                  <HelpCircle className="w-5 h-5 text-sanzar-jade shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-sm">{t('chapterQuiz')}</p>
-                    <p className="text-xs text-sanzar-muted">
-                      {t('questions', { n: quiz.question_count })} ·{' '}
-                      {t('minutes', { n: Math.ceil(quiz.duration_sec / 60) })}
-                    </p>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-sanzar-muted shrink-0" />
-                </Link>
-              )}
-            </div>
+                    <CheckCircle2 className="w-4 h-4" /> {t('markDone')}
+                  </button>
+                )}
+              </div>
+            )}
           </section>
         )}
 
-        {/* Notes Sections */}
-        <section className="space-y-3">
-          <h2 className="text-sm font-bold uppercase tracking-wider text-sanzar-muted">{t('notes')}</h2>
-          {notes.length === 0 ? (
-            <div className="sanzar-card p-6 text-sm text-sanzar-muted">{t('noNotes')}</div>
-          ) : (
-            notes.map((n, idx) => (
-              <article key={idx} className="sanzar-card p-5 space-y-2.5">
-                <div className="flex items-start justify-between gap-3">
-                  <h3 className="font-bold text-base flex items-center gap-2">
-                    <BookOpen className="w-4 h-4 text-sanzar-primary shrink-0" />
-                    {n.heading}
-                  </h3>
-                  {n.page != null && (
-                    <span className="sanzar-pill shrink-0">{t('page', { n: n.page })}</span>
-                  )}
-                </div>
-                <div className="text-sm text-sanzar-text2 leading-relaxed whitespace-pre-wrap select-text">
-                  {n.text}
-                </div>
-              </article>
-            ))
-          )}
-        </section>
-
-        {notes.length > 0 && (
-          <div className="flex justify-center pt-2">
-            {done ? (
-              <div className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-sanzar-success/15 text-sanzar-success font-bold text-sm">
-                <CheckCircle2 className="w-4 h-4" /> {t('done')}
+        {/* TAB 3: ACTIVE-RECALL Q&A */}
+        {activeTab === 'qa' && (
+          <section className="space-y-3">
+            {qaItems.length === 0 ? (
+              <div className="sanzar-card p-6 text-sm text-sanzar-muted">
+                No Q&A items published for this lesson yet.
               </div>
             ) : (
-              <button
-                onClick={() => markComplete(`notes:${ch.id}`)}
-                disabled={busyComplete}
-                className="px-6 py-3 rounded-xl bg-sanzar-primary text-sanzar-onPrimary font-bold text-sm shadow hover:opacity-95 disabled:opacity-50 flex items-center gap-2"
-              >
-                <CheckCircle2 className="w-4 h-4" /> {t('markDone')}
-              </button>
+              <>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs text-sanzar-muted">
+                    Tap any question to test yourself before revealing the answer.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={toggleAllQa}
+                    className="px-3 py-1.5 rounded-xl border border-sanzar-border text-xs font-semibold inline-flex items-center gap-1.5 hover:bg-sanzar-surface2 shrink-0"
+                  >
+                    {allQaOpen ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    {allQaOpen ? 'Hide all answers' : 'Reveal all answers'}
+                  </button>
+                </div>
+
+                <div className="space-y-2.5">
+                  {qaItems.map((item, idx) => {
+                    const isOpen = !!openQaIds[item.id];
+                    return (
+                      <div key={item.id} className="sanzar-card overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setOpenQaIds((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
+                          className="w-full p-4 flex items-start justify-between gap-3 text-left hover:bg-sanzar-surface2/50 transition"
+                        >
+                          <div className="flex items-start gap-3 min-w-0">
+                            <span className="w-6 h-6 rounded-full bg-sanzar-primarySoft text-sanzar-primary font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                              {idx + 1}
+                            </span>
+                            <span className="font-bold text-sm sm:text-base leading-snug">
+                              {item.question}
+                            </span>
+                          </div>
+                          {isOpen ? (
+                            <ChevronDown className="w-4 h-4 text-sanzar-primary shrink-0 mt-1" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4 text-sanzar-muted shrink-0 mt-1" />
+                          )}
+                        </button>
+                        {isOpen && (
+                          <div className="px-4 pb-4 pt-2 border-t border-sanzar-border/60 bg-sanzar-surface2/30 text-sm text-sanzar-text2 leading-relaxed whitespace-pre-wrap select-text pl-13">
+                            {item.answer}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="flex justify-center pt-2">
+                  {qaDone ? (
+                    <div className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-sanzar-success/15 text-sanzar-success font-bold text-sm">
+                      <CheckCircle2 className="w-4 h-4" /> Q&A Reviewed
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => markComplete(`qa:${ch.id}`)}
+                      disabled={busyComplete}
+                      className="px-6 py-3 rounded-xl bg-sanzar-primary text-sanzar-onPrimary font-bold text-sm shadow hover:opacity-95 disabled:opacity-50 flex items-center gap-2"
+                    >
+                      <CheckCircle2 className="w-4 h-4" /> Mark Q&A Reviewed
+                    </button>
+                  )}
+                </div>
+              </>
             )}
-          </div>
+          </section>
+        )}
+
+        {/* TAB 4: LESSON QUIZ */}
+        {activeTab === 'quiz' && (
+          <section className="space-y-4">
+            {!quiz ? (
+              <div className="sanzar-card p-6 text-sm text-sanzar-muted">
+                No quiz published for this lesson yet.
+              </div>
+            ) : (
+              <div className="sanzar-card p-6 space-y-4 border-sanzar-jade/40">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <span className="sanzar-pill text-sanzar-jade">{t('chapterQuiz')}</span>
+                    <h2 className="text-xl font-extrabold">{quiz.title}</h2>
+                    <p className="text-sm text-sanzar-muted">
+                      {t('questions', { n: quiz.question_count })} · {t('minutes', { n: Math.ceil(quiz.duration_sec / 60) })} · Pass mark {quiz.pass_pct}%
+                    </p>
+                  </div>
+                  {bestAttempt && (
+                    <div className="px-3.5 py-2 rounded-xl bg-sanzar-surface2 border border-sanzar-border text-right">
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-sanzar-muted flex items-center gap-1 justify-end">
+                        <Trophy className="w-3.5 h-3.5 text-amber-500" /> Best Score
+                      </p>
+                      <p className={`text-lg font-extrabold ${bestAttempt.pct >= quiz.pass_pct ? 'text-sanzar-success' : 'text-sanzar-primary'}`}>
+                        {bestAttempt.pct}% ({bestAttempt.score}/{bestAttempt.total})
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 pt-1">
+                  <Link
+                    to={`/exams/${quiz.id}`}
+                    className="px-6 py-3 rounded-xl bg-sanzar-primary text-sanzar-onPrimary font-bold text-sm shadow hover:opacity-95 inline-flex items-center gap-2"
+                  >
+                    <HelpCircle className="w-4 h-4" />
+                    {bestAttempt ? 'Retake Quiz' : 'Start Quiz'}
+                  </Link>
+                </div>
+              </div>
+            )}
+          </section>
         )}
       </div>
     );

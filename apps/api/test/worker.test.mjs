@@ -180,6 +180,17 @@ test('admin can create clean catalog content and students can study and take an 
     body: { answers: { 'question-one': 0 } },
   });
   assert.equal(submitted.data.attempt.score, 1);
+
+  // Chapter Q&A saved in admin is returned in /v1/catalog for learners
+  const qaSave = await call('PUT', '/v1/admin/qa/qa-one', {
+    auth: ownerToken,
+    body: { chapter_id: 'first-steps', question: 'What is learning?', answer: 'Practicing consistently.', sort: 10, status: 'published' },
+  });
+  assert.equal(qaSave.response.status, 200);
+  const catWithQa = await call('GET', '/v1/catalog', { auth: ownerToken });
+  assert.equal(catWithQa.data.qa['first-steps']?.length, 1);
+  assert.equal(catWithQa.data.qa['first-steps'][0].question, 'What is learning?');
+  assert.equal(catWithQa.data.books[0].chapters[0].qaCount, 1);
 });
 
 test('study activity and community actions update user progress', async () => {

@@ -246,7 +246,7 @@ export async function getConfig(env) {
 
 /** Full catalog in one response, with an ETag so unchanged catalogs cost one tiny request. */
 async function catalog(env, req) {
-  const [levels, subjects, books, bookLevels, chapters, resources, versions, videos, notes, questions, exams, ann, cfg] = await env.DB.batch([
+  const [levels, subjects, books, bookLevels, chapters, resources, versions, videos, notes, qaRows, questions, exams, ann, cfg] = await env.DB.batch([
     env.DB.prepare('SELECT * FROM levels ORDER BY sort'),
     env.DB.prepare('SELECT * FROM subjects ORDER BY sort'),
     env.DB.prepare("SELECT * FROM books WHERE status = 'published' ORDER BY sort"),
@@ -256,6 +256,7 @@ async function catalog(env, req) {
     env.DB.prepare('SELECT rv.resource_id, rv.url FROM resource_versions rv JOIN resources r ON r.id = rv.resource_id AND r.current_version = rv.version'),
     env.DB.prepare('SELECT * FROM video_assets'),
     env.DB.prepare('SELECT n.chapter_id, nv.sections_json FROM notes n JOIN note_versions nv ON nv.chapter_id = n.chapter_id AND nv.version = n.current_version'),
+    env.DB.prepare("SELECT id, chapter_id, question, answer, sort FROM chapter_qa WHERE status = 'published' ORDER BY chapter_id, sort ASC, created_at ASC"),
     env.DB.prepare("SELECT chapter_id, COUNT(*) AS n FROM questions WHERE status = 'published' GROUP BY chapter_id"),
     env.DB.prepare("SELECT id, title, type, book_id, chapter_id, level_id, time_zone, duration_sec, question_count, pass_pct, xp_reward, opens_at, closes_at FROM exams WHERE status = 'published'"),
     env.DB.prepare('SELECT * FROM announcements WHERE expires_at IS NULL OR expires_at > ? ORDER BY created_at DESC LIMIT 30').bind(now()),
@@ -265,10 +266,12 @@ async function catalog(env, req) {
   const vids = Object.fromEntries(videos.results.map((v) => [v.id, v]));
   const qCount = Object.fromEntries(questions.results.map((q) => [q.chapter_id, q.n]));
   const notesBy = Object.fromEntries(notes.results.map((n) => [n.chapter_id, JSON.parse(n.sections_json)]));
+  const qaBy = {};
+  for (const q of qaRows.results) (qaBy[q.chapter_id] ||= []).push({ id: q.id, question: q.question, answer: q.answer, sort: q.sort });
   const resBy = {};
   for (const r of resources.results) (resBy[r.chapter_id] ||= []).push({ id: r.id, type: r.type, title: r.title, pages: r.pages, url: r.video_asset_id ? vids[r.video_asset_id]?.url : url[r.id] || null, version: r.current_version });
   const chBy = {};
-  for (const c of chapters.results) (chBy[c.book_id] ||= []).push({ id: c.id, parentChapterId: c.parent_chapter_id || null, number: c.number, title: c.title, resources: resBy[c.id] || [], hasNotes: !!notesBy[c.id], questionCount: qCount[c.id] || 0 });
+  for (const c of chapters.results) (chBy[c.book_id] ||= []).push({ id: c.id, parentChapterId: c.parent_chapter_id || null, number: c.number, title: c.title, resources: resBy[c.id] || [], hasNotes: !!notesBy[c.id], qaCount: (qaBy[c.id] || []).length, questionCount: qCount[c.id] || 0 });
   const docByBook = {};
   for (const b of books.results) {
     const orderedChs = [...(chBy[b.id] || [])].sort((a, x) => (a.number === 0 && x.number !== 0 ? -1 : x.number === 0 && a.number !== 0 ? 1 : a.number - x.number));
@@ -292,7 +295,7 @@ async function catalog(env, req) {
         featuredRank: b.featured_rank, levels: lvBy[b.id] || [], chapters: chBy[b.id] || [],
       };
     }),
-    notes: notesBy, exams: exams.results, announcements: ann.results,
+    notes: notesBy, qa: qaBy, exams: exams.results, announcements: ann.results,
     config: Object.fromEntries(cfg.results.map((r) => [r.key, JSON.parse(r.value_json)])),
   };
   const text = JSON.stringify(data);
