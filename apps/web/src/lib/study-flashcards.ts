@@ -2,7 +2,7 @@ import type { ExamQuestion } from './models';
 
 export const STUDY_FLASHCARDS_STORAGE_KEY = 'sanzar.studyFlashcards.v1';
 export const FLASHCARDS_UPDATED_EVENT = 'sanzar:flashcards-updated';
-const MAX_STUDY_FLASHCARDS = 200;
+const MAX_STUDY_FLASHCARDS = 50;
 
 export type StudyFlashcardSource = 'lesson' | 'qa' | 'quiz';
 
