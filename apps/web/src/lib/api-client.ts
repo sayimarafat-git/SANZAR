@@ -23,9 +23,14 @@ export async function getAuthToken(): Promise<string | null> {
 const isLocalHost =
   typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname);
 
+const configuredApiBase = (import.meta.env.VITE_API_BASE || '').trim();
+
 export const API_BASE = (
-  import.meta.env.VITE_API_BASE ||
-  (isLocalHost ? 'http://localhost:8787' : 'https://api.sanzar.pro')
+  configuredApiBase && !configuredApiBase.includes('.workers.dev')
+    ? configuredApiBase
+    : isLocalHost
+      ? 'http://localhost:8787'
+      : 'https://api.sanzar.pro'
 ).replace(/\/+$/, '');
 
 const DEFAULT_TIMEOUT_MS = 8000;
