@@ -1,5 +1,7 @@
--- Allow 'doc' resource type (Word .docx / .doc / text / handout documents)
+-- Allow 'doc' resource type while preserving resource_versions and resource_maps
 PRAGMA defer_foreign_keys = ON;
+CREATE TABLE _bak_rv AS SELECT * FROM resource_versions;
+CREATE TABLE _bak_rm AS SELECT * FROM resource_maps;
 CREATE TABLE resources_new (
   id TEXT PRIMARY KEY,
   chapter_id TEXT NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
@@ -19,3 +21,7 @@ SELECT id, chapter_id, type, title, sort, video_asset_id, current_version, pages
 DROP TABLE resources;
 ALTER TABLE resources_new RENAME TO resources;
 CREATE INDEX IF NOT EXISTS idx_resources_chapter ON resources(chapter_id, sort);
+INSERT OR IGNORE INTO resource_versions SELECT * FROM _bak_rv;
+INSERT OR IGNORE INTO resource_maps SELECT * FROM _bak_rm;
+DROP TABLE _bak_rv;
+DROP TABLE _bak_rm;
