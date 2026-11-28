@@ -35,13 +35,29 @@ export const AmbientBackdrop: React.FC = () => (
   </div>
 );
 
-export const BrandMark: React.FC<{ size?: number; className?: string }> = ({ size = 36, className = '' }) => (
-  <div
-    style={{ width: size, height: size, borderRadius: Math.round(size * 0.3), fontSize: Math.round(size * 0.54) }}
-    className={`bg-brand-grad flex items-center justify-center text-white font-black leading-none shrink-0 shadow-sm select-none ${className}`}
-  >
-    S
-  </div>
+export type BrandMarkVariant = 'badge' | 'emerald' | 'gold' | 'white';
+
+const BRAND_MARK_SRC: Record<BrandMarkVariant, string> = {
+  badge: '/brand/sanzar-logo-badge-luxury.svg',
+  emerald: '/brand/sanzar-logo-mark-emerald.svg',
+  gold: '/brand/sanzar-logo-mark-gold.svg',
+  white: '/brand/sanzar-logo-mark-white.svg',
+};
+
+export const BrandMark: React.FC<{
+  size?: number;
+  variant?: BrandMarkVariant;
+  className?: string;
+}> = ({ size = 36, variant = 'badge', className = '' }) => (
+  <img
+    src={BRAND_MARK_SRC[variant]}
+    alt="Sanzar SA Logo"
+    width={size}
+    height={size}
+    draggable={false}
+    style={{ width: size, height: size }}
+    className={`shrink-0 select-none object-contain ${variant === 'badge' ? 'drop-shadow-sm' : ''} ${className}`}
+  />
 );
 
 export const SubjectIcon: React.FC<{ icon?: string; className?: string; color?: string }> = ({
@@ -216,20 +232,20 @@ export const Modal: React.FC<{
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/55 backdrop-blur-xs flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-black/55 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
         role="dialog"
         aria-label={title}
-        className="sanzar-card w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 shadow-xl"
+        className="sanzar-card w-full max-w-2xl max-h-[92dvh] overflow-y-auto p-4 sm:p-6 shadow-xl"
       >
-        <div className="flex items-center justify-between gap-4 mb-4 pb-3 border-b border-sanzar-border">
-          <h2 className="text-lg font-bold m-0">{title}</h2>
+        <div className="flex items-center justify-between gap-3 sm:gap-4 mb-4 pb-3 border-b border-sanzar-border">
+          <h2 className="text-base sm:text-lg font-bold m-0 min-w-0 break-words">{title}</h2>
           <button
             onClick={onClose}
             aria-label="Close"
-            className="p-1.5 rounded-lg hover:bg-sanzar-surface2 text-sanzar-muted hover:text-sanzar-text transition"
+            className="p-1.5 rounded-lg hover:bg-sanzar-surface2 text-sanzar-muted hover:text-sanzar-text transition shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
@@ -256,7 +272,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       {msg && (
         <div
           role="status"
-          className="fixed left-1/2 -translate-x-1/2 bottom-24 md:bottom-6 z-50 bg-sanzar-text text-sanzar-bg px-4 py-2.5 rounded-xl text-sm font-semibold shadow-lg max-w-sm animate-fade-in"
+          className="fixed left-1/2 -translate-x-1/2 bottom-24 md:bottom-6 z-50 bg-sanzar-text text-sanzar-bg px-4 py-2.5 rounded-xl text-sm font-semibold shadow-lg w-max max-w-[calc(100vw-2rem)] sm:max-w-sm text-center animate-fade-in"
         >
           {msg}
         </div>

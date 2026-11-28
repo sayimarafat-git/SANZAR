@@ -126,16 +126,16 @@ export const Layout: React.FC = () => {
     !postOnbDone;
 
   return (
-    <div className="min-h-screen flex flex-col text-sanzar-text pb-24 md:pb-0 relative">
+    <div className="min-h-screen min-h-[100dvh] flex flex-col text-sanzar-text pb-24 md:pb-0 relative overflow-x-clip">
       <AmbientBackdrop />
       {/* Top Navbar (iOS Frosted Glass) */}
       <header className="sticky top-0 z-40 sanzar-glass-bar border-x-0 border-t-0 rounded-none">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-6">
-            <Link to="/" className="flex items-center gap-2.5 shrink-0">
-              <BrandMark size={36} />
+        <div className="max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-3 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-3">
+          <div className="flex items-center gap-3 sm:gap-6 min-w-0">
+            <Link to="/" className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+              <BrandMark size={34} />
               <div className="leading-tight">
-                <span className="font-extrabold text-lg tracking-tight block">SANZAR</span>
+                <span className="font-extrabold text-base sm:text-lg tracking-tight block">SANZAR</span>
                 <span className="hidden lg:block text-[11px] text-sanzar-muted font-medium">
                   {t('tagline')}
                 </span>
@@ -143,10 +143,10 @@ export const Layout: React.FC = () => {
             </Link>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {/* Language switcher */}
             <div className="relative flex items-center">
-              <Globe className="w-4 h-4 text-sanzar-muted absolute left-2.5 pointer-events-none" />
+              <Globe className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-sanzar-muted absolute left-2 sm:left-2.5 pointer-events-none" />
               <select
                 aria-label={t('language')}
                 value={lang}
@@ -157,7 +157,7 @@ export const Layout: React.FC = () => {
                     apiRequest('/v1/me', { method: 'PATCH', bodyJson: { locale: v } }).catch(() => {});
                   }
                 }}
-                className="pl-8 pr-2 py-1.5 rounded-xl border border-sanzar-border bg-sanzar-surface2 text-xs font-semibold text-sanzar-text cursor-pointer"
+                className="pl-7 sm:pl-8 pr-1.5 sm:pr-2 py-1.5 rounded-xl border border-sanzar-border bg-sanzar-surface2 text-xs font-semibold text-sanzar-text cursor-pointer max-w-[92px] sm:max-w-none truncate"
               >
                 <option value="bn">বাংলা</option>
                 <option value="en">EN</option>
@@ -171,7 +171,7 @@ export const Layout: React.FC = () => {
               onClick={toggleTheme}
               title={themeMode === 'dark' ? t('themeDark') : t('themeLight')}
               aria-label={themeMode === 'dark' ? t('themeDark') : t('themeLight')}
-              className="p-2 rounded-xl border border-sanzar-border bg-sanzar-surface2 text-sanzar-text2 hover:text-sanzar-primary transition"
+              className="p-2 rounded-xl border border-sanzar-border bg-sanzar-surface2 text-sanzar-text2 hover:text-sanzar-primary transition shrink-0"
             >
               {themeMode === 'dark' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
             </button>
@@ -192,7 +192,7 @@ export const Layout: React.FC = () => {
                   )}
                 </button>
                 {notifOpen && (
-                  <div className="absolute right-0 mt-2 w-80 sanzar-card shadow-xl p-3 z-50">
+                  <div className="fixed sm:absolute right-3 sm:right-0 top-16 sm:top-auto sm:mt-2 w-[calc(100vw-1.5rem)] max-w-80 sanzar-card shadow-xl p-3 z-50">
                     <div className="flex items-center justify-between mb-2 pb-2 border-b border-sanzar-border">
                       <span className="font-bold text-sm">{t('notifications')}</span>
                       {unread > 0 && (
@@ -208,7 +208,7 @@ export const Layout: React.FC = () => {
                     {notifications.length === 0 ? (
                       <p className="text-xs text-sanzar-muted py-4 text-center">{t('noNotifications')}</p>
                     ) : (
-                      <div className="max-h-72 overflow-y-auto space-y-2">
+                      <div className="max-h-[60dvh] sm:max-h-72 overflow-y-auto space-y-2">
                         {notifications.slice(0, 15).map((n) => (
                           <button
                             key={n.id}
@@ -241,9 +241,9 @@ export const Layout: React.FC = () => {
               <div className="flex items-center gap-1.5">
                 <Link
                   to="/profile"
-                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-sanzar-surface2 text-sm font-semibold"
+                  className="flex items-center gap-2 px-2 sm:px-2.5 py-1.5 rounded-xl hover:bg-sanzar-surface2 text-sm font-semibold"
                 >
-                  <div className="w-7 h-7 rounded-full bg-sanzar-primarySoft text-sanzar-primary flex items-center justify-center font-bold text-xs">
+                  <div className="w-7 h-7 rounded-full bg-sanzar-primarySoft text-sanzar-primary flex items-center justify-center font-bold text-xs shrink-0">
                     {(profile?.display_name || user.email || '?')[0].toUpperCase()}
                   </div>
                   <span className="hidden sm:inline-block max-w-[110px] truncate">
@@ -252,16 +252,16 @@ export const Layout: React.FC = () => {
                 </Link>
               </div>
             ) : (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 sm:gap-2">
                 <Link
                   to="/login"
-                  className="px-3 py-1.5 text-sm font-semibold text-sanzar-text2 hover:bg-sanzar-surface2 rounded-xl transition"
+                  className="px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-semibold text-sanzar-text2 hover:bg-sanzar-surface2 rounded-xl transition whitespace-nowrap"
                 >
                   {t('signIn')}
                 </Link>
                 <Link
                   to="/register"
-                  className="px-3.5 py-1.5 text-sm font-semibold text-sanzar-onPrimary bg-sanzar-primary rounded-xl shadow-sm hover:opacity-95 transition hidden sm:inline-block"
+                  className="px-3.5 py-1.5 text-sm font-semibold text-sanzar-onPrimary bg-sanzar-primary rounded-xl shadow-sm hover:opacity-95 transition hidden sm:inline-block whitespace-nowrap"
                 >
                   {t('getStarted')}
                 </Link>
@@ -273,7 +273,7 @@ export const Layout: React.FC = () => {
 
       {/* Guest banner */}
       {!user && guestMode && (
-        <div className="bg-sanzar-primarySoft border-b border-sanzar-border text-sanzar-primary text-xs font-semibold py-2 px-4 text-center flex items-center justify-center gap-3">
+        <div className="bg-sanzar-primarySoft border-b border-sanzar-border text-sanzar-primary text-xs font-semibold py-2 px-4 text-center flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
           <span>{t('guestMode')}</span>
           <Link to="/login" className="underline font-bold">
             {t('signIn')}
@@ -282,9 +282,9 @@ export const Layout: React.FC = () => {
       )}
 
       {/* Left Navigation Panel + Main Content (iOS Glass Shell) */}
-      <div className="flex-1 flex w-full max-w-7xl mx-auto">
+      <div className="flex-1 flex w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto">
         {/* Desktop Left Navigation Panel */}
-        <aside className="hidden md:flex flex-col w-60 shrink-0 sticky top-20 h-[calc(100vh-6rem)] my-4 ml-4 lg:ml-6 rounded-[22px] sanzar-glass overflow-y-auto p-3.5 justify-between">
+        <aside className="hidden md:flex flex-col md:w-52 lg:w-60 shrink-0 sticky top-20 h-[calc(100dvh-6rem)] my-4 ml-3 lg:ml-6 rounded-[22px] sanzar-glass overflow-y-auto p-3 lg:p-3.5 justify-between">
           <nav className="flex flex-col gap-1">
             {navItems.map((item) => (
               <NavLink
@@ -343,14 +343,14 @@ export const Layout: React.FC = () => {
           </div>
         </aside>
 
-        <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-6">
+        <main className="flex-1 min-w-0 px-3 sm:px-6 lg:px-8 py-4 sm:py-6">
           <Outlet />
         </main>
       </div>
 
       {/* Footer */}
       <footer className="hidden md:block sanzar-glass-bar border-x-0 border-b-0 rounded-none py-5 mt-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-sanzar-muted gap-2">
+        <div className="max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-sanzar-muted gap-2">
           <p>© 2026 SANZAR — {t('tagline')}</p>
           <div className="flex items-center gap-3">
             {isStaff && (
@@ -366,20 +366,20 @@ export const Layout: React.FC = () => {
       </footer>
 
       {/* Mobile Floating Glass Bottom Dock (Tutor moved to floating bottom-right corner) */}
-      <nav className="md:hidden fixed bottom-3 inset-x-3 z-40 rounded-[24px] sanzar-glass-bar flex items-center justify-around h-16 px-1">
+      <nav className="md:hidden fixed safe-bottom-offset inset-x-2.5 sm:inset-x-3 z-40 rounded-[22px] sm:rounded-[24px] sanzar-glass-bar grid grid-cols-6 items-center h-15 py-1.5 px-1">
         {navItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             end={item.end}
             className={({ isActive }) =>
-              `flex flex-col items-center justify-center gap-0.5 px-1.5 py-1 rounded-xl text-[10px] font-semibold ${
+              `flex flex-col items-center justify-center gap-0.5 px-0.5 py-1 rounded-xl text-[10px] font-semibold min-w-0 ${
                 isActive ? 'text-sanzar-primary' : 'text-sanzar-muted'
               }`
             }
           >
-            <item.icon className="w-4 h-4" />
-            <span className="truncate max-w-[52px]">{item.label}</span>
+            <item.icon className="w-4 h-4 shrink-0" />
+            <span className="truncate w-full text-center">{item.label}</span>
           </NavLink>
         ))}
       </nav>
@@ -392,7 +392,7 @@ export const Layout: React.FC = () => {
           onClick={() => setTutorOpen((v) => !v)}
           aria-expanded={tutorOpen}
           aria-label={t('tutor')}
-          className="fixed right-5 bottom-24 md:bottom-6 z-40 px-4 py-3 rounded-2xl bg-brand-grad text-white font-bold text-sm shadow-xl hover:scale-[1.03] active:scale-[0.98] transition flex items-center gap-2 ring-1 ring-white/30"
+          className="fixed right-3 sm:right-5 safe-fab-bottom z-40 px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-2xl bg-brand-grad text-white font-bold text-sm shadow-xl hover:scale-[1.03] active:scale-[0.98] transition flex items-center gap-2 ring-1 ring-white/30"
         >
           {tutorOpen ? <X className="w-5 h-5" /> : <Sparkles className="w-5 h-5" />}
           <span className="hidden sm:inline">{t('tutor')}</span>

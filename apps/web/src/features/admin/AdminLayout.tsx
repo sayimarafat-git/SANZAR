@@ -65,11 +65,11 @@ export const AdminLayout: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen grid grid-cols-1 md:grid-cols-[248px_1fr] text-sanzar-text relative">
+    <div className="min-h-screen min-h-[100dvh] grid grid-cols-1 md:grid-cols-[216px_1fr] lg:grid-cols-[248px_1fr] text-sanzar-text relative overflow-x-clip">
       <AmbientBackdrop />
-      <aside className="sanzar-glass md:m-4 md:mr-0 md:rounded-[22px] p-4 md:sticky md:top-4 md:h-[calc(100vh-2rem)] overflow-y-auto flex flex-col justify-between gap-4">
+      <aside className="sanzar-glass md:m-4 md:mr-0 md:rounded-[22px] p-3.5 sm:p-4 md:sticky md:top-4 md:h-[calc(100dvh-2rem)] overflow-y-auto flex flex-col justify-between gap-3 sm:gap-4">
         <div>
-          <div className="flex items-center gap-2.5 font-extrabold px-1.5 mb-5">
+          <div className="flex items-center gap-2.5 font-extrabold px-1.5 mb-3 md:mb-5">
             <BrandMark size={34} />
             <div className="leading-tight">
               <span className="block text-sm">Sanzar</span>
@@ -77,14 +77,14 @@ export const AdminLayout: React.FC = () => {
             </div>
           </div>
 
-          <nav className="flex md:flex-col flex-wrap gap-1">
+          <nav className="flex md:flex-col overflow-x-auto md:overflow-visible gap-1 pb-1 md:pb-0">
             {NAV.filter((n) => atLeast(profile?.role, n.min)).map((n) => (
               <NavLink
                 key={n.to}
                 to={n.to}
                 end={n.end}
                 className={({ isActive }) =>
-                  `block px-3.5 py-2.5 rounded-2xl text-sm font-medium transition ${
+                  `block px-3 sm:px-3.5 py-2 md:py-2.5 rounded-2xl text-xs sm:text-sm font-medium transition whitespace-nowrap shrink-0 ${
                     isActive
                       ? 'bg-sanzar-primarySoft text-sanzar-primary font-semibold shadow-sm ring-1 ring-white/40 dark:ring-white/10'
                       : 'text-sanzar-text2 hover:bg-white/45 dark:hover:bg-white/5 hover:text-sanzar-primary'
@@ -124,7 +124,7 @@ export const AdminLayout: React.FC = () => {
         </div>
       </aside>
 
-      <main className="p-6 md:px-8 min-w-0 max-w-6xl w-full">
+      <main className="p-3.5 sm:p-6 md:px-8 min-w-0 max-w-6xl w-full">
         <Outlet />
       </main>
     </div>

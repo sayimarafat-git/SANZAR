@@ -114,7 +114,7 @@ export const ProfilePage: React.FC = () => {
       </div>
 
       {/* Header Card */}
-      <div className="sanzar-card p-5 flex items-center gap-4">
+      <div className="sanzar-card p-4 sm:p-5 flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-4">
         <div className="w-16 h-16 rounded-full bg-sanzar-primarySoft text-sanzar-primary font-black text-2xl flex items-center justify-center shrink-0">
           {(profile?.display_name || user.email || '?')[0].toUpperCase()}
         </div>

@@ -1292,8 +1292,8 @@ export const DictionaryPage: React.FC = () => {
               </button>
             </div>
 
-            {/* Row 2: Stretched Target Language Switcher (beside Translate button on mobile, full-width on sm+) */}
-            <div className="flex items-center gap-2">
+            {/* Row 2: Stretched Target Language Switcher (stacks below 420px, beside Translate button on mobile, full-width on sm+) */}
+            <div className="flex flex-col min-[420px]:flex-row items-stretch min-[420px]:items-center gap-2">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 p-1 rounded-xl bg-emerald-950/[0.06] dark:bg-black/25 border border-emerald-900/30 dark:border-white/25 flex-1">
                 {LANG_OPTIONS.map((l) => {
                   const selected = targetLang === l.code;
@@ -1306,7 +1306,7 @@ export const DictionaryPage: React.FC = () => {
                         if (query.trim()) void handleTranslate(query, l.code);
                       }}
                       title={`Translate to ${l.label}`}
-                      className={`w-full py-1.5 rounded-lg text-xs text-center transition ${
+                      className={`w-full py-1.5 px-1.5 rounded-lg text-xs text-center truncate transition ${
                         selected
                           ? 'bg-white dark:bg-sanzar-primarySoft text-sanzar-primary border border-sanzar-primary/35 shadow-sm font-bold'
                           : 'text-sanzar-text2 hover:text-sanzar-text border border-transparent font-semibold'
@@ -1318,12 +1318,12 @@ export const DictionaryPage: React.FC = () => {
                 })}
               </div>
 
-              {/* Mobile Translate CTA (same row, right beside language switcher) */}
+              {/* Mobile Translate CTA (same row on >=420px, full-width below 420px) */}
               <button
                 type="button"
                 disabled={translating || !query.trim()}
                 onClick={() => void handleTranslate()}
-                className="sm:hidden px-3.5 py-2.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-extrabold disabled:opacity-45 transition inline-flex items-center gap-2 shadow-sm shrink-0 hover:opacity-95"
+                className="sm:hidden px-3.5 py-2.5 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-extrabold disabled:opacity-45 transition inline-flex items-center justify-center gap-2 shadow-sm shrink-0 hover:opacity-95"
               >
                 {translating ? (
                   <Loader2 className="w-4 h-4 animate-spin shrink-0" />

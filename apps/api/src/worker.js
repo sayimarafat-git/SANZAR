@@ -144,8 +144,12 @@ async function loadUser(env, claims) {
     if (claims.email && claims.email !== u.email) patch.push(['email', claims.email]);
     if (!u.last_seen_at || t - u.last_seen_at > 5 * 60_000) patch.push(['last_seen_at', t]);
     if (patch.length) {
-      await env.DB.prepare(`UPDATE users SET ${patch.map(([k]) => `${k} = ?`).join(', ')} WHERE uid = ?`).bind(...patch.map(([, v]) => v), u.uid).run();
-      for (const [k, v] of patch) u[k] = v;
+      try {
+        await env.DB.prepare(`UPDATE users SET ${patch.map(([k]) => `${k} = ?`).join(', ')} WHERE uid = ?`).bind(...patch.map(([, v]) => v), u.uid).run();
+        for (const [k, v] of patch) u[k] = v;
+      } catch (e) {
+        console.warn('Non-fatal user metadata update failed:', e?.message || e);
+      }
     }
   }
   return u;
@@ -160,9 +164,15 @@ export function requireRole(user, role) {
 export async function rateLimit(env, key, [limit, windowSec]) {
   const t = now();
   const windowStart = Math.floor(t / (windowSec * 1000)) * windowSec * 1000;
-  const row = await env.DB.prepare(`INSERT INTO rate_limits (bucket, window_start, count) VALUES (?, ?, 1)
-    ON CONFLICT(bucket) DO UPDATE SET count = CASE WHEN window_start = excluded.window_start THEN count + 1 ELSE 1 END,
-    window_start = excluded.window_start RETURNING count`).bind(key, windowStart).first();
+  let row;
+  try {
+    row = await env.DB.prepare(`INSERT INTO rate_limits (bucket, window_start, count) VALUES (?, ?, 1)
+      ON CONFLICT(bucket) DO UPDATE SET count = CASE WHEN window_start = excluded.window_start THEN count + 1 ELSE 1 END,
+      window_start = excluded.window_start RETURNING count`).bind(key, windowStart).first();
+  } catch (e) {
+    console.warn('Rate limit write skipped:', e?.message || e);
+    return;
+  }
   if (row && row.count > limit) {
     const retry = Math.ceil((windowStart + windowSec * 1000 - t) / 1000);
     const e = new HttpError(429, 'resource-exhausted', 'Too many requests. Please slow down.');

@@ -42,8 +42,8 @@ export const FirstVisitOnboarding: React.FC<{ onDone: (goTo?: '/login' | '/regis
   const ActiveIcon = slides[step].icon;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="sanzar-card w-full max-w-lg p-6 sm:p-8 shadow-2xl space-y-6 relative">
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
+      <div className="sanzar-card w-full max-w-lg max-h-[92dvh] overflow-y-auto p-5 sm:p-8 shadow-2xl space-y-5 sm:space-y-6 relative">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <BrandMark size={36} />
@@ -74,12 +74,12 @@ export const FirstVisitOnboarding: React.FC<{ onDone: (goTo?: '/login' | '/regis
           </div>
         </div>
 
-        <div className="py-4 text-center space-y-5">
-          <div className="w-28 h-28 mx-auto rounded-3xl bg-hero-grad text-white flex items-center justify-center shadow-lg">
-            <ActiveIcon className="w-12 h-12" />
+        <div className="py-2 sm:py-4 text-center space-y-4 sm:space-y-5">
+          <div className="w-20 h-20 sm:w-28 sm:h-28 mx-auto rounded-3xl bg-hero-grad text-white flex items-center justify-center shadow-lg">
+            <ActiveIcon className="w-9 h-9 sm:w-12 sm:h-12" />
           </div>
           <div className="space-y-2">
-            <h2 className="text-2xl font-extrabold leading-snug">{slides[step].title}</h2>
+            <h2 className="text-xl sm:text-2xl font-extrabold leading-snug">{slides[step].title}</h2>
             <p className="text-sm text-sanzar-text2 leading-relaxed max-w-md mx-auto">{slides[step].body}</p>
           </div>
         </div>
@@ -176,8 +176,8 @@ export const PostLoginOnboarding: React.FC<{ onCompleted: () => void }> = ({ onC
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/55 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="sanzar-card w-full max-w-xl p-6 sm:p-8 shadow-2xl space-y-6">
+    <div className="fixed inset-0 z-50 bg-black/55 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
+      <div className="sanzar-card w-full max-w-xl max-h-[92dvh] overflow-y-auto p-5 sm:p-8 shadow-2xl space-y-5 sm:space-y-6">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <BrandMark size={36} />

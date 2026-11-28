@@ -170,13 +170,13 @@ const ExamsList: React.FC = () => {
             <Link
               key={a.id}
               to={a.status === 'legacy' ? '#' : `/attempts/${a.id}`}
-              className="sanzar-card p-4 flex items-center justify-between gap-4 hover:border-sanzar-primary/50 transition"
+              className="sanzar-card p-3.5 sm:p-4 flex items-center justify-between gap-3 sm:gap-4 hover:border-sanzar-primary/50 transition"
             >
-              <div>
-                <p className="font-bold text-sm">{a.title || a.examId}</p>
+              <div className="min-w-0">
+                <p className="font-bold text-sm truncate">{a.title || a.examId}</p>
                 <p className="text-xs text-sanzar-muted">{timeAgo(t, a.startedAt)}</p>
               </div>
-              <span className="font-extrabold text-base text-sanzar-primary">
+              <span className="font-extrabold text-base text-sanzar-primary shrink-0">
                 {a.total == null ? '—' : t('score', { s: a.score ?? 0, n: a.total })}
               </span>
             </Link>
@@ -306,7 +306,7 @@ const ExamRunner: React.FC<{ examId: string }> = ({ examId }) => {
         ))}
       </div>
 
-      <div className="sanzar-card p-6 space-y-4">
+      <div className="sanzar-card p-4 sm:p-6 space-y-4">
         <p className="font-semibold text-base sm:text-lg leading-relaxed">{q.text}</p>
         <div className="space-y-2.5">
           {q.options.map((opt, i) => {

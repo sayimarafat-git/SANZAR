@@ -168,9 +168,9 @@ export const HomePage: React.FC = () => {
       )}
 
       {/* Hero Gradient Banner */}
-      <section className="bg-hero-grad text-white rounded-3xl p-6 sm:p-8 shadow-md">
+      <section className="bg-hero-grad text-white rounded-3xl p-5 sm:p-8 shadow-md">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               {levelLabel && (
                 <span className="px-3 py-0.5 rounded-full bg-white/15 text-xs font-semibold backdrop-blur">
@@ -206,8 +206,8 @@ export const HomePage: React.FC = () => {
         </div>
       </section>
 
-      {/* Daily Study Goal & Analog Focus Timer (matched to Quick Actions height & 2-col mobile grid) */}
-      <div className={`grid gap-3 sm:gap-4 ${prog ? 'grid-cols-2 items-stretch' : ''}`}>
+      {/* Daily Study Goal & Analog Focus Timer (stacks on narrow phones, 2-col on wide phones/tablet/desktop) */}
+      <div className={`grid gap-3 sm:gap-4 ${prog ? 'grid-cols-1 min-[480px]:grid-cols-2 items-stretch' : ''}`}>
         {prog && (
           <div className="sanzar-card p-3 sm:p-5 sm:min-h-[114px] hover:border-sanzar-primary/50 transition flex flex-col justify-center gap-2.5 min-w-0">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 w-full min-w-0">
@@ -396,7 +396,7 @@ export const HomePage: React.FC = () => {
                   {t('seeAll')}
                 </Link>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-6 gap-4 items-end">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 items-end">
                 {featuredBooks.map((b) => (
                   <Link
                     key={b.id}

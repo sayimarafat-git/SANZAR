@@ -1304,7 +1304,7 @@ export const PptxSlideViewer: React.FC<PptxSlideViewerProps> = ({ url, title }) 
         <iframe
           src={officeUrl}
           title={title || 'Presentation'}
-          className="w-full h-[75vh] border-0"
+          className="w-full h-[68dvh] sm:h-[75dvh] border-0"
           allowFullScreen
         />
       </div>
@@ -1373,7 +1373,7 @@ export const PptxSlideViewer: React.FC<PptxSlideViewerProps> = ({ url, title }) 
   return (
     <div
       ref={containerRef}
-      className={`flex flex-col ${isFullscreen ? 'bg-slate-950 p-4 h-screen justify-between' : 'bg-sanzar-surface'}`}
+      className={`flex flex-col ${isFullscreen ? 'bg-slate-950 p-3 sm:p-4 h-[100dvh] justify-between' : 'bg-sanzar-surface'}`}
     >
       {/* Top Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-2.5 bg-sanzar-surface2 border-b border-sanzar-border text-xs">
@@ -1439,7 +1439,7 @@ export const PptxSlideViewer: React.FC<PptxSlideViewerProps> = ({ url, title }) 
       <div className="p-2 sm:p-4 bg-slate-900/5 dark:bg-slate-950/60 flex items-center justify-center flex-1 overflow-hidden">
         <div
           ref={stageWrapRef}
-          className="w-full max-w-[960px] mx-auto relative shadow-lg rounded-lg overflow-hidden border border-black/10 select-text"
+          className={`w-full ${isFullscreen ? 'max-w-[1280px]' : 'max-w-[960px]'} mx-auto relative shadow-lg rounded-lg overflow-hidden border border-black/10 select-text`}
           style={{
             height: `${Math.round(deck.heightPt * scale)}px`,
             backgroundColor: slide.bgColor || '#ffffff',

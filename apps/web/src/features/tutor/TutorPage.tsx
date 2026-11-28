@@ -64,8 +64,8 @@ export const TutorPage: React.FC = () => {
   };
 
   return (
-    <div className="max-w-3xl mx-auto flex flex-col h-[calc(100vh-11rem)] sanzar-card overflow-hidden">
-      <div className="px-5 py-3.5 border-b border-sanzar-border flex items-center gap-3 bg-sanzar-surface">
+    <div className="max-w-3xl mx-auto flex flex-col h-[calc(100dvh-11.5rem)] md:h-[calc(100dvh-9.5rem)] min-h-[340px] sanzar-card overflow-hidden">
+      <div className="px-4 sm:px-5 py-3 sm:py-3.5 border-b border-sanzar-border flex items-center gap-3 bg-sanzar-surface">
         <BrandMark size={32} />
         <div>
           <h1 className="font-bold text-base flex items-center gap-1.5">

@@ -377,7 +377,7 @@ export const CanvasTracePad: React.FC<Props> = ({ word, lang, defaultCollapsed =
             {/* Writing Pad (Matra Grid for Bangla; 4-Line Ruled Grid for English) */}
             <div
               style={{ width: PAD_SIZE, height: PAD_SIZE }}
-              className="relative mx-auto sm:mx-0 rounded-2xl bg-white dark:bg-black/35 border-2 border-emerald-900/25 dark:border-white/20 shadow-inner overflow-hidden shrink-0 select-none touch-none"
+              className="relative max-w-full mx-auto sm:mx-0 rounded-2xl bg-white dark:bg-black/35 border-2 border-emerald-900/25 dark:border-white/20 shadow-inner overflow-hidden shrink-0 select-none touch-none"
             >
               {/* Guide Lines + Ghost Outline + Animated Stroke Guides */}
               <svg
@@ -478,7 +478,7 @@ export const CanvasTracePad: React.FC<Props> = ({ word, lang, defaultCollapsed =
             </div>
 
             {/* Controls & Accuracy Feedback */}
-            <div className="space-y-3">
+            <div className="space-y-3 min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"

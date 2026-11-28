@@ -1165,7 +1165,7 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
           <video
             src={resUrl}
             controls
-            className="w-full max-h-[72vh] bg-black"
+            className="w-full max-h-[68dvh] sm:max-h-[72dvh] bg-black"
             onPlay={() => setPlayingVideo(true)}
             onPause={() => setPlayingVideo(false)}
             onEnded={() => setPlayingVideo(false)}
@@ -1174,7 +1174,7 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
           <iframe
             src={embed}
             title={resource.title || 'Resource'}
-            className="w-full h-[75vh] border-0"
+            className="w-full h-[68dvh] sm:h-[75dvh] border-0"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             allowFullScreen
           />

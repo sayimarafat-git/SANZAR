@@ -205,17 +205,17 @@ export const ProgressPage: React.FC = () => {
               </div>
 
               {/* Focus Timer */}
-              <div className="sanzar-card p-5 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
+              <div className="sanzar-card p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+                <div className="flex items-center gap-3 min-w-0">
                   <div className="w-11 h-11 rounded-2xl bg-sanzar-primarySoft text-sanzar-primary flex items-center justify-center shrink-0">
                     <Timer className="w-5 h-5" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="font-bold text-sm">{t('focus')}</p>
                     {focusRunning ? (
                       <p className="text-2xl font-black text-sanzar-primary">{mmss(focusLeft)}</p>
                     ) : (
-                      <div className="flex gap-1.5 mt-1">
+                      <div className="flex flex-wrap gap-1.5 mt-1">
                         {[15, 25, 45].map((m) => (
                           <button
                             key={m}
@@ -236,14 +236,14 @@ export const ProgressPage: React.FC = () => {
                 {focusRunning ? (
                   <button
                     onClick={stopFocus}
-                    className="px-4 py-2 rounded-xl border border-sanzar-border text-xs font-bold"
+                    className="w-full sm:w-auto px-4 py-2 rounded-xl border border-sanzar-border text-xs font-bold shrink-0"
                   >
                     {t('focusStop')}
                   </button>
                 ) : (
                   <button
                     onClick={() => startFocus()}
-                    className="px-4 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-bold"
+                    className="w-full sm:w-auto px-4 py-2 rounded-xl bg-sanzar-primary text-sanzar-onPrimary text-xs font-bold shrink-0"
                   >
                     {t('focusStart', { n: focusMins })}
                   </button>
@@ -317,22 +317,22 @@ export const ProgressPage: React.FC = () => {
                   {t('goalOf', { m: todayMin, g: goalMin })}
                 </span>
               </div>
-              <div className="h-40 flex items-end gap-2 sm:gap-4 pt-4">
+              <div className="h-40 flex items-end gap-1.5 sm:gap-4 pt-4">
                 {(() => {
                   const maxSec = Math.max(60, ...p.series.map((d) => d.sec));
                   return p.series.map((d) => {
                     const mins = Math.round(d.sec / 60);
                     const pct = Math.max(4, Math.round((d.sec / maxSec) * 100));
                     return (
-                      <div key={d.day} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
-                        <span className="text-[11px] font-semibold text-sanzar-muted">{mins}m</span>
+                      <div key={d.day} className="flex-1 min-w-0 flex flex-col items-center gap-1.5 h-full justify-end">
+                        <span className="text-[10px] sm:text-[11px] font-semibold text-sanzar-muted">{mins}m</span>
                         <div className="w-full max-w-[44px] flex-1 flex items-end">
                           <div
                             style={{ height: `${pct}%` }}
                             className="w-full rounded-t-lg bg-brand-grad transition-all"
                           />
                         </div>
-                        <span className="text-[11px] font-medium text-sanzar-text2">{d.day.slice(5)}</span>
+                        <span className="text-[10px] sm:text-[11px] font-medium text-sanzar-text2 truncate">{d.day.slice(5)}</span>
                       </div>
                     );
                   });
@@ -352,8 +352,8 @@ export const ProgressPage: React.FC = () => {
                       const col = colorForSubject(s.subjectId);
                       const pct = Math.round((s.sec / maxSub) * 100);
                       return (
-                        <div key={s.subjectId} className="flex items-center gap-3 text-xs">
-                          <span className="w-28 font-semibold truncate">
+                        <div key={s.subjectId} className="flex items-center gap-2.5 sm:gap-3 text-xs">
+                          <span className="w-20 sm:w-28 font-semibold truncate shrink-0">
                             {localizedName(sub, lang, s.subjectId)}
                           </span>
                           <div className="flex-1 h-2.5 rounded-full bg-sanzar-surface2 overflow-hidden">
@@ -362,7 +362,7 @@ export const ProgressPage: React.FC = () => {
                               className="h-full rounded-full"
                             />
                           </div>
-                          <span className="w-16 text-right font-semibold text-sanzar-muted">
+                          <span className="w-14 sm:w-16 text-right font-semibold text-sanzar-muted shrink-0">
                             {t('minutes', { n: Math.round(s.sec / 60) })}
                           </span>
                         </div>

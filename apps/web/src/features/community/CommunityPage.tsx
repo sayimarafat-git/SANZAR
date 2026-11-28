@@ -206,7 +206,7 @@ export const CommunityPage: React.FC = () => {
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {[
             { k: '', label: t('feed') },
             { k: 'general', label: t('general') },
@@ -253,17 +253,17 @@ export const CommunityPage: React.FC = () => {
             .map((p) => {
             const pollTotal = p.poll ? p.poll.options.reduce((a, o) => a + o.votes, 0) : 0;
             return (
-              <article key={p.id} className="sanzar-card p-5 space-y-3">
+              <article key={p.id} className="sanzar-card p-4 sm:p-5 space-y-3">
                 <div className="flex items-center justify-between gap-3">
                   <button
                     onClick={() => !p.mine && setProfileUid(p.authorUid)}
-                    className="flex items-center gap-2.5 text-left group"
+                    className="flex items-center gap-2.5 text-left group min-w-0"
                   >
                     <div className="w-9 h-9 rounded-full bg-sanzar-primarySoft text-sanzar-primary font-bold text-sm flex items-center justify-center shrink-0">
                       {(p.authorName || '?')[0].toUpperCase()}
                     </div>
-                    <div>
-                      <p className="font-bold text-sm group-hover:text-sanzar-primary transition">
+                    <div className="min-w-0">
+                      <p className="font-bold text-sm truncate group-hover:text-sanzar-primary transition">
                         {p.authorName}
                       </p>
                       <p className="text-xs text-sanzar-muted">

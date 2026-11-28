@@ -217,7 +217,7 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ url, title }) 
             <Download className="w-3.5 h-3.5" /> Download PDF
           </a>
         </div>
-        <iframe src={url} title={title || 'PDF'} className="w-full h-[78vh] border-0" />
+        <iframe src={url} title={title || 'PDF'} className="w-full h-[70dvh] sm:h-[78dvh] border-0" />
       </div>
     );
   }
@@ -265,7 +265,7 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ url, title }) 
   return (
     <div
       ref={containerRef}
-      className={`flex flex-col ${isFullscreen ? 'bg-slate-950 h-screen' : 'bg-sanzar-surface'}`}
+      className={`flex flex-col ${isFullscreen ? 'bg-slate-950 h-[100dvh]' : 'bg-sanzar-surface'}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-2.5 bg-sanzar-surface2 border-b border-sanzar-border text-xs">
         <div className="flex items-center gap-1.5">
@@ -338,8 +338,8 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ url, title }) 
 
       <div
         ref={scrollRef}
-        className={`overflow-auto p-4 space-y-4 bg-slate-900/5 dark:bg-slate-950/60 ${
-          isFullscreen ? 'flex-1' : 'max-h-[78vh]'
+        className={`overflow-auto p-2.5 sm:p-4 space-y-4 bg-slate-900/5 dark:bg-slate-950/60 ${
+          isFullscreen ? 'flex-1' : 'max-h-[72dvh] sm:max-h-[78dvh]'
         }`}
       >
         {Array.from({ length: numPages }, (_, i) => i + 1).map((pageNum) => (

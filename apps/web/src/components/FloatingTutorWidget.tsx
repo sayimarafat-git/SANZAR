@@ -82,7 +82,7 @@ export const FloatingTutorWidget: React.FC<FloatingTutorWidgetProps> = ({ open, 
     <section
       role="dialog"
       aria-label={t('tutor')}
-      className="fixed right-4 bottom-24 md:bottom-20 z-50 w-[calc(100vw-2rem)] sm:w-[390px] h-[520px] max-h-[75vh] flex flex-col rounded-[24px] border border-sanzar-border bg-[var(--glass-bg-strong)] backdrop-blur-2xl shadow-2xl overflow-hidden"
+      className="fixed inset-x-3 sm:inset-x-auto sm:right-4 bottom-[5.25rem] md:bottom-20 z-50 sm:w-[390px] lg:w-[420px] h-[min(520px,calc(100dvh-7.5rem))] md:h-[min(560px,calc(100dvh-7rem))] flex flex-col rounded-[22px] sm:rounded-[24px] border border-sanzar-border bg-[var(--glass-bg-strong)] backdrop-blur-2xl shadow-2xl overflow-hidden"
     >
       <div className="px-4 py-3 border-b border-sanzar-border flex items-center justify-between gap-2 sanzar-glass-bar rounded-none border-x-0 border-t-0">
         <div className="flex items-center gap-2.5 min-w-0">

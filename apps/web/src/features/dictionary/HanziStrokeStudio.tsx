@@ -251,7 +251,7 @@ const ChineseHanziStudio: React.FC<Props> = ({
       {/* Canvas + Interactive Controls + Character Meaning */}
       <div className="grid sm:grid-cols-[196px_1fr] gap-4 items-start">
         {/* Mìzìgé (米字格) Rice-Grid Canvas */}
-        <div className="relative w-[176px] h-[176px] mx-auto sm:mx-0 rounded-2xl bg-white dark:bg-black/35 border-2 border-emerald-900/25 dark:border-white/20 shadow-inner overflow-hidden shrink-0 select-none touch-none">
+        <div className="relative w-[176px] h-[176px] max-w-full mx-auto sm:mx-0 rounded-2xl bg-white dark:bg-black/35 border-2 border-emerald-900/25 dark:border-white/20 shadow-inner overflow-hidden shrink-0 select-none touch-none">
           <svg
             aria-hidden="true"
             viewBox="0 0 176 176"
@@ -271,7 +271,7 @@ const ChineseHanziStudio: React.FC<Props> = ({
         </div>
 
         {/* Right Column: Controls + Character Meaning */}
-        <div className="space-y-3">
+        <div className="space-y-3 min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"

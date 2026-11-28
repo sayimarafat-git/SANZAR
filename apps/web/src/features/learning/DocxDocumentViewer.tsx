@@ -431,7 +431,7 @@ export const DocxDocumentViewer: React.FC<DocxDocumentViewerProps> = ({ url, tit
             </a>
           </div>
         </div>
-        <iframe src={officeUrl} title={title || 'Document'} className="w-full h-[78vh] border-0" />
+        <iframe src={officeUrl} title={title || 'Document'} className="w-full h-[70dvh] sm:h-[78dvh] border-0" />
       </div>
     );
   }
@@ -542,7 +542,7 @@ export const DocxDocumentViewer: React.FC<DocxDocumentViewerProps> = ({ url, tit
   return (
     <div
       ref={containerRef}
-      className={`flex flex-col ${isFullscreen ? 'bg-slate-950 h-screen' : 'bg-sanzar-surface'}`}
+      className={`flex flex-col ${isFullscreen ? 'bg-slate-950 h-[100dvh]' : 'bg-sanzar-surface'}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-2.5 bg-sanzar-surface2 border-b border-sanzar-border text-xs">
         <span className="font-bold flex items-center gap-1.5 truncate">
@@ -589,12 +589,12 @@ export const DocxDocumentViewer: React.FC<DocxDocumentViewerProps> = ({ url, tit
       </div>
 
       <div
-        className={`overflow-auto p-4 sm:p-6 bg-slate-900/5 dark:bg-slate-950/60 ${
-          isFullscreen ? 'flex-1' : 'max-h-[78vh]'
+        className={`overflow-auto p-2.5 sm:p-6 bg-slate-900/5 dark:bg-slate-950/60 ${
+          isFullscreen ? 'flex-1' : 'max-h-[72dvh] sm:max-h-[78dvh]'
         }`}
       >
         <div
-          className="max-w-3xl mx-auto bg-white text-slate-900 shadow-md rounded-xl border border-black/10 p-6 sm:p-10 select-text"
+          className="max-w-3xl mx-auto bg-white text-slate-900 shadow-md rounded-xl border border-black/10 p-4 sm:p-8 lg:p-10 select-text"
           style={{ fontSize: `${Math.round(15 * zoom)}px` }}
         >
           {plainText != null ? (
