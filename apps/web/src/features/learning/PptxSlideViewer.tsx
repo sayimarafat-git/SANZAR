@@ -51,6 +51,7 @@ interface SlideElement {
   flipH?: boolean;
   flipV?: boolean;
   src?: string;
+  crop?: [number, number, number, number]; // left, top, right, bottom fractions 0..1
   fill?: string;
   gradient?: string;
   borderColor?: string;
@@ -533,10 +534,91 @@ function mapBoxToPt(raw: EmuBox, parentPt: PtBox, childSpaceEmu: PtBox): PtBox {
   };
 }
 
-function isPlaceholderShape(sp: Element): boolean {
+interface PhDef {
+  box: EmuBox;
+  type: string;
+  idx: string;
+  align?: TextParagraph['align'];
+  vAlign?: SlideElement['vAlign'];
+  defaultFontPt: number;
+}
+
+function getPhKey(sp: Element): { type: string; idx: string } | null {
   const nvSpPr = firstChild(sp, 'nvSpPr');
   const nvPr = nvSpPr ? firstChild(nvSpPr, 'nvPr') : null;
-  return Boolean(nvPr && firstChild(nvPr, 'ph'));
+  const ph = nvPr ? firstChild(nvPr, 'ph') : null;
+  if (!ph) return null;
+  return {
+    type: ph.getAttribute('type') || '',
+    idx: ph.getAttribute('idx') || '',
+  };
+}
+
+function isPlaceholderShape(sp: Element): boolean {
+  return getPhKey(sp) !== null;
+}
+
+function extractPlaceholders(doc: Document | null): PhDef[] {
+  if (!doc) return [];
+  const out: PhDef[] = [];
+  const spTree = firstDescendant(doc.documentElement, 'spTree');
+  if (!spTree) return out;
+  for (const sp of directChildren(spTree, 'sp')) {
+    const pk = getPhKey(sp);
+    if (!pk) continue;
+    const spPr = firstChild(sp, 'spPr');
+    const box = parseXfrm(spPr ? firstChild(spPr, 'xfrm') : null);
+    if (!box) continue;
+    const txBody = firstChild(sp, 'txBody');
+    const bodyPr = txBody ? firstChild(txBody, 'bodyPr') : null;
+    const anchor = bodyPr?.getAttribute('anchor');
+    const vAlign: SlideElement['vAlign'] = anchor === 'ctr' ? 'center' : anchor === 'b' ? 'bottom' : 'top';
+    const p0 = txBody ? firstChild(txBody, 'p') : null;
+    const algn = p0 ? firstChild(p0, 'pPr')?.getAttribute('algn') : null;
+    const align: TextParagraph['align'] =
+      algn === 'ctr' ? 'center' : algn === 'r' ? 'right' : algn === 'just' ? 'justify' : pk.type === 'ctrTitle' ? 'center' : undefined;
+    const isTitle = pk.type === 'title' || pk.type === 'ctrTitle';
+    out.push({
+      box,
+      type: pk.type,
+      idx: pk.idx,
+      align,
+      vAlign,
+      defaultFontPt: isTitle ? 32 : pk.type === 'subTitle' ? 22 : 20,
+    });
+  }
+  return out;
+}
+
+function matchPlaceholder(pk: { type: string; idx: string } | null, layoutPhs: PhDef[], masterPhs: PhDef[]): PhDef | null {
+  if (!pk) return null;
+  for (const list of [layoutPhs, masterPhs]) {
+    if (pk.type && pk.idx) {
+      const m = list.find((p) => p.type === pk.type && p.idx === pk.idx);
+      if (m) return m;
+    }
+    if (pk.idx) {
+      const m = list.find((p) => p.idx === pk.idx);
+      if (m) return m;
+    }
+    if (pk.type) {
+      const m = list.find((p) => p.type === pk.type || (pk.type === 'body' && p.type === 'obj'));
+      if (m) return m;
+    }
+  }
+  return null;
+}
+
+function parseCropRect(container: Element): [number, number, number, number] | undefined {
+  const srcRect = firstDescendant(container, 'srcRect');
+  if (!srcRect) return undefined;
+  const l = Math.max(0, Math.min(0.9, Number(srcRect.getAttribute('l') || 0) / 100000));
+  const t = Math.max(0, Math.min(0.9, Number(srcRect.getAttribute('t') || 0) / 100000));
+  const r = Math.max(0, Math.min(0.9, Number(srcRect.getAttribute('r') || 0) / 100000));
+  const b = Math.max(0, Math.min(0.9, Number(srcRect.getAttribute('b') || 0) / 100000));
+  if (l === 0 && t === 0 && r === 0 && b === 0) return undefined;
+  if (l + r >= 0.98 || t + b >= 0.98) return undefined;
+  return [l, t, r, b];
 }
 
 function resolveBlipRelId(container: Element): string | null {
@@ -672,6 +754,8 @@ async function parsePptxBuffer(buffer: ArrayBuffer): Promise<ParsedDeck> {
     parentPt: PtBox,
     childSpaceEmu: PtBox,
     skipPlaceholders: boolean,
+    layoutPhs: PhDef[],
+    masterPhs: PhDef[],
     out: SlideElement[]
   ) {
     for (const node of directChildren(container)) {
@@ -679,7 +763,7 @@ async function parsePptxBuffer(buffer: ArrayBuffer): Promise<ParsedDeck> {
       if (localName(node) === 'AlternateContent') {
         const choice = firstChild(node, 'Choice') || firstChild(node, 'Fallback');
         if (choice) {
-          await walkShapes(choice, rels, theme, parentPt, childSpaceEmu, skipPlaceholders, out);
+          await walkShapes(choice, rels, theme, parentPt, childSpaceEmu, skipPlaceholders, layoutPhs, masterPhs, out);
         }
         continue;
       }
@@ -700,18 +784,20 @@ async function parsePptxBuffer(buffer: ArrayBuffer): Promise<ParsedDeck> {
             w: Number(chExt?.getAttribute('cx') || raw.w) || raw.w,
             h: Number(chExt?.getAttribute('cy') || raw.h) || raw.h,
           };
-          await walkShapes(node, rels, theme, nextParentPt, nextChildEmu, skipPlaceholders, out);
+          await walkShapes(node, rels, theme, nextParentPt, nextChildEmu, skipPlaceholders, layoutPhs, masterPhs, out);
         } else {
-          await walkShapes(node, rels, theme, parentPt, childSpaceEmu, skipPlaceholders, out);
+          await walkShapes(node, rels, theme, parentPt, childSpaceEmu, skipPlaceholders, layoutPhs, masterPhs, out);
         }
         continue;
       }
 
       if (ln === 'pic') {
-        if (skipPlaceholders && isPlaceholderShape(node)) continue;
+        const pk = getPhKey(node);
+        if (skipPlaceholders && pk) continue;
         const spPr = firstChild(node, 'spPr');
         const xfrm = spPr ? firstChild(spPr, 'xfrm') : null;
-        const raw = parseXfrm(xfrm);
+        const inherited = !xfrm ? matchPlaceholder(pk, layoutPhs, masterPhs) : null;
+        const raw = parseXfrm(xfrm) || inherited?.box || null;
         const rId = resolveBlipRelId(node);
         if (raw && rId && rels[rId]) {
           const pt = mapBoxToPt(raw, parentPt, childSpaceEmu);
@@ -726,6 +812,7 @@ async function parsePptxBuffer(buffer: ArrayBuffer): Promise<ParsedDeck> {
               flipH: raw.flipH,
               flipV: raw.flipV,
               src,
+              crop: parseCropRect(node),
             });
           }
         }
@@ -765,8 +852,8 @@ async function parsePptxBuffer(buffer: ArrayBuffer): Promise<ParsedDeck> {
       }
 
       if (ln === 'sp') {
-        const isPh = isPlaceholderShape(node);
-        if (skipPlaceholders && isPh) continue;
+        const pk = getPhKey(node);
+        if (skipPlaceholders && pk) continue;
 
         const nvSpPr = firstChild(node, 'nvSpPr');
         const cNvSpPr = nvSpPr ? firstChild(nvSpPr, 'cNvSpPr') : null;
@@ -774,7 +861,8 @@ async function parsePptxBuffer(buffer: ArrayBuffer): Promise<ParsedDeck> {
 
         const spPr = firstChild(node, 'spPr');
         const xfrm = spPr ? firstChild(spPr, 'xfrm') : null;
-        const raw = parseXfrm(xfrm, true);
+        const inheritedPh = matchPlaceholder(pk, layoutPhs, masterPhs);
+        const raw = parseXfrm(xfrm, true) || inheritedPh?.box || null;
 
         const styleNode = firstChild(node, 'style');
         const fillRef = styleNode ? firstChild(styleNode, 'fillRef') : null;
@@ -836,15 +924,32 @@ async function parsePptxBuffer(buffer: ArrayBuffer): Promise<ParsedDeck> {
 
         const txBody = firstChild(node, 'txBody');
         const bodyPr = txBody ? firstChild(txBody, 'bodyPr') : null;
-        const paragraphs = txBody
-          ? parseParagraphs(txBody, theme, styleFontColor || (fill && !isTxBox ? '#ffffff' : undefined))
+        const rawParagraphs = txBody
+          ? parseParagraphs(
+              txBody,
+              theme,
+              styleFontColor || (fill && !isTxBox ? '#ffffff' : undefined),
+              inheritedPh?.defaultFontPt || 18
+            )
           : [];
+        const paragraphs = inheritedPh?.align
+          ? rawParagraphs.map((p) => (p.align ? p : { ...p, align: inheritedPh.align }))
+          : rawParagraphs;
         const hasVisibleText = paragraphs.some((p) => p.runs.some((r) => r.text.length > 0));
 
-        if (!raw) continue;
+        // Fallback box if slide has unpositioned placeholder not found in layout/master
+        const resolvedRaw: EmuBox | null =
+          raw ||
+          (hasVisibleText && pk
+            ? pk.type === 'title' || pk.type === 'ctrTitle'
+              ? { x: slideCx * 0.07, y: slideCy * 0.08, w: slideCx * 0.86, h: slideCy * 0.18 }
+              : { x: slideCx * 0.07, y: slideCy * 0.28, w: slideCx * 0.86, h: slideCy * 0.62 }
+            : null);
+
+        if (!resolvedRaw) continue;
         if (!hasVisibleText && !fill && !gradient && !borderColor && !shapeImgSrc) continue;
 
-        const pt = mapBoxToPt(raw, parentPt, childSpaceEmu);
+        const pt = mapBoxToPt(resolvedRaw, parentPt, childSpaceEmu);
 
         let borderRadiusPx: string | undefined;
         if (prst === 'ellipse') {
@@ -859,7 +964,8 @@ async function parsePptxBuffer(buffer: ArrayBuffer): Promise<ParsedDeck> {
         }
 
         const anchor = bodyPr?.getAttribute('anchor');
-        const vAlign: SlideElement['vAlign'] = anchor === 'ctr' ? 'center' : anchor === 'b' ? 'bottom' : 'top';
+        const vAlign: SlideElement['vAlign'] =
+          anchor === 'ctr' ? 'center' : anchor === 'b' ? 'bottom' : inheritedPh?.vAlign || 'top';
         const wrapAttr = bodyPr?.getAttribute('wrap');
         const wrap = wrapAttr !== 'none';
 
@@ -881,9 +987,9 @@ async function parsePptxBuffer(buffer: ArrayBuffer): Promise<ParsedDeck> {
         out.push({
           kind: 'shape',
           ...pt,
-          rot: raw.rot,
-          flipH: raw.flipH,
-          flipV: raw.flipV,
+          rot: resolvedRaw.rot,
+          flipH: resolvedRaw.flipH,
+          flipV: resolvedRaw.flipV,
           src: shapeImgSrc,
           fill,
           gradient,
@@ -969,22 +1075,25 @@ async function parsePptxBuffer(buffer: ArrayBuffer): Promise<ParsedDeck> {
       (layoutDoc ? await extractBg(layoutDoc, layoutRels, theme) : null) ||
       (masterDoc ? await extractBg(masterDoc, masterRels, theme) : null);
 
+    const layoutPhs = extractPlaceholders(layoutDoc);
+    const masterPhs = extractPlaceholders(masterDoc);
+
     const elements: SlideElement[] = [];
     const slideShowMaster = sDoc.documentElement.getAttribute('showMasterSp') !== '0';
     const layoutShowMaster = layoutDoc?.documentElement.getAttribute('showMasterSp') !== '0';
 
     if (slideShowMaster && layoutShowMaster && masterDoc) {
       const mSpTree = firstDescendant(masterDoc.documentElement, 'spTree');
-      if (mSpTree) await walkShapes(mSpTree, masterRels, theme, rootPt, rootEmu, true, elements);
+      if (mSpTree) await walkShapes(mSpTree, masterRels, theme, rootPt, rootEmu, true, [], [], elements);
     }
     if (slideShowMaster && layoutDoc) {
       const lSpTree = firstDescendant(layoutDoc.documentElement, 'spTree');
-      if (lSpTree) await walkShapes(lSpTree, layoutRels, theme, rootPt, rootEmu, true, elements);
+      if (lSpTree) await walkShapes(lSpTree, layoutRels, theme, rootPt, rootEmu, true, [], [], elements);
     }
 
     const slideStartIdx = elements.length;
     const sSpTree = firstDescendant(sDoc.documentElement, 'spTree');
-    if (sSpTree) await walkShapes(sSpTree, sRels, theme, rootPt, rootEmu, false, elements);
+    if (sSpTree) await walkShapes(sSpTree, sRels, theme, rootPt, rootEmu, false, layoutPhs, masterPhs, elements);
 
     const slideOwnText = elements
       .slice(slideStartIdx)
@@ -1372,6 +1481,31 @@ export const PptxSlideViewer: React.FC<PptxSlideViewerProps> = ({ url, title }) 
               };
 
               if (el.kind === 'image' && el.src) {
+                if (el.crop) {
+                  const [cl, ct, cr, cb] = el.crop;
+                  const visW = Math.max(0.05, 1 - cl - cr);
+                  const visH = Math.max(0.05, 1 - ct - cb);
+                  return (
+                    <div key={idx} style={{ ...baseStyle, overflow: 'hidden' }}>
+                      <img
+                        src={el.src}
+                        alt=""
+                        style={{
+                          position: 'absolute',
+                          width: `${(100 / visW).toFixed(2)}%`,
+                          height: `${(100 / visH).toFixed(2)}%`,
+                          left: `${((-cl / visW) * 100).toFixed(2)}%`,
+                          top: `${((-ct / visH) * 100).toFixed(2)}%`,
+                          maxWidth: 'none',
+                        }}
+                        draggable={false}
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    </div>
+                  );
+                }
                 return (
                   <img
                     key={idx}

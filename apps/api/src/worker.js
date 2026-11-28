@@ -424,6 +424,13 @@ function cors(env, req) {
 const RELEASE_MIME = {
   pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   ppt: 'application/vnd.ms-powerpoint',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  doc: 'application/msword',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  xls: 'application/vnd.ms-excel',
+  csv: 'text/csv; charset=utf-8',
+  txt: 'text/plain; charset=utf-8',
+  md: 'text/markdown; charset=utf-8',
   pdf: 'application/pdf',
   mp3: 'audio/mpeg',
   m4a: 'audio/mp4',

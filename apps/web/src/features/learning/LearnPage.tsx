@@ -29,6 +29,21 @@ import type { ProgressData, Resource } from '../../lib/models';
 import { BookCover, ErrorRetry, LoadingState, useToast } from '../../components/SanzarUI';
 
 const PptxSlideViewer = React.lazy(() => import('./PptxSlideViewer'));
+const PdfCanvasViewer = React.lazy(() => import('./PdfCanvasViewer'));
+const DocxDocumentViewer = React.lazy(() => import('./DocxDocumentViewer'));
+
+function detectViewerKind(resource: Resource): 'ppt' | 'pdf' | 'doc' | null {
+  const url = resource.url || '';
+  if (!url || /docs\.google\.com|drive\.google\.com/i.test(url)) return null;
+  const pathPart = url.split('?')[0].toLowerCase();
+  if (/\.(pptx|ppt)$/.test(pathPart)) return 'ppt';
+  if (/\.pdf$/.test(pathPart)) return 'pdf';
+  if (/\.(docx|doc|txt|md|csv)$/.test(pathPart)) return 'doc';
+  if (resource.type === 'ppt') return 'ppt';
+  if (resource.type === 'pdf') return 'pdf';
+  if (resource.type === 'doc') return 'doc';
+  return null;
+}
 
 function embeddedUrlFor(resource: Resource): string | null {
   const url = resource.url;
@@ -327,21 +342,29 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
     const iconForRes = (type: string) => {
       if (type === 'video') return PlayCircle;
       if (type === 'audio') return Volume2;
-      if (type === 'pdf') return FileText;
+      if (type === 'pdf' || type === 'doc') return FileText;
       if (type === 'ppt') return Presentation;
       return LinkIcon;
     };
 
     const audioResources = ch.resources.filter((r) => r.type === 'audio' && r.url);
     const otherResources = ch.resources.filter((r) => r.type !== 'audio');
-    const primaryPpt = otherResources.find(
-      (r) => r.type === 'ppt' && r.url && !/docs\.google\.com|drive\.google\.com/i.test(r.url)
-    );
+    const primaryInlineDoc = otherResources.find((r) => detectViewerKind(r) !== null);
+    const primaryViewerKind = primaryInlineDoc ? detectViewerKind(primaryInlineDoc) : null;
     const hasMaterials = ch.resources.length > 0;
 
+    const materialTabLabel =
+      primaryViewerKind === 'ppt'
+        ? 'Slides'
+        : primaryViewerKind === 'pdf'
+          ? 'PDF'
+          : primaryViewerKind === 'doc'
+            ? 'Document'
+            : t('resources');
+
     const tabs: { id: 'materials' | 'notes' | 'qa' | 'quiz'; label: string; count?: number; icon: React.ComponentType<{ className?: string }> }[] = [
-      ...(hasMaterials ? [{ id: 'materials' as const, label: primaryPpt ? 'Slides' : t('resources'), count: ch.resources.length, icon: Presentation }] : []),
-      { id: 'notes', label: t('notes'), count: notes.length || undefined, icon: BookOpen },
+      ...(hasMaterials ? [{ id: 'materials' as const, label: materialTabLabel, count: ch.resources.length, icon: primaryViewerKind === 'ppt' ? Presentation : FileText }] : []),
+      ...(notes.length > 0 || !hasMaterials ? [{ id: 'notes' as const, label: t('notes'), count: notes.length || undefined, icon: BookOpen }] : []),
       { id: 'qa', label: 'Q&A', count: qaItems.length || undefined, icon: MessageCircleQuestion },
       { id: 'quiz', label: t('chapterQuiz'), count: quiz?.question_count || ch.questionCount || undefined, icon: HelpCircle },
     ];
@@ -439,22 +462,26 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
         {/* TAB 1: SLIDES & MATERIALS */}
         {activeTab === 'materials' && (
           <div className="space-y-5">
-            {primaryPpt && primaryPpt.url && (
+            {primaryInlineDoc && primaryInlineDoc.url && primaryViewerKind && (
               <div className="sanzar-card overflow-hidden">
                 <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-sanzar-border bg-sanzar-surface2/60">
                   <span className="font-bold text-xs sm:text-sm flex items-center gap-2 truncate">
-                    <Presentation className="w-4 h-4 text-sanzar-primary shrink-0" />
-                    <span className="truncate">{primaryPpt.title || 'Presentation Slides'}</span>
+                    {primaryViewerKind === 'ppt' ? (
+                      <Presentation className="w-4 h-4 text-sanzar-primary shrink-0" />
+                    ) : (
+                      <FileText className="w-4 h-4 text-sanzar-primary shrink-0" />
+                    )}
+                    <span className="truncate">{primaryInlineDoc.title || materialTabLabel}</span>
                   </span>
                   <div className="flex items-center gap-2 shrink-0">
-                    {completedSet.has(primaryPpt.id) ? (
+                    {completedSet.has(primaryInlineDoc.id) ? (
                       <span className="inline-flex items-center gap-1 text-xs font-bold text-sanzar-success">
                         <CheckCircle2 className="w-3.5 h-3.5" /> {t('done')}
                       </span>
                     ) : (
                       <button
                         type="button"
-                        onClick={() => markComplete(primaryPpt.id)}
+                        onClick={() => markComplete(primaryInlineDoc.id)}
                         disabled={busyComplete}
                         className="px-2.5 py-1 rounded-lg bg-sanzar-primary text-sanzar-onPrimary text-xs font-bold hover:opacity-95 disabled:opacity-50"
                       >
@@ -464,7 +491,13 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
                   </div>
                 </div>
                 <Suspense fallback={<LoadingState />}>
-                  <PptxSlideViewer url={primaryPpt.url} title={primaryPpt.title || ch.title} />
+                  {primaryViewerKind === 'ppt' ? (
+                    <PptxSlideViewer url={primaryInlineDoc.url} title={primaryInlineDoc.title || ch.title} />
+                  ) : primaryViewerKind === 'pdf' ? (
+                    <PdfCanvasViewer url={primaryInlineDoc.url} title={primaryInlineDoc.title || ch.title} />
+                  ) : (
+                    <DocxDocumentViewer url={primaryInlineDoc.url} title={primaryInlineDoc.title || ch.title} />
+                  )}
                 </Suspense>
               </div>
             )}
@@ -519,14 +552,14 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
               </section>
             )}
 
-            {otherResources.filter((r) => r.id !== primaryPpt?.id).length > 0 && (
+            {otherResources.filter((r) => r.id !== primaryInlineDoc?.id).length > 0 && (
               <section className="space-y-2.5">
                 <h2 className="text-sm font-bold uppercase tracking-wider text-sanzar-muted">
                   Additional Materials
                 </h2>
                 <div className="grid sm:grid-cols-2 gap-3">
                   {otherResources
-                    .filter((r) => r.id !== primaryPpt?.id)
+                    .filter((r) => r.id !== primaryInlineDoc?.id)
                     .map((r) => {
                       const Icon = iconForRes(r.type);
                       const rDone = completedSet.has(r.id);
@@ -829,9 +862,17 @@ export const LearnPage: React.FC<{ mode: 'book' | 'chapter' | 'resource' | 'root
               />
             )}
           </div>
-        ) : resource.type === 'ppt' && !/docs\.google\.com|drive\.google\.com/i.test(resUrl) ? (
+        ) : detectViewerKind(resource) === 'ppt' ? (
           <Suspense fallback={<LoadingState />}>
             <PptxSlideViewer url={resUrl} title={resource.title || 'Presentation'} />
+          </Suspense>
+        ) : detectViewerKind(resource) === 'pdf' ? (
+          <Suspense fallback={<LoadingState />}>
+            <PdfCanvasViewer url={resUrl} title={resource.title || 'PDF Document'} />
+          </Suspense>
+        ) : detectViewerKind(resource) === 'doc' ? (
+          <Suspense fallback={<LoadingState />}>
+            <DocxDocumentViewer url={resUrl} title={resource.title || 'Document'} />
           </Suspense>
         ) : resource.type === 'video' && !embed ? (
           <video

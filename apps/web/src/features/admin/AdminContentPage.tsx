@@ -1845,10 +1845,11 @@ const ResourceForm: React.FC<{ chapterId: string; book?: AdminBook; res: AdminRe
         <label className="space-y-1">
           <span>Type</span>
           <select value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })} className="sanzar-input text-sm">
-            <option value="pdf">PDF</option>
+            <option value="pdf">PDF (.pdf)</option>
+            <option value="ppt">Presentation (.pptx, .ppt, Slides)</option>
+            <option value="doc">Document (.docx, .doc, .txt, .md)</option>
             <option value="video">Video</option>
             <option value="audio">Audio (MP3 / Drive)</option>
-            <option value="ppt">Slides</option>
             <option value="link">Link</option>
           </select>
         </label>
@@ -1870,7 +1871,22 @@ const ResourceForm: React.FC<{ chapterId: string; book?: AdminBook; res: AdminRe
           Link (https://){' '}
           {f.type !== 'link' && <small className="font-normal text-sanzar-muted">(optional)</small>}
         </span>
-        <input value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} placeholder="https://" className="sanzar-input text-sm" />
+        <input
+          value={f.url}
+          onChange={(e) => {
+            const nextUrl = e.target.value;
+            const pathPart = nextUrl.split('?')[0].toLowerCase();
+            let autoType = f.type;
+            if (/\.(pptx|ppt)$/.test(pathPart)) autoType = 'ppt';
+            else if (/\.pdf$/.test(pathPart)) autoType = 'pdf';
+            else if (/\.(docx|doc|txt|md|csv|rtf)$/.test(pathPart)) autoType = 'doc';
+            else if (/\.(mp3|m4a|wav|ogg)$/.test(pathPart)) autoType = 'audio';
+            else if (/\.(mp4|webm|mov)$/.test(pathPart)) autoType = 'video';
+            setF({ ...f, url: nextUrl, type: autoType });
+          }}
+          placeholder="https://"
+          className="sanzar-input text-sm"
+        />
       </label>
       <ThumbnailField value={f.thumbnail_url} onChange={(val) => setF({ ...f, thumbnail_url: val })} />
       {(f.type === 'pdf' || f.type === 'ppt') && book && (

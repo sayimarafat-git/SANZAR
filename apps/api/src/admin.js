@@ -13,7 +13,7 @@ import { stripPinyinTones, toDbLang } from './dictionary.js';
 
 const STATUS = new Set(['draft', 'published', 'archived']);
 const LEVEL_IDS = new Set(['zh', 'en']);
-const RES_TYPES = new Set(['video', 'audio', 'pdf', 'ppt', 'link']);
+const RES_TYPES = new Set(['video', 'audio', 'pdf', 'ppt', 'doc', 'link']);
 const DICT_LANGS = new Set(['zh', 'en']);
 const MAX_PREVIEW_BYTES = 15 * 1024 * 1024;
 const slug = (v, field) => {
@@ -265,7 +265,7 @@ async function putResource(env, ctx, id, i) {
   slug(id, 'Resource');
   const chapterId = slug(i.chapter_id, 'Chapter');
   if (!(await env.DB.prepare('SELECT 1 FROM chapters WHERE id = ?').bind(chapterId).first())) throw new HttpError(400, 'invalid-argument', 'Unknown chapter');
-  if (!RES_TYPES.has(i.type)) throw new HttpError(400, 'invalid-argument', 'Type must be video, audio, pdf, ppt or link');
+  if (!RES_TYPES.has(i.type)) throw new HttpError(400, 'invalid-argument', 'Type must be video, audio, pdf, ppt, doc or link');
   const rawUrl = typeof i.url === 'string' ? i.url.trim() : '';
   if (i.type === 'link' && !rawUrl) throw new HttpError(400, 'invalid-argument', 'Link is required when type is link');
   const url = rawUrl ? httpsUrl(rawUrl) : null;

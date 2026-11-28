@@ -53,7 +53,7 @@ export interface Subject {
 
 export interface Resource {
   id: string;
-  type: 'pdf' | 'video' | 'audio' | 'ppt' | 'link' | string;
+  type: 'pdf' | 'video' | 'audio' | 'ppt' | 'doc' | 'link' | string;
   title: string;
   url: string | null;
   pages?: number;
